@@ -31,11 +31,24 @@ mock.module('telegraf', () => {
 const mockInsert = mock(() => ({
   values: mock(() => Promise.resolve()),
 }));
+const mockLimit = mock(() => Promise.resolve([]));
+const mockWhere = mock(() => ({
+  limit: mockLimit,
+}));
+const mockFrom = mock(() => ({
+  where: mockWhere,
+}));
+const mockSelect = mock(() => ({
+  from: mockFrom,
+}));
 mock.module('../src/db/index', () => ({
   db: {
     insert: mockInsert,
+    select: mockSelect,
   },
-  files: {},
+  files: {
+    telegramFileUniqueId: 'telegram_file_unique_id',
+  },
 }));
 
 // Mock forwardToStorage
@@ -60,6 +73,8 @@ describe('Telegram Bot Handler', () => {
     mockOn.mockClear();
     mockUse.mockClear();
     mockInsert.mockClear();
+    mockLimit.mockClear();
+    mockLimit.mockResolvedValue([]);
     mockForwardToStorage.mockClear();
     infoSpy.mockClear();
     errorSpy.mockClear();
@@ -72,7 +87,7 @@ describe('Telegram Bot Handler', () => {
     expect(bot).toBeDefined();
     expect(mockCommand).toHaveBeenCalledWith('start', expect.any(Function));
     expect(mockOn).toHaveBeenCalledWith(
-      ['document', 'photo', 'video', 'audio', 'voice', 'animation'],
+      ['document', 'photo', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'],
       expect.any(Function),
     );
     expect(mockUse).toHaveBeenCalled();
@@ -152,6 +167,108 @@ describe('Telegram Bot Handler', () => {
     await fileHandler(ctx);
     expect(mockForwardToStorage).not.toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(expect.stringContaining('exceeds'));
+  });
+
+  it('should return existing download link for duplicates without uploading again', async () => {
+    const { startBot } = await import('../src/bot');
+    await startBot();
+
+    const fileHandler = mockOn.mock.calls[0][1];
+    const replyMock = mock(() => Promise.resolve());
+
+    // Mock DB to return an existing match
+    mockLimit.mockResolvedValueOnce([
+      {
+        publicId: 'already_exists_abc',
+        telegramFileId: 'stored_file_id',
+        telegramFileUniqueId: 'doc_uniq_123',
+      },
+    ]);
+
+    const ctx = {
+      message: {
+        message_id: 42,
+        document: {
+          file_id: 'doc_123',
+          file_unique_id: 'doc_uniq_123',
+          file_size: 1024,
+          mime_type: 'application/pdf',
+          file_name: 'cv.pdf',
+        },
+      },
+      from: {
+        id: 999,
+      },
+      reply: replyMock,
+    };
+
+    await fileHandler(ctx);
+    expect(mockForwardToStorage).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.stringContaining('already_exists_abc'),
+      expect.any(Object),
+    );
+  });
+
+  it('should process sticker uploads', async () => {
+    const { startBot } = await import('../src/bot');
+    await startBot();
+
+    const fileHandler = mockOn.mock.calls[0][1];
+    const replyMock = mock(() => Promise.resolve());
+    const ctx = {
+      message: {
+        message_id: 43,
+        sticker: {
+          file_id: 'sticker_123',
+          file_unique_id: 'sticker_uniq_123',
+          file_size: 1024,
+        },
+      },
+      from: {
+        id: 999,
+      },
+      reply: replyMock,
+    };
+
+    await fileHandler(ctx);
+    expect(mockForwardToStorage).toHaveBeenCalledWith('sticker_123', 'file');
+    expect(mockInsert).toHaveBeenCalled();
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.stringContaining('File berhasil diupload'),
+      expect.any(Object),
+    );
+  });
+
+  it('should process video note uploads', async () => {
+    const { startBot } = await import('../src/bot');
+    await startBot();
+
+    const fileHandler = mockOn.mock.calls[0][1];
+    const replyMock = mock(() => Promise.resolve());
+    const ctx = {
+      message: {
+        message_id: 44,
+        video_note: {
+          file_id: 'video_note_123',
+          file_unique_id: 'video_note_uniq_123',
+          file_size: 1024,
+        },
+      },
+      from: {
+        id: 999,
+      },
+      reply: replyMock,
+    };
+
+    await fileHandler(ctx);
+    expect(mockForwardToStorage).toHaveBeenCalledWith('video_note_123', 'file');
+    expect(mockInsert).toHaveBeenCalled();
+    expect(replyMock).toHaveBeenCalledWith(
+      expect.stringContaining('File berhasil diupload'),
+      expect.any(Object),
+    );
   });
 
   afterAll(() => {

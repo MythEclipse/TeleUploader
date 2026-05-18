@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { type Context, Telegraf } from 'telegraf';
 import { db, files as fileSchema } from './db';
@@ -18,11 +19,18 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
 
     // Cast bot.on elements individually or explicitly as any to bypass Telegraf v4 typescript deprecation warnings on array syntax
     (bot as any).on(
-      ['document', 'photo', 'video', 'audio', 'voice', 'animation'],
+      ['document', 'photo', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'],
       async (ctx: any) => {
         try {
-          const fileType: 'document' | 'photo' | 'video' | 'audio' | 'voice' | 'animation' = ctx
-            .message.document
+          const fileType:
+            | 'document'
+            | 'photo'
+            | 'video'
+            | 'audio'
+            | 'voice'
+            | 'animation'
+            | 'sticker'
+            | 'video_note' = ctx.message.document
             ? 'document'
             : ctx.message.photo
               ? 'photo'
@@ -32,10 +40,20 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
                   ? 'audio'
                   : ctx.message.voice
                     ? 'voice'
-                    : 'animation';
+                    : ctx.message.animation
+                      ? 'animation'
+                      : ctx.message.sticker
+                        ? 'sticker'
+                        : ctx.message.video_note
+                          ? 'video_note'
+                          : 'document';
 
           const fileObj =
-            fileType === 'photo' ? ctx.message.photo.slice(-1)[0] : ctx.message[fileType];
+            fileType === 'photo'
+              ? ctx.message.photo.slice(-1)[0]
+              : fileType === 'sticker'
+                ? ctx.message.sticker
+                : ctx.message[fileType];
           const { file_id, file_size, mime_type } = fileObj;
           const fileName =
             ctx.message.document?.file_name ||
@@ -56,6 +74,26 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
 
           if (file_size > maxSize) {
             return ctx.reply(`File size exceeds ${maxSize / (1024 * 1024)}MB limit`);
+          }
+
+          const existing = await db
+            .select()
+            .from(fileSchema)
+            .where(eq(fileSchema.telegramFileUniqueId, fileObj.file_unique_id))
+            .limit(1);
+
+          if (existing && existing.length > 0) {
+            const url = `${config.baseUrl}/f/${existing[0].publicId}`;
+            await ctx.reply(`File berhasil diupload! 📎\n\nDownload: ${url}`, {
+              reply_parameters: { message_id: ctx.message.message_id },
+            });
+            logger.info('Duplicate file detected in bot, returned existing link', {
+              publicId: existing[0].publicId,
+              fileType,
+              fileName,
+              uploader: ctx.from.id,
+            });
+            return;
           }
 
           const result = await forwardToStorage(file_id, fileName);
