@@ -286,9 +286,9 @@ Expected: Secret successfully set.
 - [ ] **Step 3: Configure environment secrets**
 Run:
 ```bash
-gh secret set BOT_TOKEN --body "8605908810:AAFpUzlIBktfd_7wpEj7zMJob2CFxvG-ZGY"
-gh secret set STORAGE_CHANNEL_ID --body "-1003996572954"
-gh secret set BASE_URL --body "https://upload.asepharyana.tech"
-gh secret set DATABASE_URL --body "postgresql://neondb_owner:npg_2ziHMPwZCet9@ep-long-glitter-ao3sjoyu-pooler.c-2.ap-southeast-1.aws.neon.tech/dcbot?sslmode=verify-full&channel_binding=require&connect_timeout=10"
+gh secret set BOT_TOKEN --body "YOUR_TELEGRAM_BOT_TOKEN"
+gh secret set STORAGE_CHANNEL_ID --body "-1001234567890"
+gh secret set BASE_URL --body "https://upload.yourdomain.com"
+gh secret set DATABASE_URL --body "postgresql://user:password@host/dbname?sslmode=require"
 ```
 Expected: All secrets successfully set in repository.

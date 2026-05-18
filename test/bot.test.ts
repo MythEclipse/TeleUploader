@@ -3,9 +3,9 @@ import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:tes
 import logger from '../src/utils/logger';
 
 // Mock environment
-process.env.BOT_TOKEN = '8605908810:AAFpUzlIBktfd_7wpEj7zMJob2CFxvG-ZGY';
-process.env.STORAGE_CHANNEL_ID = '-1003996572954';
-process.env.BASE_URL = 'https://tele.asepharyana.tech';
+process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ';
+process.env.STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID || '-1001234567890';
+process.env.BASE_URL = process.env.BASE_URL || 'https://tele.asepharyana.tech';
 
 // Mock Telegraf
 const mockLaunch = mock(() => Promise.resolve());
