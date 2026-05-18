@@ -5,6 +5,24 @@ import logger from './logger';
 const bot = new Telegraf(config.botToken);
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
 
+const withRetry = async <T>(fn: () => Promise<T>, retries = 5): Promise<T> => {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const errorStr = error.message || String(error);
+    const match = errorStr.match(/retry after (\d+)/i);
+    if (match && retries > 0) {
+      const seconds = parseInt(match[1], 10);
+      logger.warn(`Telegram 429 Too Many Requests detected. Retrying after ${seconds} seconds...`, {
+        error: errorStr,
+      });
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      return withRetry(fn, retries - 1);
+    }
+    throw error;
+  }
+};
+
 interface ForwardResult {
   telegramFileId: string;
   telegramFileUniqueId: string;
@@ -27,31 +45,31 @@ export const forwardToStorage = async (
     let result: any;
 
     if (fileType === 'photo') {
-      result = await bot.telegram.sendPhoto(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendPhoto(config.storageChatId, filePayload, {
         caption: fileName,
-      });
+      }));
     } else if (fileType === 'audio') {
-      result = await bot.telegram.sendAudio(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendAudio(config.storageChatId, filePayload, {
         caption: fileName,
-      });
+      }));
     } else if (fileType === 'video') {
-      result = await bot.telegram.sendVideo(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendVideo(config.storageChatId, filePayload, {
         caption: fileName,
-      });
+      }));
     } else if (fileType === 'voice') {
-      result = await bot.telegram.sendVoice(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendVoice(config.storageChatId, filePayload, {
         caption: fileName,
-      });
+      }));
     } else if (fileType === 'animation') {
-      result = await bot.telegram.sendAnimation(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendAnimation(config.storageChatId, filePayload, {
         caption: fileName,
-      });
+      }));
     } else if (fileType === 'sticker') {
-      result = await bot.telegram.sendSticker(config.storageChatId, filePayload);
+      result = await withRetry(() => bot.telegram.sendSticker(config.storageChatId, filePayload));
     } else {
-      result = await bot.telegram.sendDocument(config.storageChatId, filePayload, {
+      result = await withRetry(() => bot.telegram.sendDocument(config.storageChatId, filePayload, {
         caption: `📁 ${fileName}`,
-      });
+      }));
     }
 
     let uploadedFile: any;

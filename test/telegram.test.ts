@@ -115,6 +115,36 @@ describe('Telegram API Utilities', () => {
         error: 'Telegram send failed',
       });
     });
+
+    it('should retry when telegram returns 429 Too Many Requests', async () => {
+      const bot = getBot();
+      let calls = 0;
+      bot.telegram.sendPhoto = mock(() => {
+        calls++;
+        if (calls === 1) {
+          return Promise.reject(new Error('429: Too Many Requests: retry after 1'));
+        }
+        return Promise.resolve({
+          message_id: 999,
+          photo: [{ file_id: 'retry_photo_id', file_unique_id: 'retry_unique_id' }],
+        });
+      });
+
+      const chunk = Buffer.from('fake photo data');
+      const fileName = 'test_photo.jpg';
+
+      const startTime = Date.now();
+      const result = await forwardToStorage(chunk, fileName, 'photo');
+      const duration = Date.now() - startTime;
+
+      expect(calls).toBe(2);
+      expect(duration).toBeGreaterThanOrEqual(1000);
+      expect(result).toEqual({
+        telegramFileId: 'retry_photo_id',
+        telegramFileUniqueId: 'retry_unique_id',
+        storageMessageId: 999,
+      });
+    });
   });
 
   describe('getFileInfo', () => {

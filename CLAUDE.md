@@ -18,10 +18,12 @@ Default to using Bun instead of Node.js.
 - `WebSocket` is built-in. Don't use `ws`.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
+- Rate limiter lokal dinonaktifkan (`checkRateLimit` di `src/utils/rateLimit.ts` selalu mengembalikan `true`).
+- Telegram API memiliki auto-retry otomatis jika mengembalikan error 429 (Too Many Requests) menggunakan helper `withRetry` di `src/utils/telegram.ts`.
 
 ## Testing
 
-Use `bun test` to run tests.
+Use `bun test` to run tests. Jalankan tes secara spesifik (misal `bun test test/rateLimit.test.ts`) untuk menghindari polusi mock antar berkas tes ketika dijalankan bersamaan.
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
