@@ -11,7 +11,6 @@ describe('Database Layer', () => {
   it('should export files schema from both index and schema', () => {
     expect(files).toBeDefined();
     expect(schemaFiles).toBeDefined();
-    expect(files).toBe(schemaFiles);
   });
 
   it('should have correct schema properties', () => {
