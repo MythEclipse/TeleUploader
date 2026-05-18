@@ -132,7 +132,7 @@ describe('Telegram Bot Handler', () => {
     };
 
     await fileHandler(ctx);
-    expect(mockForwardToStorage).toHaveBeenCalledWith('doc_123', 'cv.pdf');
+    expect(mockForwardToStorage).toHaveBeenCalledWith('doc_123', 'cv.pdf', 'document');
     expect(mockInsert).toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(
       expect.stringContaining('File berhasil diupload'),
@@ -233,7 +233,7 @@ describe('Telegram Bot Handler', () => {
     };
 
     await fileHandler(ctx);
-    expect(mockForwardToStorage).toHaveBeenCalledWith('sticker_123', 'file');
+    expect(mockForwardToStorage).toHaveBeenCalledWith('sticker_123', 'file', 'sticker');
     expect(mockInsert).toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(
       expect.stringContaining('File berhasil diupload'),
@@ -263,7 +263,7 @@ describe('Telegram Bot Handler', () => {
     };
 
     await fileHandler(ctx);
-    expect(mockForwardToStorage).toHaveBeenCalledWith('video_note_123', 'file');
+    expect(mockForwardToStorage).toHaveBeenCalledWith('video_note_123', 'file', 'video_note');
     expect(mockInsert).toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(
       expect.stringContaining('File berhasil diupload'),

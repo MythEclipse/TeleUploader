@@ -20,15 +20,50 @@ interface TelegramFileInfo {
 export const forwardToStorage = async (
   fileChunk: any,
   fileName: string,
-  forceDocument = false,
+  fileType: string,
 ): Promise<ForwardResult> => {
   try {
-    const caption = forceDocument ? `📁 ${fileName}` : fileName;
     const filePayload = { source: fileChunk, filename: fileName };
-    const result: any = forceDocument
-      ? await bot.telegram.sendDocument(config.storageChatId, filePayload, { caption })
-      : await bot.telegram.sendPhoto(config.storageChatId, filePayload, { caption });
-    const uploadedFile = forceDocument ? result.document : result.photo?.slice(-1)[0];
+    let result: any;
+
+    if (fileType === 'photo') {
+      result = await bot.telegram.sendPhoto(config.storageChatId, filePayload, {
+        caption: fileName,
+      });
+    } else if (fileType === 'audio') {
+      result = await bot.telegram.sendAudio(config.storageChatId, filePayload, {
+        caption: fileName,
+      });
+    } else if (fileType === 'video') {
+      result = await bot.telegram.sendVideo(config.storageChatId, filePayload, {
+        caption: fileName,
+      });
+    } else if (fileType === 'voice') {
+      result = await bot.telegram.sendVoice(config.storageChatId, filePayload, {
+        caption: fileName,
+      });
+    } else if (fileType === 'animation') {
+      result = await bot.telegram.sendAnimation(config.storageChatId, filePayload, {
+        caption: fileName,
+      });
+    } else if (fileType === 'sticker') {
+      result = await bot.telegram.sendSticker(config.storageChatId, filePayload);
+    } else {
+      result = await bot.telegram.sendDocument(config.storageChatId, filePayload, {
+        caption: `📁 ${fileName}`,
+      });
+    }
+
+    let uploadedFile: any;
+    if (result.document) uploadedFile = result.document;
+    else if (result.photo) uploadedFile = result.photo?.slice(-1)[0];
+    else if (result.video) uploadedFile = result.video;
+    else if (result.audio) uploadedFile = result.audio;
+    else if (result.voice) uploadedFile = result.voice;
+    else if (result.animation) uploadedFile = result.animation;
+    else if (result.sticker) uploadedFile = result.sticker;
+    else if (result.video_note) uploadedFile = result.video_note;
+    else uploadedFile = result[fileType];
 
     logger.info('File forwarded to storage', { fileName, message: result.message_id });
 

@@ -88,11 +88,7 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const isDocument =
-      finalFileName.endsWith('.pdf') ||
-      finalFileName.endsWith('.txt') ||
-      !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
-    const result = await forwardToStorage(fileBuffer, finalFileName, isDocument);
+    const result = await forwardToStorage(fileBuffer, finalFileName, fileType);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
@@ -199,11 +195,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const isDocument =
-      finalFileName.endsWith('.pdf') ||
-      finalFileName.endsWith('.txt') ||
-      !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
-    const result = await forwardToStorage(fileBytes, finalFileName, isDocument);
+    const result = await forwardToStorage(fileBytes, finalFileName, fileType);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 

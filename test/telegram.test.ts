@@ -68,7 +68,7 @@ describe('Telegram API Utilities', () => {
     it('should forward photo to storage chat and return file details', async () => {
       const chunk = Buffer.from('fake photo data');
       const fileName = 'test_photo.jpg';
-      const result = await forwardToStorage(chunk, fileName, false);
+      const result = await forwardToStorage(chunk, fileName, 'photo');
 
       expect(result).toEqual({
         telegramFileId: 'photo_id_high',
@@ -86,7 +86,7 @@ describe('Telegram API Utilities', () => {
       const chunk = Buffer.from('fake document data');
       const fileName = 'document.pdf';
 
-      const result = await forwardToStorage(chunk, fileName, true);
+      const result = await forwardToStorage(chunk, fileName, 'document');
 
       expect(bot.telegram.sendDocument).toHaveBeenCalledWith(
         config.storageChatId,
@@ -107,7 +107,7 @@ describe('Telegram API Utilities', () => {
       const chunk = Buffer.from('fake photo data');
       const fileName = 'test_photo.jpg';
 
-      await expect(forwardToStorage(chunk, fileName, false)).rejects.toThrow(
+      await expect(forwardToStorage(chunk, fileName, 'photo')).rejects.toThrow(
         'Telegram send failed',
       );
       expect(errorSpy).toHaveBeenCalledWith('Failed to forward file to storage', {

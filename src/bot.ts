@@ -96,7 +96,7 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
             return;
           }
 
-          const result = await forwardToStorage(file_id, fileName);
+          const result = await forwardToStorage(file_id, fileName, fileType);
           const publicId = nanoid();
 
           const uploaded = {
