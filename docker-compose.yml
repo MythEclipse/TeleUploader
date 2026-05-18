@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    image: ghcr.io/mytheclipse/teleuploader:latest
+    container_name: teleuploader-app
+    restart: always
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - STORAGE_CHANNEL_ID=${STORAGE_CHANNEL_ID}
+      - BASE_URL=${BASE_URL}
+      - DATABASE_URL=${DATABASE_URL}
+      - PORT=3000
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+    networks:
+      - app-shared-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.tech`)"
+      - "traefik.http.routers.teleuploader.entrypoints=websecure"
+      - "traefik.http.routers.teleuploader.tls=true"
+      - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"
+      - "traefik.http.services.teleuploader.loadbalancer.server.port=3000"
+
+networks:
+  app-shared-net:
+    name: app-shared-net
+    external: true
