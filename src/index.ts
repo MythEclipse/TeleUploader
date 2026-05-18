@@ -1,28 +1,28 @@
 import { serve } from 'bun';
-import logger from './utils/logger';
-import { config } from './env';
 import { startBot } from './bot';
-import { handleUpload } from './routes/upload';
-import { handleFileRedirect, handleFileInfo } from './routes/files';
+import { config } from './env';
+import { handleFileInfo, handleFileRedirect } from './routes/files';
 import { handleHealth } from './routes/health';
+import { handleUpload } from './routes/upload';
+import logger from './utils/logger';
 import { cleanupRateLimitCache } from './utils/rateLimit';
 
 const server = serve({
   port: config.port,
   routes: {
     '/api/upload': {
-      POST: handleUpload
+      POST: handleUpload,
     },
     '/f/:public_id': {
-      GET: handleFileRedirect
+      GET: handleFileRedirect,
     },
     '/file/:public_id/info': {
-      GET: handleFileInfo
+      GET: handleFileInfo,
     },
     '/health': {
-      GET: handleHealth
-    }
-  }
+      GET: handleHealth,
+    },
+  },
 });
 
 const bot = await startBot();

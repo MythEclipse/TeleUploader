@@ -1,6 +1,6 @@
-import logger from '../utils/logger';
-import { db } from '../db';
 import { sql } from 'drizzle-orm';
+import { db } from '../db';
+import logger from '../utils/logger';
 
 export const handleHealth = async (_req: Request): Promise<Response> => {
   try {

@@ -1,9 +1,9 @@
-import logger from '../utils/logger';
-import { db, files as fileSchema } from '../db';
 import { nanoid } from 'nanoid';
-import { forwardToStorage, getBot } from '../utils/telegram';
-import { getFileType, checkFileSize, extractMimeType } from '../utils/file';
+import { db, files as fileSchema } from '../db';
 import { config } from '../env';
+import { checkFileSize, extractMimeType, getFileType } from '../utils/file';
+import logger from '../utils/logger';
+import { forwardToStorage, getBot } from '../utils/telegram';
 
 export const handleUpload = async (req: Request): Promise<Response> => {
   try {
@@ -17,7 +17,7 @@ export const handleUpload = async (req: Request): Promise<Response> => {
 
     return Response.json(
       { error: 'Unsupported content type. Use multipart/form-data or application/json' },
-      { status: 400 }
+      { status: 400 },
     );
   } catch (error: any) {
     logger.error('Upload error', { error: error.message });
@@ -29,7 +29,8 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
   try {
     const formData = await req.formData();
     const file = formData.get('file');
-    const fileName = (formData.get('fileName') as string) || (file instanceof File ? file.name : null) || 'file';
+    const fileName =
+      (formData.get('fileName') as string) || (file instanceof File ? file.name : null) || 'file';
 
     if (!file || !(file instanceof File)) {
       return Response.json({ error: 'No file provided' }, { status: 400 });
@@ -44,7 +45,10 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const isDocument = fileName.endsWith('.pdf') || fileName.endsWith('.txt') || !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
+    const isDocument =
+      fileName.endsWith('.pdf') ||
+      fileName.endsWith('.txt') ||
+      !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
     const result = await forwardToStorage(fileBuffer, fileName, isDocument);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
@@ -61,7 +65,7 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       fileType: fileType,
       uploaderId: 0,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
 
     await db.insert(fileSchema).values(uploaded);
@@ -78,7 +82,7 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       file_type: uploaded.fileType,
       uploader_id: uploaded.uploaderId,
       created_at: uploaded.createdAt.toISOString(),
-      download_url: `${config.baseUrl}/f/${uploaded.publicId}`
+      download_url: `${config.baseUrl}/f/${uploaded.publicId}`,
     };
 
     return Response.json(responsePayload, { status: 200 });
@@ -95,19 +99,25 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
     if (!file || typeof file !== 'string') {
       return Response.json(
         { error: 'Invalid JSON. Must include "file" (base64) and optional "fileName"' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const fileBytes = Buffer.from(file, 'base64');
     const mimeType = 'application/octet-stream';
-    const fileType = getFileType(mimeType, fileName) === 'application' ? 'document' : getFileType(mimeType, fileName);
+    const fileType =
+      getFileType(mimeType, fileName) === 'application'
+        ? 'document'
+        : getFileType(mimeType, fileName);
 
     if (!checkFileSize(fileBytes.byteLength, fileType)) {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const isDocument = fileName.endsWith('.pdf') || fileName.endsWith('.txt') || !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
+    const isDocument =
+      fileName.endsWith('.pdf') ||
+      fileName.endsWith('.txt') ||
+      !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
     const result = await forwardToStorage(fileBytes, fileName, isDocument);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
@@ -124,7 +134,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       fileType: fileType,
       uploaderId: 0,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
 
     await db.insert(fileSchema).values(uploaded);
@@ -141,7 +151,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       file_type: uploaded.fileType,
       uploader_id: uploaded.uploaderId,
       created_at: uploaded.createdAt.toISOString(),
-      download_url: `${config.baseUrl}/f/${uploaded.publicId}`
+      download_url: `${config.baseUrl}/f/${uploaded.publicId}`,
     };
 
     return Response.json(responsePayload, { status: 200 });

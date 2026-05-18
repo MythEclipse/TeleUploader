@@ -1,17 +1,17 @@
 // @ts-nocheck
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { checkRateLimit, cleanupRateLimitCache } from "../src/utils/rateLimit";
-import logger from "../src/utils/logger";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import logger from '../src/utils/logger';
+import { checkRateLimit, cleanupRateLimitCache } from '../src/utils/rateLimit';
 
 // Spy on logger.warn
-const warnSpy = spyOn(logger, "warn");
+const warnSpy = spyOn(logger, 'warn');
 
-describe("Rate Limiter", () => {
+describe('Rate Limiter', () => {
   beforeEach(() => {
     warnSpy.mockClear();
     // Set custom env variables for predictable tests
-    process.env.RATE_LIMIT_WINDOW_MS = "100"; // 100ms window
-    process.env.RATE_LIMIT_MAX_REQUESTS = "3"; // max 3 requests
+    process.env.RATE_LIMIT_WINDOW_MS = '100'; // 100ms window
+    process.env.RATE_LIMIT_MAX_REQUESTS = '3'; // max 3 requests
   });
 
   afterEach(() => {
@@ -19,16 +19,16 @@ describe("Rate Limiter", () => {
     delete process.env.RATE_LIMIT_MAX_REQUESTS;
   });
 
-  it("should allow requests under the limit", () => {
-    const key = "user-1";
+  it('should allow requests under the limit', () => {
+    const key = 'user-1';
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("should block requests exceeding the limit and log a warning", () => {
-    const key = "user-2";
+  it('should block requests exceeding the limit and log a warning', () => {
+    const key = 'user-2';
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
@@ -37,12 +37,12 @@ describe("Rate Limiter", () => {
     expect(checkRateLimit(key)).toBe(false);
     expect(warnSpy).toHaveBeenCalled();
     const callArgs = warnSpy.mock.calls[0];
-    expect(callArgs[0]).toBe("Rate limit exceeded");
+    expect(callArgs[0]).toBe('Rate limit exceeded');
     expect(callArgs[1].key).toBe(key);
   });
 
-  it("should reset request count after the window passes", async () => {
-    const key = "user-3";
+  it('should reset request count after the window passes', async () => {
+    const key = 'user-3';
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
     expect(checkRateLimit(key)).toBe(true);
@@ -55,9 +55,9 @@ describe("Rate Limiter", () => {
     expect(checkRateLimit(key)).toBe(true);
   });
 
-  it("should cleanup rate limit cache of expired keys", async () => {
-    const key1 = "cleanup-1";
-    const key2 = "cleanup-2";
+  it('should cleanup rate limit cache of expired keys', async () => {
+    const key1 = 'cleanup-1';
+    const key2 = 'cleanup-2';
 
     // Populate keys
     expect(checkRateLimit(key1)).toBe(true);

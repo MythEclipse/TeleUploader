@@ -1,5 +1,5 @@
-import { pgTable, text, bigint, timestamp, uuid } from 'drizzle-orm/pg-core';
-import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
+import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
+import { bigint, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const files = pgTable('files', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -14,7 +14,7 @@ export const files = pgTable('files', {
   fileType: text('file_type').notNull(),
   uploaderId: bigint('uploader_id', { mode: 'number' }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull()
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 export type File = InferSelectModel<typeof files>;

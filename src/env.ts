@@ -17,7 +17,7 @@ const requiredEnv = {
   STORAGE_CHANNEL_ID: process.env.STORAGE_CHANNEL_ID,
   BASE_URL: process.env.BASE_URL,
   DATABASE_URL: process.env.DATABASE_URL,
-  PORT: process.env.PORT
+  PORT: process.env.PORT,
 };
 
 const missing = Object.entries(requiredEnv)
@@ -38,7 +38,9 @@ export const config: AppConfig = {
   nodeEnv: process.env.NODE_ENV || 'development',
   logLevel: process.env.LOG_LEVEL || 'info',
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS!, 10) || 60000,
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS!, 10) || 30
+  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS!, 10) || 30,
 };
 
-logger.info('Environment variables loaded', { config: { ...config, botToken: config.botToken?.substring(0, 10) + '...' } });
+logger.info('Environment variables loaded', {
+  config: { ...config, botToken: `${config.botToken?.substring(0, 10)}...` },
+});

@@ -1,43 +1,45 @@
 // @ts-nocheck
-import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const mockServe = mock((options) => {
   return {
     port: options.port,
     routes: options.routes,
-    stop: mock()
+    stop: mock(),
   };
 });
 
 const originalServe = Bun.serve;
 Bun.serve = mockServe;
 
-const mockStartBot = mock(() => Promise.resolve({
-  stop: mock()
+const mockStartBot = mock(() =>
+  Promise.resolve({
+    stop: mock(),
+  }),
+);
+
+mock.module('../src/bot', () => ({
+  startBot: mockStartBot,
 }));
 
-mock.module("../src/bot", () => ({
-  startBot: mockStartBot
+mock.module('../src/routes/upload', () => ({
+  handleUpload: mock(),
 }));
 
-mock.module("../src/routes/upload", () => ({
-  handleUpload: mock()
-}));
-
-mock.module("../src/routes/files", () => ({
+mock.module('../src/routes/files', () => ({
   handleFileRedirect: mock(),
-  handleFileInfo: mock()
+  handleFileInfo: mock(),
 }));
 
-mock.module("../src/routes/health", () => ({
-  handleHealth: mock()
+mock.module('../src/routes/health', () => ({
+  handleHealth: mock(),
 }));
 
-mock.module("../src/utils/rateLimit", () => ({
-  cleanupRateLimitCache: mock()
+mock.module('../src/utils/rateLimit', () => ({
+  cleanupRateLimitCache: mock(),
 }));
 
-describe("Bootstrap Server", () => {
+describe('Bootstrap Server', () => {
   beforeEach(() => {
     mockServe.mockClear();
     mockStartBot.mockClear();
@@ -47,18 +49,18 @@ describe("Bootstrap Server", () => {
     Bun.serve = originalServe;
   });
 
-  it("should bootstrap the application successfully", async () => {
-    await import("../src/index");
+  it('should bootstrap the application successfully', async () => {
+    await import('../src/index');
 
     expect(mockServe).toHaveBeenCalled();
     expect(mockStartBot).toHaveBeenCalled();
 
     const serveCallArgs = mockServe.mock.calls[0][0];
-    expect(serveCallArgs).toHaveProperty("port");
-    expect(serveCallArgs).toHaveProperty("routes");
-    expect(serveCallArgs.routes).toHaveProperty("/api/upload");
-    expect(serveCallArgs.routes).toHaveProperty("/f/:public_id");
-    expect(serveCallArgs.routes).toHaveProperty("/file/:public_id/info");
-    expect(serveCallArgs.routes).toHaveProperty("/health");
+    expect(serveCallArgs).toHaveProperty('port');
+    expect(serveCallArgs).toHaveProperty('routes');
+    expect(serveCallArgs.routes).toHaveProperty('/api/upload');
+    expect(serveCallArgs.routes).toHaveProperty('/f/:public_id');
+    expect(serveCallArgs.routes).toHaveProperty('/file/:public_id/info');
+    expect(serveCallArgs.routes).toHaveProperty('/health');
   });
 });

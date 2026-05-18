@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
-import logger from './logger';
 import { config } from '../env';
+import logger from './logger';
 
 const bot = new Telegraf(config.botToken);
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
@@ -20,11 +20,13 @@ interface TelegramFileInfo {
 export const forwardToStorage = async (
   fileChunk: any,
   fileName: string,
-  forceDocument = false
+  forceDocument = false,
 ): Promise<ForwardResult> => {
   try {
     const caption = forceDocument ? `📁 ${fileName}` : fileName;
-    const input: any = forceDocument ? { document: fileChunk, caption } : { photo: [fileChunk], caption };
+    const input: any = forceDocument
+      ? { document: fileChunk, caption }
+      : { photo: [fileChunk], caption };
 
     const result = await bot.telegram.sendPhoto(config.storageChatId, input);
 
@@ -33,7 +35,7 @@ export const forwardToStorage = async (
     return {
       telegramFileId: result.photo?.slice(-1)[0]?.file_id || '',
       telegramFileUniqueId: result.photo?.slice(-1)[0]?.file_unique_id || '',
-      storageMessageId: result.message_id
+      storageMessageId: result.message_id,
     };
   } catch (error: any) {
     logger.error('Failed to forward file to storage', { fileName, error: error.message });
@@ -43,7 +45,7 @@ export const forwardToStorage = async (
 
 export const getFileInfo = async (
   telegramFileId: string,
-  telegramFileUniqueId: string
+  telegramFileUniqueId: string,
 ): Promise<TelegramFileInfo> => {
   try {
     const result = await fetch(`${TELEGRAM_API_URL}getFile`);
@@ -57,7 +59,7 @@ export const getFileInfo = async (
     const fileResult = await fetch(`${TELEGRAM_API_URL}getInfo`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: fileId })
+      body: JSON.stringify({ file_id: fileId }),
     });
     const fileInfo: any = await fileResult.json();
 
@@ -68,7 +70,7 @@ export const getFileInfo = async (
     return {
       file_size: fileInfo.result.file_size,
       mime_type: fileInfo.result.mime_type,
-      file_path: fileInfo.result.file_path
+      file_path: fileInfo.result.file_path,
     };
   } catch (error: any) {
     logger.error('Failed to get file info', { error: error.message });

@@ -1,7 +1,7 @@
-import logger from '../utils/logger';
-import { db, files as fileSchema } from '../db';
-import { checkRateLimit } from '../utils/rateLimit';
 import { eq } from 'drizzle-orm';
+import { db, files as fileSchema } from '../db';
+import logger from '../utils/logger';
+import { checkRateLimit } from '../utils/rateLimit';
 
 type RequestWithParams = Request & {
   params?: {
@@ -18,7 +18,11 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
       return Response.json({ error: 'Rate limit exceeded' }, { status: 429 });
     }
 
-    const result = await db.select().from(fileSchema).where(eq(fileSchema.publicId, public_id)).limit(1);
+    const result = await db
+      .select()
+      .from(fileSchema)
+      .where(eq(fileSchema.publicId, public_id))
+      .limit(1);
 
     if (!result.length) {
       logger.warn('File not found', { public_id });
@@ -34,8 +38,8 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': redirectUrl
-      }
+        Location: redirectUrl,
+      },
     });
   } catch (error: any) {
     logger.error('File redirect error', { public_id, error: error.message });
@@ -50,7 +54,11 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
       return Response.json({ error: 'Missing file id' }, { status: 400 });
     }
 
-    const result = await db.select().from(fileSchema).where(eq(fileSchema.publicId, public_id)).limit(1);
+    const result = await db
+      .select()
+      .from(fileSchema)
+      .where(eq(fileSchema.publicId, public_id))
+      .limit(1);
 
     if (!result.length) {
       logger.warn('File not found', { public_id });
@@ -58,15 +66,21 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
     }
 
     const file = result[0];
-    return Response.json({
-      public_id: file.publicId,
-      file_name: file.fileName,
-      mime_type: file.mimeType,
-      size_bytes: file.sizeBytes,
-      file_type: file.fileType,
-      uploader_id: file.uploaderId,
-      created_at: typeof file.createdAt === 'string' ? file.createdAt : (file.createdAt as Date).toISOString()
-    }, { status: 200 });
+    return Response.json(
+      {
+        public_id: file.publicId,
+        file_name: file.fileName,
+        mime_type: file.mimeType,
+        size_bytes: file.sizeBytes,
+        file_type: file.fileType,
+        uploader_id: file.uploaderId,
+        created_at:
+          typeof file.createdAt === 'string'
+            ? file.createdAt
+            : (file.createdAt as Date).toISOString(),
+      },
+      { status: 200 },
+    );
   } catch (error: any) {
     logger.error('File info error', { public_id, error: error.message });
     return Response.json({ error: 'Server error' }, { status: 500 });

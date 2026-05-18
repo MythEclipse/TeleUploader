@@ -4,7 +4,7 @@ const FILE_TYPES: Record<string, number> = {
   video: 2 * 1024 * 1024 * 1024, // 2GB
   audio: 200 * 1024 * 1024, // 200MB
   voice: 200 * 1024 * 1024, // 200MB
-  animation: 2 * 1024 * 1024 * 1024 // 2GB
+  animation: 2 * 1024 * 1024 * 1024, // 2GB
 };
 
 export const getFileType = (mime: string | null, caption?: string): string => {
@@ -30,14 +30,26 @@ export const extractFileName = (msg: any, request: any): string => {
   if (request?.headers?.['x-file-name']) {
     return request.headers['x-file-name'];
   }
-  return msg.document?.fileName || msg.photo?.slice(-1)[0]?.fileName || msg.audio?.fileName ||
-         msg.voice?.fileName || msg.animation?.fileName || 'file';
+  return (
+    msg.document?.fileName ||
+    msg.photo?.slice(-1)[0]?.fileName ||
+    msg.audio?.fileName ||
+    msg.voice?.fileName ||
+    msg.animation?.fileName ||
+    'file'
+  );
 };
 
 export const extractMimeType = (msg: any, request: any): string => {
   if (request?.headers?.['x-mime-type']) {
     return request.headers['x-mime-type'];
   }
-  return msg.document?.mimeType || msg.photo?.slice(-1)[0]?.mimeType || msg.audio?.mimeType ||
-         msg.voice?.mimeType || msg.animation?.mimeType || 'application/octet-stream';
+  return (
+    msg.document?.mimeType ||
+    msg.photo?.slice(-1)[0]?.mimeType ||
+    msg.audio?.mimeType ||
+    msg.voice?.mimeType ||
+    msg.animation?.mimeType ||
+    'application/octet-stream'
+  );
 };

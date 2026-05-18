@@ -1,20 +1,20 @@
 // @ts-nocheck
-import { describe, it, expect } from "bun:test";
-import { db, files } from "../src/db/index";
-import { files as schemaFiles } from "../src/db/schema";
+import { describe, expect, it } from 'bun:test';
+import { db, files } from '../src/db/index';
+import { files as schemaFiles } from '../src/db/schema';
 
-describe("Database Layer", () => {
-  it("should export db instance", () => {
+describe('Database Layer', () => {
+  it('should export db instance', () => {
     expect(db).toBeDefined();
   });
 
-  it("should export files schema from both index and schema", () => {
+  it('should export files schema from both index and schema', () => {
     expect(files).toBeDefined();
     expect(schemaFiles).toBeDefined();
     expect(files).toBe(schemaFiles);
   });
 
-  it("should have correct schema properties", () => {
+  it('should have correct schema properties', () => {
     expect(files.id).toBeDefined();
     expect(files.publicId).toBeDefined();
     expect(files.telegramFileId).toBeDefined();
