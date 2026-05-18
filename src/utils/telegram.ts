@@ -130,6 +130,79 @@ export const forwardToStorage = async (
   }
 };
 
+export interface MediaGroupItem {
+  fileId: string;
+  fileName: string;
+  fileType: string;
+}
+
+export const forwardMediaGroupToStorage = async (
+  items: MediaGroupItem[],
+): Promise<{
+  storageMessageId: number;
+  telegramFileIds: string[];
+  telegramFileUniqueIds: string[];
+}> => {
+  try {
+    const result: any = await enqueueUpload(async () => {
+      const mediaGroup: any = items.map((item) => {
+        let type: 'photo' | 'video' | 'audio' | 'document' = 'document';
+        if (item.fileType === 'photo') type = 'photo';
+        else if (item.fileType === 'video') type = 'video';
+        else if (item.fileType === 'audio') type = 'audio';
+
+        return {
+          type,
+          media: item.fileId,
+          caption: item.fileName,
+        };
+      });
+
+      const uploadResult = await executeWithBotRetry((activeBot) => {
+        return activeBot.telegram.sendMediaGroup(config.storageChatId, mediaGroup);
+      });
+
+      currentBotIndex = (currentBotIndex + 1) % bots.length;
+
+      return uploadResult;
+    });
+
+    const messages = Array.isArray(result) ? result : [result];
+    const storageMessageId = messages[0]?.message_id || 0;
+
+    const telegramFileIds: string[] = [];
+    const telegramFileUniqueIds: string[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const fileType = items[i]?.fileType || 'document';
+      let uploadedFile: any;
+
+      if (msg.document) uploadedFile = msg.document;
+      else if (msg.photo) uploadedFile = msg.photo?.slice(-1)[0];
+      else if (msg.video) uploadedFile = msg.video;
+      else if (msg.audio) uploadedFile = msg.audio;
+      else if (msg.voice) uploadedFile = msg.voice;
+      else if (msg.animation) uploadedFile = msg.animation;
+      else if (msg.sticker) uploadedFile = msg.sticker;
+      else if (msg.video_note) uploadedFile = msg.video_note;
+      else uploadedFile = msg[fileType];
+
+      telegramFileIds.push(uploadedFile?.file_id || '');
+      telegramFileUniqueIds.push(uploadedFile?.file_unique_id || '');
+    }
+
+    return {
+      storageMessageId,
+      telegramFileIds,
+      telegramFileUniqueIds,
+    };
+  } catch (error: any) {
+    logger.error('Failed to forward media group to storage', { error: error.message });
+    throw error;
+  }
+};
+
 export const getFileInfo = async (
   telegramFileId: string,
   telegramFileUniqueId: string,

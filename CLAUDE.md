@@ -23,6 +23,7 @@ Default to using Bun instead of Node.js.
 - Multi-bot dikonfigurasi melalui `ADDITIONAL_BOT_TOKENS` (koma terpisah) di `.env` yang digabung dengan `BOT_TOKEN` utama (total 4 bot).
 - Menggunakan mekanisme rotasi instan jika ada bot yang terkena rate limit 429 sebelum memutuskan untuk sleep.
 - Pengiriman berkas ke Telegram dikontrol oleh antrian in-memory (`TelegramQueue` di `src/utils/telegramQueue.ts`) dengan batas konkurensi = 2 untuk mencegah rate limit berlebih.
+- Mendukung pengiriman batch upload (Media Group) di `src/bot.ts` dengan membungkus berkas yang memiliki `media_group_id` yang sama menggunakan debounce timer 600ms, lalu mengunggahnya secara sekaligus via `forwardMediaGroupToStorage` di `src/utils/telegram.ts`.
 
 ## Testing
 
