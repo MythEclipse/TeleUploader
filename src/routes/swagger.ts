@@ -1,3 +1,5 @@
+import { config } from '../env';
+
 const errorSchema = (example: string) => ({
   type: 'object',
   properties: {
@@ -117,7 +119,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
                   },
                   download_url: {
                     type: 'string',
-                    example: 'https://tele.asepharyana.tech/f/xYz123',
+                    example: `${config.baseUrl}/f/xYz123`,
                   },
                 },
               }),
@@ -269,6 +271,8 @@ export const handleSwaggerHtml = async (): Promise<Response> => {
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
+      'access-control-allow-origin': '*',
+      'x-content-type-options': 'nosniff',
     },
   });
 };
