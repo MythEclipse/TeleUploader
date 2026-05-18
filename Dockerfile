@@ -1,5 +1,5 @@
 # Stage 1: Builder
-FROM oven/bun:1.1-alpine AS builder
+FROM oven/bun:alpine AS builder
 
 WORKDIR /usr/src/app
 
@@ -16,7 +16,7 @@ RUN bun run lint
 RUN bun run build
 
 # Stage 2: Runner
-FROM oven/bun:1.1-slim AS runner
+FROM oven/bun:slim AS runner
 
 WORKDIR /usr/src/app
 
