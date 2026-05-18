@@ -4,10 +4,12 @@
   "description": "Telegram file uploader backend",
   "type": "module",
   "scripts": {
-    "dev": "bun --hot index.js",
-    "start": "NODE_ENV=production bun index.js",
+    "dev": "bun --hot src/index.ts",
+    "start": "NODE_ENV=production bun src/index.ts",
     "db:migrate": "psql $DATABASE_URL -f schema.sql",
-    "test": "bun test test/rateLimit.test.js && bun test test/file.test.js && bun test test/telegram.test.js && bun test test/upload.test.js && bun test test/files.test.js && bun test test/health.test.js && bun test test/bot.test.js && bun test test/bootstrap.test.js"
+    "test": "bun test test/rateLimit.test.ts && bun test test/file.test.ts && bun test test/telegram.test.ts && bun test test/upload.test.ts && bun test test/files.test.ts && bun test test/health.test.ts && bun test test/bot.test.ts && bun test test/bootstrap.test.ts",
+    "lint": "bunx biome check src test",
+    "format": "bunx biome format --write src test"
   },
   "dependencies": {
     "@prisma/engines": "^7.8.0",
@@ -19,6 +21,9 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.10"
+    "@biomejs/biome": "^2.4.15",
+    "@types/node": "^25.8.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3"
   }
 }
