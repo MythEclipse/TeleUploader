@@ -26,6 +26,48 @@ export const checkFileSize = (sizeBytes: number, fileType: string): boolean => {
   return sizeBytes <= limit;
 };
 
+export const ensureExtension = (
+  fileName: string,
+  buffer: Buffer,
+  detectedMime?: string,
+): { fileName: string; mimeType: string } => {
+  const mimeMap: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'text/plain': 'txt',
+    'application/zip': 'zip',
+  };
+
+  let ext: string | null = null;
+  if (buffer.subarray(0, 4).toString() === '%PDF') {
+    ext = 'pdf';
+  } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    ext = 'png';
+  } else if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    ext = 'jpg';
+  } else if (buffer.subarray(0, 4).toString() === 'GIF8') {
+    ext = 'gif';
+  } else if (detectedMime) {
+    ext = mimeMap[detectedMime.toLowerCase()] || null;
+  }
+
+  let finalFileName = fileName;
+  const hasExtension = fileName.includes('.') && fileName.split('.').pop()!.length >= 2;
+  if (!hasExtension && ext) {
+    finalFileName = `${fileName}.${ext}`;
+  }
+
+  const mimeType = ext
+    ? Object.keys(mimeMap).find((k) => mimeMap[k] === ext) ||
+      detectedMime ||
+      'application/octet-stream'
+    : detectedMime || 'application/octet-stream';
+
+  return { fileName: finalFileName, mimeType };
+};
+
 export const extractFileName = (msg: any, request: any): string => {
   if (request?.headers?.['x-file-name']) {
     return request.headers['x-file-name'];

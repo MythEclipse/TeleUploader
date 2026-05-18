@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
 import { config } from '../env';
-import { checkFileSize, extractMimeType, getFileType } from '../utils/file';
+import { checkFileSize, ensureExtension, extractMimeType, getFileType } from '../utils/file';
 import logger from '../utils/logger';
 import { forwardToStorage, getBot } from '../utils/telegram';
 
@@ -38,18 +38,23 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
 
     const fileBytes = await file.arrayBuffer();
     const fileBuffer = Buffer.from(fileBytes);
-    const mimeType = file.type || extractMimeType({}, req) || 'application/octet-stream';
-    const fileType = getFileType(mimeType, fileName);
+    const rawMimeType = file.type || extractMimeType({}, req) || 'application/octet-stream';
+    const { fileName: finalFileName, mimeType } = ensureExtension(
+      fileName,
+      fileBuffer,
+      rawMimeType,
+    );
+    const fileType = getFileType(mimeType, finalFileName);
 
     if (!checkFileSize(fileBuffer.byteLength, fileType)) {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
     const isDocument =
-      fileName.endsWith('.pdf') ||
-      fileName.endsWith('.txt') ||
+      finalFileName.endsWith('.pdf') ||
+      finalFileName.endsWith('.txt') ||
       !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
-    const result = await forwardToStorage(fileBuffer, fileName, isDocument);
+    const result = await forwardToStorage(fileBuffer, finalFileName, isDocument);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
@@ -59,7 +64,7 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       telegramFileUniqueId: result.telegramFileUniqueId,
       storageChatId: config.storageChatId,
       storageMessageId: result.storageMessageId,
-      fileName: fileName,
+      fileName: finalFileName,
       mimeType: fileInfo.mime_type || mimeType || 'application/octet-stream',
       sizeBytes: fileInfo.file_size || fileBuffer.byteLength,
       fileType: fileType,
@@ -103,22 +108,32 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       );
     }
 
-    const fileBytes = Buffer.from(file, 'base64');
-    const mimeType = 'application/octet-stream';
+    let base64Data = file;
+    let rawMimeType = 'application/octet-stream';
+    if (file.startsWith('data:')) {
+      const match = file.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        rawMimeType = match[1];
+        base64Data = match[2];
+      }
+    }
+
+    const fileBytes = Buffer.from(base64Data, 'base64');
+    const { fileName: finalFileName, mimeType } = ensureExtension(fileName, fileBytes, rawMimeType);
     const fileType =
-      getFileType(mimeType, fileName) === 'application'
+      getFileType(mimeType, finalFileName) === 'application'
         ? 'document'
-        : getFileType(mimeType, fileName);
+        : getFileType(mimeType, finalFileName);
 
     if (!checkFileSize(fileBytes.byteLength, fileType)) {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
     const isDocument =
-      fileName.endsWith('.pdf') ||
-      fileName.endsWith('.txt') ||
+      finalFileName.endsWith('.pdf') ||
+      finalFileName.endsWith('.txt') ||
       !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
-    const result = await forwardToStorage(fileBytes, fileName, isDocument);
+    const result = await forwardToStorage(fileBytes, finalFileName, isDocument);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
@@ -128,7 +143,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       telegramFileUniqueId: result.telegramFileUniqueId,
       storageChatId: config.storageChatId,
       storageMessageId: result.storageMessageId,
-      fileName: fileName,
+      fileName: finalFileName,
       mimeType: fileInfo.mime_type || mimeType || 'application/octet-stream',
       sizeBytes: fileInfo.file_size || fileBytes.byteLength,
       fileType: fileType,
