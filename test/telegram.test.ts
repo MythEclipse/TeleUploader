@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import logger from '../src/utils/logger';
+import { config } from '../src/env';
 
 // Mock Telegraf and fetch
 mock.module('telegraf', () => {
@@ -88,7 +89,7 @@ describe('Telegram API Utilities', () => {
       const result = await forwardToStorage(chunk, fileName, true);
 
       expect(bot.telegram.sendDocument).toHaveBeenCalledWith(
-        -1003996572954,
+        config.storageChatId,
         { source: chunk, filename: fileName },
         { caption: `📁 ${fileName}` },
       );
