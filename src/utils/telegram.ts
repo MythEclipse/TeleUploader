@@ -1,23 +1,48 @@
 import { Telegraf } from 'telegraf';
 import { config } from '../env';
 import logger from './logger';
+import { enqueueUpload } from './telegramQueue';
 
-const bot = new Telegraf(config.botToken);
+const botTokens = Array.from(new Set([config.botToken, ...config.additionalBotTokens]));
+
+const bots = botTokens.map((token) => new Telegraf(token));
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
 
-const withRetry = async <T>(fn: () => Promise<T>, retries = 5): Promise<T> => {
+let currentBotIndex = 0;
+
+const executeWithBotRetry = async (
+  action: (botInstance: Telegraf) => Promise<any>,
+  retries = 5,
+  attemptedBots = 0,
+): Promise<any> => {
+  const currentBot = bots[currentBotIndex];
   try {
-    return await fn();
+    return await action(currentBot);
   } catch (error: any) {
     const errorStr = error.message || String(error);
     const match = errorStr.match(/retry after (\d+)/i);
-    if (match && retries > 0) {
-      const seconds = parseInt(match[1], 10);
-      logger.warn(`Telegram 429 Too Many Requests detected. Retrying after ${seconds} seconds...`, {
-        error: errorStr,
-      });
-      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-      return withRetry(fn, retries - 1);
+
+    if (match) {
+      // 429 rate limit hit! Rotate bot index instantly
+      const prevIndex = currentBotIndex;
+      currentBotIndex = (currentBotIndex + 1) % bots.length;
+      const nextIndex = currentBotIndex;
+      attemptedBots++;
+
+      if (attemptedBots < bots.length) {
+        logger.info(`Bot Index ${prevIndex} hit 429. Instantly rotating to Bot Index ${nextIndex}...`);
+        return executeWithBotRetry(action, retries, attemptedBots);
+      }
+
+      // If all bots in the pool have been tried and hit 429, sleep
+      if (retries > 0) {
+        const seconds = parseInt(match[1], 10);
+        logger.warn(`All bots in the pool are rate-limited. Sleeping for ${seconds} seconds...`, {
+          error: errorStr,
+        });
+        await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+        return executeWithBotRetry(action, retries - 1, 0);
+      }
     }
     throw error;
   }
@@ -41,36 +66,43 @@ export const forwardToStorage = async (
   fileType: string,
 ): Promise<ForwardResult> => {
   try {
-    const filePayload = { source: fileChunk, filename: fileName };
-    let result: any;
+    const result: any = await enqueueUpload(async () => {
+      const filePayload = { source: fileChunk, filename: fileName };
+      const uploadResult = await executeWithBotRetry((activeBot) => {
+        if (fileType === 'photo') {
+          return activeBot.telegram.sendPhoto(config.storageChatId, filePayload, {
+            caption: fileName,
+          });
+        } else if (fileType === 'audio') {
+          return activeBot.telegram.sendAudio(config.storageChatId, filePayload, {
+            caption: fileName,
+          });
+        } else if (fileType === 'video') {
+          return activeBot.telegram.sendVideo(config.storageChatId, filePayload, {
+            caption: fileName,
+          });
+        } else if (fileType === 'voice') {
+          return activeBot.telegram.sendVoice(config.storageChatId, filePayload, {
+            caption: fileName,
+          });
+        } else if (fileType === 'animation') {
+          return activeBot.telegram.sendAnimation(config.storageChatId, filePayload, {
+            caption: fileName,
+          });
+        } else if (fileType === 'sticker') {
+          return activeBot.telegram.sendSticker(config.storageChatId, filePayload);
+        } else {
+          return activeBot.telegram.sendDocument(config.storageChatId, filePayload, {
+            caption: `📁 ${fileName}`,
+          });
+        }
+      });
 
-    if (fileType === 'photo') {
-      result = await withRetry(() => bot.telegram.sendPhoto(config.storageChatId, filePayload, {
-        caption: fileName,
-      }));
-    } else if (fileType === 'audio') {
-      result = await withRetry(() => bot.telegram.sendAudio(config.storageChatId, filePayload, {
-        caption: fileName,
-      }));
-    } else if (fileType === 'video') {
-      result = await withRetry(() => bot.telegram.sendVideo(config.storageChatId, filePayload, {
-        caption: fileName,
-      }));
-    } else if (fileType === 'voice') {
-      result = await withRetry(() => bot.telegram.sendVoice(config.storageChatId, filePayload, {
-        caption: fileName,
-      }));
-    } else if (fileType === 'animation') {
-      result = await withRetry(() => bot.telegram.sendAnimation(config.storageChatId, filePayload, {
-        caption: fileName,
-      }));
-    } else if (fileType === 'sticker') {
-      result = await withRetry(() => bot.telegram.sendSticker(config.storageChatId, filePayload));
-    } else {
-      result = await withRetry(() => bot.telegram.sendDocument(config.storageChatId, filePayload, {
-        caption: `📁 ${fileName}`,
-      }));
-    }
+      // Advance round-robin index for next job
+      currentBotIndex = (currentBotIndex + 1) % bots.length;
+
+      return uploadResult;
+    });
 
     let uploadedFile: any;
     if (result.document) uploadedFile = result.document;
@@ -131,4 +163,4 @@ export const getFileInfo = async (
   }
 };
 
-export const getBot = (): Telegraf => bot;
+export const getBot = (): Telegraf => bots[0];

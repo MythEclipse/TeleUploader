@@ -19,7 +19,10 @@ Default to using Bun instead of Node.js.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
 - Rate limiter lokal dinonaktifkan (`checkRateLimit` di `src/utils/rateLimit.ts` selalu mengembalikan `true`).
-- Telegram API memiliki auto-retry otomatis jika mengembalikan error 429 (Too Many Requests) menggunakan helper `withRetry` di `src/utils/telegram.ts`.
+- Telegram API memiliki auto-retry otomatis jika mengembalikan error 429 (Too Many Requests) menggunakan pool Telegraf multi-bot di `src/utils/telegram.ts`.
+- Multi-bot dikonfigurasi melalui `ADDITIONAL_BOT_TOKENS` (koma terpisah) di `.env` yang digabung dengan `BOT_TOKEN` utama (total 4 bot).
+- Menggunakan mekanisme rotasi instan jika ada bot yang terkena rate limit 429 sebelum memutuskan untuk sleep.
+- Pengiriman berkas ke Telegram dikontrol oleh antrian in-memory (`TelegramQueue` di `src/utils/telegramQueue.ts`) dengan batas konkurensi = 2 untuk mencegah rate limit berlebih.
 
 ## Testing
 
