@@ -27,6 +27,7 @@ Default to using Bun instead of Node.js.
 ## Testing
 
 Use `bun test` to run tests. Jalankan tes secara spesifik (misal `bun test test/rateLimit.test.ts`) untuk menghindari polusi mock antar berkas tes ketika dijalankan bersamaan.
+- Pengujian unit test (`telegram.test.ts` dan `upload.test.ts`) mengunduh gambar asli Wikimedia (PNG transparan) secara dinamis via fetch, dengan fallback biner lokal JPEG 1x1px jika luring.
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";
