@@ -23,6 +23,7 @@ Default to using Bun instead of Node.js.
 - Multi-bot dikonfigurasi melalui `ADDITIONAL_BOT_TOKENS` (koma terpisah) di `.env` yang digabung dengan `BOT_TOKEN` utama (total 4 bot).
 - Menggunakan mekanisme rotasi instan jika ada bot yang terkena rate limit 429 sebelum memutuskan untuk sleep.
 - Pengiriman berkas ke Telegram dieksekusi secara responsif dan paralel penuh tanpa batas konkurensi/antrian.
+- Berkas API upload ditulis secara sementara ke disk `/tmp/teleuploader-*` dan di-stream ke Telegram menggunakan `fs.createReadStream` (RAM-optimized) lalu dihapus otomatis setelah 50ms (timeout aman).
 
 ## Testing
 
