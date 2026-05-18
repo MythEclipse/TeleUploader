@@ -1,5 +1,4 @@
-import { describe, it, expect, mock, spyOn, beforeEach } from "bun:test";
-import logger from "../src/utils/logger.js";
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 
 // Mock database layer
 const mockSelect = mock(() => ({
@@ -175,5 +174,9 @@ describe("File Route Handlers", () => {
       const body = await res.json();
       expect(body.error).toBe("Server error");
     });
+  });
+
+  afterAll(() => {
+    mock.restore();
   });
 });

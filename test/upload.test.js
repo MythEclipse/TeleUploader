@@ -1,5 +1,4 @@
-import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from "bun:test";
-import logger from "../src/utils/logger.js";
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 
 // Mock db
 const mockInsert = mock(() => ({
@@ -115,5 +114,9 @@ describe("Upload Route Handler", () => {
     const body = await res.json();
     expect(body.public_id).toBe("mocked-nanoid-id");
     expect(body.file_name).toBe("test_multi.txt");
+  });
+
+  afterAll(() => {
+    mock.restore();
   });
 });

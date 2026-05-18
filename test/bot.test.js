@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, spyOn, beforeEach } from "bun:test";
+import { describe, it, expect, mock, spyOn, beforeEach, afterAll } from "bun:test";
 import logger from "../src/utils/logger.js";
 
 // Mock environment
@@ -144,5 +144,9 @@ describe("Telegram Bot Handler", () => {
     await fileHandler(ctx);
     expect(mockForwardToStorage).not.toHaveBeenCalled();
     expect(replyMock).toHaveBeenCalledWith(expect.stringContaining("exceeds"));
+  });
+
+  afterAll(() => {
+    mock.restore();
   });
 });

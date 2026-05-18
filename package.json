@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun --hot index.js",
     "start": "NODE_ENV=production bun index.js",
-    "db:migrate": "psql $DATABASE_URL -f schema.sql"
+    "db:migrate": "psql $DATABASE_URL -f schema.sql",
+    "test": "bun test test/rateLimit.test.js && bun test test/file.test.js && bun test test/telegram.test.js && bun test test/upload.test.js && bun test test/files.test.js && bun test test/health.test.js && bun test test/bot.test.js && bun test test/bootstrap.test.js"
   },
   "dependencies": {
     "@prisma/engines": "^7.8.0",
