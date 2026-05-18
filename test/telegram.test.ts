@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import logger from '../src/utils/logger';
 import { config } from '../src/env';
+import logger from '../src/utils/logger';
 
 // Mock Telegraf and fetch
 mock.module('telegraf', () => {
