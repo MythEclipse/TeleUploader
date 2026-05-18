@@ -1,3 +1,4 @@
+import { createReadStream, unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
@@ -33,6 +34,7 @@ export const handleUpload = async (req: Request): Promise<Response> => {
 };
 
 const handleMultipartUpload = async (req: Request): Promise<Response> => {
+  let tempPath = '';
   try {
     const formData = await req.formData();
     const file = formData.get('file');
@@ -88,7 +90,12 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const result = await forwardToStorage(fileBuffer, finalFileName, fileType);
+    // Write file to disk temporarily
+    tempPath = `/tmp/teleuploader-${nanoid()}`;
+    await Bun.write(tempPath, fileBuffer);
+
+    const fileStream = createReadStream(tempPath);
+    const result = await forwardToStorage(fileStream, finalFileName, fileType);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
@@ -129,10 +136,20 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
   } catch (error: any) {
     logger.error('Multipart upload error', { error: error.message });
     return Response.json({ error: error.message }, { status: 500 });
+  } finally {
+    if (tempPath) {
+      const p = tempPath;
+      setTimeout(() => {
+        try {
+          unlinkSync(p);
+        } catch {}
+      }, 50);
+    }
   }
 };
 
 const handleJSONUpload = async (req: Request): Promise<Response> => {
+  let tempPath = '';
   try {
     const { file, fileName = 'file' } = (await req.json()) as any;
 
@@ -195,7 +212,12 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const result = await forwardToStorage(fileBytes, finalFileName, fileType);
+    // Write file to disk temporarily
+    tempPath = `/tmp/teleuploader-${nanoid()}`;
+    await Bun.write(tempPath, fileBytes);
+
+    const fileStream = createReadStream(tempPath);
+    const result = await forwardToStorage(fileStream, finalFileName, fileType);
     const bot = getBot();
     const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
@@ -236,5 +258,14 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
   } catch (error: any) {
     logger.error('JSON upload error', { error: error.message });
     return Response.json({ error: error.message }, { status: 500 });
+  } finally {
+    if (tempPath) {
+      const p = tempPath;
+      setTimeout(() => {
+        try {
+          unlinkSync(p);
+        } catch {}
+      }, 50);
+    }
   }
 };

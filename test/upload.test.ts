@@ -47,8 +47,9 @@ mock.module('../src/db/index', () => ({
 }));
 
 // Mock nanoid
+let nanoidCounter = 0;
 mock.module('nanoid', () => ({
-  nanoid: () => 'mocked-nanoid-id',
+  nanoid: () => `mocked-nanoid-id-${nanoidCounter++}`,
 }));
 
 // Mock telegram utils
@@ -124,7 +125,7 @@ describe('Upload Route Handler', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.public_id).toBe('mocked-nanoid-id');
+    expect(body.public_id).toContain('mocked-nanoid-id');
     expect(body.telegram_file_id).toBe('tg-file-id-123');
     expect(body.telegram_file_unique_id).toBe('tg-unique-id-abc');
     expect(body.file_name).toBe('test.png');
@@ -161,7 +162,7 @@ describe('Upload Route Handler', () => {
     const res = await handleUpload(req);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.public_id).toBe('mocked-nanoid-id');
+    expect(body.public_id).toContain('mocked-nanoid-id');
     expect(body.file_name).toBe('test_multi.png');
   });
 
