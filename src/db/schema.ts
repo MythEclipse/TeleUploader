@@ -13,6 +13,7 @@ export const files = pgTable('files', {
   sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
   fileType: text('file_type').notNull(),
   uploaderId: bigint('uploader_id', { mode: 'number' }).notNull(),
+  fileHash: text('file_hash'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

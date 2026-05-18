@@ -25,6 +25,7 @@ describe('Database Layer', () => {
     expect(files.sizeBytes).toBeDefined();
     expect(files.fileType).toBeDefined();
     expect(files.uploaderId).toBeDefined();
+    expect(files.fileHash).toBeDefined();
     expect(files.createdAt).toBeDefined();
     expect(files.updatedAt).toBeDefined();
   });
