@@ -1,5 +1,6 @@
+// @ts-nocheck
 import { describe, it, expect, beforeAll } from "bun:test";
-import { config } from "../src/env.js";
+import { config } from "../src/env";
 
 describe("Environment Variables Validation", () => {
   it("config should have all required fields", () => {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 
 const mockServe = mock((options) => {
@@ -15,24 +16,24 @@ const mockStartBot = mock(() => Promise.resolve({
   stop: mock()
 }));
 
-mock.module("../src/bot.js", () => ({
+mock.module("../src/bot", () => ({
   startBot: mockStartBot
 }));
 
-mock.module("../src/routes/upload.js", () => ({
+mock.module("../src/routes/upload", () => ({
   handleUpload: mock()
 }));
 
-mock.module("../src/routes/files.js", () => ({
+mock.module("../src/routes/files", () => ({
   handleFileRedirect: mock(),
   handleFileInfo: mock()
 }));
 
-mock.module("../src/routes/health.js", () => ({
+mock.module("../src/routes/health", () => ({
   handleHealth: mock()
 }));
 
-mock.module("../src/utils/rateLimit.js", () => ({
+mock.module("../src/utils/rateLimit", () => ({
   cleanupRateLimitCache: mock()
 }));
 
@@ -47,7 +48,7 @@ describe("Bootstrap Server", () => {
   });
 
   it("should bootstrap the application successfully", async () => {
-    await import("../src/index.js");
+    await import("../src/index");
 
     expect(mockServe).toHaveBeenCalled();
     expect(mockStartBot).toHaveBeenCalled();

@@ -1,9 +1,10 @@
+// @ts-nocheck
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 // Mock database layer
 const mockExecute = mock(() => Promise.resolve());
 
-mock.module("../src/db/index.js", () => ({
+mock.module("../src/db/index", () => ({
   db: {
     execute: mockExecute
   }
@@ -14,7 +15,7 @@ describe("Health Route Handler", () => {
 
   beforeEach(async () => {
     mockExecute.mockClear();
-    const healthRoute = await import("../src/routes/health.js");
+    const healthRoute = await import("../src/routes/health");
     handleHealth = healthRoute.handleHealth;
   });
 

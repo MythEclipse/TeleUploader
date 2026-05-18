@@ -1,6 +1,7 @@
+// @ts-nocheck
 import { describe, it, expect } from "bun:test";
-import { db, files } from "../src/db/index.js";
-import { files as schemaFiles } from "../src/db/schema.js";
+import { db, files } from "../src/db/index";
+import { files as schemaFiles } from "../src/db/schema";
 
 describe("Database Layer", () => {
   it("should export db instance", () => {

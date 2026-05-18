@@ -1,34 +1,53 @@
 import { Telegraf } from 'telegraf';
-import logger from './logger.js';
-import { config } from '../env.js';
+import logger from './logger';
+import { config } from '../env';
 
 const bot = new Telegraf(config.botToken);
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
 
-export const forwardToStorage = async (fileChunk, fileName, forceDocument = false) => {
+interface ForwardResult {
+  telegramFileId: string;
+  telegramFileUniqueId: string;
+  storageMessageId: number;
+}
+
+interface TelegramFileInfo {
+  file_size: number;
+  mime_type: string;
+  file_path: string;
+}
+
+export const forwardToStorage = async (
+  fileChunk: any,
+  fileName: string,
+  forceDocument = false
+): Promise<ForwardResult> => {
   try {
     const caption = forceDocument ? `📁 ${fileName}` : fileName;
-    const input = forceDocument ? { document: fileChunk, caption } : { photo: [fileChunk], caption };
+    const input: any = forceDocument ? { document: fileChunk, caption } : { photo: [fileChunk], caption };
 
-    const result = await bot.api.sendPhoto(config.storageChatId, input);
+    const result = await bot.telegram.sendPhoto(config.storageChatId, input);
 
     logger.info('File forwarded to storage', { fileName, message: result.message_id });
 
     return {
-      telegramFileId: result.photo?.slice(-1)[0]?.file_id,
-      telegramFileUniqueId: result.photo?.slice(-1)[0]?.file_unique_id,
+      telegramFileId: result.photo?.slice(-1)[0]?.file_id || '',
+      telegramFileUniqueId: result.photo?.slice(-1)[0]?.file_unique_id || '',
       storageMessageId: result.message_id
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Failed to forward file to storage', { fileName, error: error.message });
     throw error;
   }
 };
 
-export const getFileInfo = async (telegramFileId, telegramFileUniqueId) => {
+export const getFileInfo = async (
+  telegramFileId: string,
+  telegramFileUniqueId: string
+): Promise<TelegramFileInfo> => {
   try {
     const result = await fetch(`${TELEGRAM_API_URL}getFile`);
-    const data = await result.json();
+    const data: any = await result.json();
 
     if (!data.ok) {
       throw new Error(data.description || 'Telegram API error');
@@ -40,7 +59,7 @@ export const getFileInfo = async (telegramFileId, telegramFileUniqueId) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_id: fileId })
     });
-    const fileInfo = await fileResult.json();
+    const fileInfo: any = await fileResult.json();
 
     if (!fileInfo.ok) {
       throw new Error(fileInfo.description || 'Telegram info error');
@@ -51,10 +70,10 @@ export const getFileInfo = async (telegramFileId, telegramFileUniqueId) => {
       mime_type: fileInfo.result.mime_type,
       file_path: fileInfo.result.file_path
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Failed to get file info', { error: error.message });
     throw error;
   }
 };
 
-export const getBot = () => bot;
+export const getBot = (): Telegraf => bot;

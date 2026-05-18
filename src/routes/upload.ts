@@ -1,11 +1,11 @@
-import logger from '../utils/logger.js';
-import { db, files as fileSchema } from '../db/index.js';
+import logger from '../utils/logger';
+import { db, files as fileSchema } from '../db';
 import { nanoid } from 'nanoid';
-import { forwardToStorage, getBot } from '../utils/telegram.js';
-import { getFileType, checkFileSize, extractFileName, extractMimeType } from '../utils/file.js';
-import { config } from '../env.js';
+import { forwardToStorage, getBot } from '../utils/telegram';
+import { getFileType, checkFileSize, extractMimeType } from '../utils/file';
+import { config } from '../env';
 
-export const handleUpload = async (req) => {
+export const handleUpload = async (req: Request): Promise<Response> => {
   try {
     const contentType = req.headers.get('content-type') || '';
 
@@ -19,17 +19,17 @@ export const handleUpload = async (req) => {
       { error: 'Unsupported content type. Use multipart/form-data or application/json' },
       { status: 400 }
     );
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Upload error', { error: error.message });
     return Response.json({ error: error.message }, { status: 500 });
   }
 };
 
-const handleMultipartUpload = async (req) => {
+const handleMultipartUpload = async (req: Request): Promise<Response> => {
   try {
     const formData = await req.formData();
     const file = formData.get('file');
-    const fileName = formData.get('fileName') || (file instanceof File ? file.name : null) || 'file';
+    const fileName = (formData.get('fileName') as string) || (file instanceof File ? file.name : null) || 'file';
 
     if (!file || !(file instanceof File)) {
       return Response.json({ error: 'No file provided' }, { status: 400 });
@@ -47,7 +47,7 @@ const handleMultipartUpload = async (req) => {
     const isDocument = fileName.endsWith('.pdf') || fileName.endsWith('.txt') || !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
     const result = await forwardToStorage(fileBuffer, fileName, isDocument);
     const bot = getBot();
-    const fileInfo = await bot.api.getFile(result.telegramFileId);
+    const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
     const uploaded = {
       publicId: nanoid(),
@@ -66,7 +66,6 @@ const handleMultipartUpload = async (req) => {
 
     await db.insert(fileSchema).values(uploaded);
 
-    // Prepare response matching original snake_case fields as expected in task description
     const responsePayload = {
       public_id: uploaded.publicId,
       telegram_file_id: uploaded.telegramFileId,
@@ -83,15 +82,15 @@ const handleMultipartUpload = async (req) => {
     };
 
     return Response.json(responsePayload, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Multipart upload error', { error: error.message });
     return Response.json({ error: error.message }, { status: 500 });
   }
 };
 
-const handleJSONUpload = async (req) => {
+const handleJSONUpload = async (req: Request): Promise<Response> => {
   try {
-    const { file, fileName = 'file' } = await req.json();
+    const { file, fileName = 'file' } = (await req.json()) as any;
 
     if (!file || typeof file !== 'string') {
       return Response.json(
@@ -111,7 +110,7 @@ const handleJSONUpload = async (req) => {
     const isDocument = fileName.endsWith('.pdf') || fileName.endsWith('.txt') || !['photo', 'video', 'audio', 'voice', 'animation'].includes(fileType);
     const result = await forwardToStorage(fileBytes, fileName, isDocument);
     const bot = getBot();
-    const fileInfo = await bot.api.getFile(result.telegramFileId);
+    const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as any;
 
     const uploaded = {
       publicId: nanoid(),
@@ -130,7 +129,6 @@ const handleJSONUpload = async (req) => {
 
     await db.insert(fileSchema).values(uploaded);
 
-    // Prepare response matching original snake_case fields as expected in task description
     const responsePayload = {
       public_id: uploaded.publicId,
       telegram_file_id: uploaded.telegramFileId,
@@ -147,7 +145,7 @@ const handleJSONUpload = async (req) => {
     };
 
     return Response.json(responsePayload, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('JSON upload error', { error: error.message });
     return Response.json({ error: error.message }, { status: 500 });
   }

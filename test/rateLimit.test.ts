@@ -1,6 +1,7 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { checkRateLimit, cleanupRateLimitCache } from "../src/utils/rateLimit.js";
-import logger from "../src/utils/logger.js";
+import { checkRateLimit, cleanupRateLimitCache } from "../src/utils/rateLimit";
+import logger from "../src/utils/logger";
 
 // Spy on logger.warn
 const warnSpy = spyOn(logger, "warn");

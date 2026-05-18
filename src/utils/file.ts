@@ -1,4 +1,4 @@
-const FILE_TYPES = {
+const FILE_TYPES: Record<string, number> = {
   document: 2 * 1024 * 1024 * 1024, // 2GB
   photo: 10 * 1024 * 1024, // 10MB
   video: 2 * 1024 * 1024 * 1024, // 2GB
@@ -7,7 +7,7 @@ const FILE_TYPES = {
   animation: 2 * 1024 * 1024 * 1024 // 2GB
 };
 
-export const getFileType = (mime, caption) => {
+export const getFileType = (mime: string | null, caption?: string): string => {
   const mimeUpper = mime?.split('/')[0]?.toLowerCase();
   const captionLower = caption?.toLowerCase();
 
@@ -21,12 +21,12 @@ export const getFileType = (mime, caption) => {
   return mimeUpper || 'document';
 };
 
-export const checkFileSize = (sizeBytes, fileType) => {
+export const checkFileSize = (sizeBytes: number, fileType: string): boolean => {
   const limit = FILE_TYPES[fileType] || FILE_TYPES.document;
   return sizeBytes <= limit;
 };
 
-export const extractFileName = (msg, request) => {
+export const extractFileName = (msg: any, request: any): string => {
   if (request?.headers?.['x-file-name']) {
     return request.headers['x-file-name'];
   }
@@ -34,7 +34,7 @@ export const extractFileName = (msg, request) => {
          msg.voice?.fileName || msg.animation?.fileName || 'file';
 };
 
-export const extractMimeType = (msg, request) => {
+export const extractMimeType = (msg: any, request: any): string => {
   if (request?.headers?.['x-mime-type']) {
     return request.headers['x-mime-type'];
   }

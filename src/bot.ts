@@ -1,11 +1,11 @@
-import { Telegraf } from 'telegraf';
-import logger from './utils/logger.js';
-import { config } from './env.js';
-import { db, files as fileSchema } from './db/index.js';
+import { Telegraf, type Context } from 'telegraf';
+import logger from './utils/logger';
+import { config } from './env';
+import { db, files as fileSchema } from './db';
 import { nanoid } from 'nanoid';
-import { forwardToStorage } from './utils/telegram.js';
+import { forwardToStorage } from './utils/telegram';
 
-export const startBot = async () => {
+export const startBot = async (): Promise<Telegraf<Context>> => {
   try {
     const bot = new Telegraf(config.botToken);
 
@@ -16,16 +16,17 @@ export const startBot = async () => {
       );
     });
 
-    bot.on(['document', 'photo', 'video', 'audio', 'voice', 'animation'], async (ctx) => {
+    // Cast bot.on elements individually or explicitly as any to bypass Telegraf v4 typescript deprecation warnings on array syntax
+    (bot as any).on(['document', 'photo', 'video', 'audio', 'voice', 'animation'], async (ctx: any) => {
       try {
-        const fileType = ctx.message.document ? 'document' :
+        const fileType: 'document' | 'photo' | 'video' | 'audio' | 'voice' | 'animation' = ctx.message.document ? 'document' :
                         ctx.message.photo ? 'photo' :
                         ctx.message.video ? 'video' :
                         ctx.message.audio ? 'audio' :
                         ctx.message.voice ? 'voice' : 'animation';
 
         const fileObj = fileType === 'photo' ? ctx.message.photo.slice(-1)[0] : ctx.message[fileType];
-        const { file_id, file_unique_id, file_size, mime_type } = fileObj;
+        const { file_id, file_size, mime_type } = fileObj;
         const fileName = ctx.message.document?.file_name ||
                         ctx.message.photo?.slice(-1)[0]?.file_name ||
                         ctx.message.video?.file_name ||
@@ -45,18 +46,18 @@ export const startBot = async () => {
         const publicId = nanoid();
 
         const uploaded = {
-          public_id: publicId,
-          telegram_file_id: result.telegramFileId,
-          telegram_file_unique_id: result.telegramFileUniqueId,
-          storage_chat_id: config.storageChatId,
-          storage_message_id: result.storageMessageId,
-          file_name: fileName,
-          mime_type: mime_type,
-          size_bytes: file_size,
-          file_type: fileType,
-          uploader_id: ctx.from.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          publicId: publicId,
+          telegramFileId: result.telegramFileId,
+          telegramFileUniqueId: result.telegramFileUniqueId,
+          storageChatId: config.storageChatId,
+          storageMessageId: result.storageMessageId,
+          fileName: fileName,
+          mimeType: mime_type || 'application/octet-stream',
+          sizeBytes: file_size,
+          fileType: fileType,
+          uploaderId: ctx.from.id,
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
 
         await db.insert(fileSchema).values(uploaded);
@@ -67,14 +68,14 @@ export const startBot = async () => {
         });
 
         logger.info('File uploaded via bot', { publicId, fileType, fileName, uploader: ctx.from.id });
-      } catch (error) {
+      } catch (error: any) {
         logger.error('Bot file handler error', { error: error.message, chat_id: ctx.chat?.id });
         await ctx.reply('❌ Gagal mengupload file. Coba lagi nanti.');
       }
     });
 
     bot.use((ctx, next) => {
-      logger.info('Telegram event received', { type: ctx.update.type, chat_id: ctx.chat?.id });
+      logger.info('Telegram event received', { type: (ctx.update as any).type, chat_id: ctx.chat?.id });
       return next();
     });
 
@@ -83,7 +84,7 @@ export const startBot = async () => {
     logger.info('Telegram bot started', { botToken: config.botToken?.substring(0, 10) + '...' });
 
     return bot;
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Failed to start bot', { error: error.message });
     throw error;
   }

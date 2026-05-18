@@ -1,5 +1,6 @@
+// @ts-nocheck
 import { describe, it, expect, mock, spyOn, beforeEach, afterAll } from "bun:test";
-import logger from "../src/utils/logger.js";
+import logger from "../src/utils/logger";
 
 // Mock environment
 process.env.BOT_TOKEN = "8605908810:AAFpUzlIBktfd_7wpEj7zMJob2CFxvG-ZGY";
@@ -30,7 +31,7 @@ mock.module("telegraf", () => {
 const mockInsert = mock(() => ({
   values: mock(() => Promise.resolve())
 }));
-mock.module("../src/db/index.js", () => ({
+mock.module("../src/db/index", () => ({
   db: {
     insert: mockInsert
   },
@@ -43,7 +44,7 @@ const mockForwardToStorage = mock(() => Promise.resolve({
   telegramFileUniqueId: "stored_unique_id",
   storageMessageId: 9999
 }));
-mock.module("../src/utils/telegram.js", () => ({
+mock.module("../src/utils/telegram", () => ({
   forwardToStorage: mockForwardToStorage
 }));
 
@@ -63,7 +64,7 @@ describe("Telegram Bot Handler", () => {
   });
 
   it("should initialize and launch the bot", async () => {
-    const { startBot } = await import("../src/bot.js");
+    const { startBot } = await import("../src/bot");
     const bot = await startBot();
 
     expect(bot).toBeDefined();
@@ -77,7 +78,7 @@ describe("Telegram Bot Handler", () => {
   });
 
   it("should handle /start command", async () => {
-    const { startBot } = await import("../src/bot.js");
+    const { startBot } = await import("../src/bot");
     await startBot();
 
     const startHandler = mockCommand.mock.calls.find(call => call[0] === "start")[1];
@@ -91,7 +92,7 @@ describe("Telegram Bot Handler", () => {
   });
 
   it("should process document uploads and save to db", async () => {
-    const { startBot } = await import("../src/bot.js");
+    const { startBot } = await import("../src/bot");
     await startBot();
 
     const fileHandler = mockOn.mock.calls[0][1];
@@ -120,7 +121,7 @@ describe("Telegram Bot Handler", () => {
   });
 
   it("should reject uploads exceeding max size limit", async () => {
-    const { startBot } = await import("../src/bot.js");
+    const { startBot } = await import("../src/bot");
     await startBot();
 
     const fileHandler = mockOn.mock.calls[0][1];

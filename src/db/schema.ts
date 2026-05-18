@@ -1,4 +1,5 @@
 import { pgTable, text, bigint, timestamp, uuid } from 'drizzle-orm/pg-core';
+import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
 export const files = pgTable('files', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -15,3 +16,6 @@ export const files = pgTable('files', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 });
+
+export type File = InferSelectModel<typeof files>;
+export type NewFile = InferInsertModel<typeof files>;

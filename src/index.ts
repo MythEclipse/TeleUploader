@@ -1,11 +1,11 @@
 import { serve } from 'bun';
-import logger from './utils/logger.js';
-import { config } from './env.js';
-import { startBot } from './bot.js';
-import { handleUpload } from './routes/upload.js';
-import { handleFileRedirect, handleFileInfo } from './routes/files.js';
-import { handleHealth } from './routes/health.js';
-import { cleanupRateLimitCache } from './utils/rateLimit.js';
+import logger from './utils/logger';
+import { config } from './env';
+import { startBot } from './bot';
+import { handleUpload } from './routes/upload';
+import { handleFileRedirect, handleFileInfo } from './routes/files';
+import { handleHealth } from './routes/health';
+import { cleanupRateLimitCache } from './utils/rateLimit';
 
 const server = serve({
   port: config.port,
@@ -29,14 +29,14 @@ const bot = await startBot();
 
 logger.info('Server started', { port: config.port, url: config.baseUrl });
 
-const gracefulShutdown = async (signal) => {
+const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info('Graceful shutdown signal received', { signal });
 
   logger.info('Closing HTTP server');
   server.stop();
 
   logger.info('Stopping Telegram bot');
-  await bot.stop();
+  bot.stop(signal);
 
   logger.info('Server shutdown complete');
   process.exit(0);

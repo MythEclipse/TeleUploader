@@ -1,5 +1,6 @@
+// @ts-nocheck
 import { describe, it, expect } from "bun:test";
-import { getFileType, checkFileSize, extractFileName, extractMimeType } from "../src/utils/file.js";
+import { getFileType, checkFileSize, extractFileName, extractMimeType } from "../src/utils/file";
 
 describe("File Utilities", () => {
   describe("getFileType", () => {

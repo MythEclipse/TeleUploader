@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 
 // Mock database layer
@@ -9,7 +10,7 @@ const mockSelect = mock(() => ({
   }))
 }));
 
-mock.module("../src/db/index.js", () => ({
+mock.module("../src/db/index", () => ({
   db: {
     select: mockSelect
   },
@@ -22,9 +23,9 @@ mock.module("../src/db/index.js", () => ({
 
 // Mock telegram utils
 const mockGetFile = mock(() => Promise.resolve({ file_path: "photos/file_0.jpg" }));
-mock.module("../src/utils/telegram.js", () => ({
+mock.module("../src/utils/telegram", () => ({
   getBot: () => ({
-    api: {
+    telegram: {
       getFile: mockGetFile
     }
   })
@@ -32,7 +33,7 @@ mock.module("../src/utils/telegram.js", () => ({
 
 // Mock rateLimit
 const mockCheckRateLimit = mock(() => true);
-mock.module("../src/utils/rateLimit.js", () => ({
+mock.module("../src/utils/rateLimit", () => ({
   checkRateLimit: mockCheckRateLimit
 }));
 
@@ -47,7 +48,7 @@ describe("File Route Handlers", () => {
     // Set up mock token
     process.env.BOT_TOKEN = "123456:ABC-DEF";
 
-    const filesRoute = await import("../src/routes/files.js");
+    const filesRoute = await import("../src/routes/files");
     handleFileRedirect = filesRoute.handleFileRedirect;
     handleFileInfo = filesRoute.handleFileInfo;
   });
@@ -56,8 +57,9 @@ describe("File Route Handlers", () => {
     it("should return 429 if rate limit is exceeded", async () => {
       mockCheckRateLimit.mockImplementationOnce(() => false);
       const req = new Request("http://localhost:3000/f/test-id");
+      req.params = { public_id: "test-id" };
 
-      const res = await handleFileRedirect(req, { params: { public_id: "test-id" } });
+      const res = await handleFileRedirect(req);
       expect(res.status).toBe(429);
       const body = await res.json();
       expect(body.error).toBe("Rate limit exceeded");
@@ -73,7 +75,8 @@ describe("File Route Handlers", () => {
       }));
 
       const req = new Request("http://localhost:3000/f/missing-id");
-      const res = await handleFileRedirect(req, { params: { public_id: "missing-id" } });
+      req.params = { public_id: "missing-id" };
+      const res = await handleFileRedirect(req);
       expect(res.status).toBe(404);
       const body = await res.json();
       expect(body.error).toBe("File not found");
@@ -94,7 +97,8 @@ describe("File Route Handlers", () => {
       }));
 
       const req = new Request("http://localhost:3000/f/test-id");
-      const res = await handleFileRedirect(req, { params: { public_id: "test-id" } });
+      req.params = { public_id: "test-id" };
+      const res = await handleFileRedirect(req);
       expect(res.status).toBe(302);
       expect(res.headers.get("Location")).toBe("https://api.telegram.org/file/bot123456:ABC-DEF/photos/file_0.jpg");
     });
@@ -105,7 +109,8 @@ describe("File Route Handlers", () => {
       });
 
       const req = new Request("http://localhost:3000/f/test-id");
-      const res = await handleFileRedirect(req, { params: { public_id: "test-id" } });
+      req.params = { public_id: "test-id" };
+      const res = await handleFileRedirect(req);
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.error).toBe("Server error");
@@ -123,7 +128,8 @@ describe("File Route Handlers", () => {
       }));
 
       const req = new Request("http://localhost:3000/file/missing-id/info");
-      const res = await handleFileInfo(req, { params: { public_id: "missing-id" } });
+      req.params = { public_id: "missing-id" };
+      const res = await handleFileInfo(req);
       expect(res.status).toBe(404);
       const body = await res.json();
       expect(body.error).toBe("File not found");
@@ -149,7 +155,8 @@ describe("File Route Handlers", () => {
       }));
 
       const req = new Request("http://localhost:3000/file/test-id/info");
-      const res = await handleFileInfo(req, { params: { public_id: "test-id" } });
+      req.params = { public_id: "test-id" };
+      const res = await handleFileInfo(req);
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toEqual({
@@ -169,7 +176,8 @@ describe("File Route Handlers", () => {
       });
 
       const req = new Request("http://localhost:3000/file/test-id/info");
-      const res = await handleFileInfo(req, { params: { public_id: "test-id" } });
+      req.params = { public_id: "test-id" };
+      const res = await handleFileInfo(req);
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.error).toBe("Server error");

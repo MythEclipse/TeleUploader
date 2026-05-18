@@ -1,6 +1,7 @@
+// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import logger from "../src/utils/logger.js";
-import { config } from "../src/env.js";
+import logger from "../src/utils/logger";
+import { config } from "../src/env";
 
 // Mock Telegraf and fetch
 mock.module("telegraf", () => {
@@ -8,7 +9,7 @@ mock.module("telegraf", () => {
     Telegraf: class {
       constructor(token) {
         this.token = token;
-        this.api = {
+        this.telegram = {
           sendPhoto: mock(() => Promise.resolve({
             message_id: 12345,
             photo: [
@@ -34,7 +35,7 @@ describe("Telegram API Utilities", () => {
     global.fetch = mock(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
 
     // Import dynamically so mocking is applied first
-    const telegramUtils = await import("../src/utils/telegram.js");
+    const telegramUtils = await import("../src/utils/telegram");
     forwardToStorage = telegramUtils.forwardToStorage;
     getFileInfo = telegramUtils.getFileInfo;
     getBot = telegramUtils.getBot;
@@ -48,7 +49,7 @@ describe("Telegram API Utilities", () => {
     it("should return the telegraf bot instance", () => {
       const bot = getBot();
       expect(bot).toBeDefined();
-      expect(bot.api).toBeDefined();
+      expect(bot.telegram).toBeDefined();
     });
   });
 
@@ -71,7 +72,7 @@ describe("Telegram API Utilities", () => {
 
     it("should handle error when forwarding fails", async () => {
       const bot = getBot();
-      bot.api.sendPhoto = mock(() => Promise.reject(new Error("Telegram send failed")));
+      bot.telegram.sendPhoto = mock(() => Promise.reject(new Error("Telegram send failed")));
 
       const chunk = Buffer.from("fake photo data");
       const fileName = "test_photo.jpg";

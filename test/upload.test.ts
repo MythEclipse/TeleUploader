@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
 
 // Mock db
@@ -5,7 +6,7 @@ const mockInsert = mock(() => ({
   values: mock(() => Promise.resolve())
 }));
 
-mock.module("../src/db/index.js", () => ({
+mock.module("../src/db/index", () => ({
   db: {
     insert: mockInsert
   },
@@ -18,14 +19,14 @@ mock.module("nanoid", () => ({
 }));
 
 // Mock telegram utils
-mock.module("../src/utils/telegram.js", () => ({
+mock.module("../src/utils/telegram", () => ({
   forwardToStorage: mock(() => Promise.resolve({
     telegramFileId: "tg-file-id-123",
     telegramFileUniqueId: "tg-unique-id-abc",
     storageMessageId: 98765
   })),
   getBot: () => ({
-    api: {
+    telegram: {
       getFile: mock(() => Promise.resolve({
         file_id: "tg-file-id-123",
         file_size: 1000,
@@ -40,7 +41,7 @@ describe("Upload Route Handler", () => {
 
   beforeEach(async () => {
     mockInsert.mockClear();
-    const uploadRoute = await import("../src/routes/upload.js");
+    const uploadRoute = await import("../src/routes/upload");
     handleUpload = uploadRoute.handleUpload;
   });
 

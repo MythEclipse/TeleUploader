@@ -1,10 +1,16 @@
-import logger from '../utils/logger.js';
-import { db, files as fileSchema } from '../db/index.js';
-import { checkRateLimit } from '../utils/rateLimit.js';
+import logger from '../utils/logger';
+import { db, files as fileSchema } from '../db';
+import { checkRateLimit } from '../utils/rateLimit';
 import { eq } from 'drizzle-orm';
 
-export const handleFileRedirect = async (req, ctx) => {
-  const public_id = ctx?.params?.public_id;
+type RequestWithParams = Request & {
+  params?: {
+    public_id?: string;
+  };
+};
+
+export const handleFileRedirect = async (req: RequestWithParams): Promise<Response> => {
+  const public_id = req.params?.public_id;
   try {
     const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
 
@@ -20,9 +26,9 @@ export const handleFileRedirect = async (req, ctx) => {
     }
 
     const file = result[0];
-    const { getBot } = await import('../utils/telegram.js');
+    const { getBot } = await import('../utils/telegram');
     const bot = getBot();
-    const fileInfo = await bot.api.getFile(file.telegramFileId);
+    const fileInfo = await bot.telegram.getFile(file.telegramFileId);
 
     const redirectUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
     return new Response(null, {
@@ -31,14 +37,14 @@ export const handleFileRedirect = async (req, ctx) => {
         'Location': redirectUrl
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('File redirect error', { public_id, error: error.message });
     return Response.json({ error: 'Server error' }, { status: 500 });
   }
 };
 
-export const handleFileInfo = async (req, ctx) => {
-  const public_id = ctx?.params?.public_id;
+export const handleFileInfo = async (req: RequestWithParams): Promise<Response> => {
+  const public_id = req.params?.public_id;
   try {
     if (!public_id) {
       return Response.json({ error: 'Missing file id' }, { status: 400 });
@@ -59,9 +65,9 @@ export const handleFileInfo = async (req, ctx) => {
       size_bytes: file.sizeBytes,
       file_type: file.fileType,
       uploader_id: file.uploaderId,
-      created_at: file.createdAt.toISOString ? file.createdAt.toISOString() : file.createdAt
+      created_at: typeof file.createdAt === 'string' ? file.createdAt : (file.createdAt as Date).toISOString()
     }, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('File info error', { public_id, error: error.message });
     return Response.json({ error: 'Server error' }, { status: 500 });
   }
