@@ -1,0 +1,63 @@
+import { describe, it, expect, mock, beforeEach, afterAll } from "bun:test";
+
+const mockServe = mock((options) => {
+  return {
+    port: options.port,
+    routes: options.routes,
+    stop: mock()
+  };
+});
+
+const originalServe = Bun.serve;
+Bun.serve = mockServe;
+
+const mockStartBot = mock(() => Promise.resolve({
+  stop: mock()
+}));
+
+mock.module("../src/bot.js", () => ({
+  startBot: mockStartBot
+}));
+
+mock.module("../src/routes/upload.js", () => ({
+  handleUpload: mock()
+}));
+
+mock.module("../src/routes/files.js", () => ({
+  handleFileRedirect: mock(),
+  handleFileInfo: mock()
+}));
+
+mock.module("../src/routes/health.js", () => ({
+  handleHealth: mock()
+}));
+
+mock.module("../src/utils/rateLimit.js", () => ({
+  cleanupRateLimitCache: mock()
+}));
+
+describe("Bootstrap Server", () => {
+  beforeEach(() => {
+    mockServe.mockClear();
+    mockStartBot.mockClear();
+  });
+
+  afterAll(() => {
+    Bun.serve = originalServe;
+  });
+
+  it("should bootstrap the application successfully", async () => {
+    await import("../src/index.js");
+
+    expect(mockServe).toHaveBeenCalled();
+    expect(mockStartBot).toHaveBeenCalled();
+
+    const serveCallArgs = mockServe.mock.calls[0][0];
+    expect(serveCallArgs).toHaveProperty("port");
+    expect(serveCallArgs).toHaveProperty("routes");
+    expect(serveCallArgs.routes).toHaveProperty("/api/upload");
+    expect(serveCallArgs.routes).toHaveProperty("/f/:public_id");
+    expect(serveCallArgs.routes).toHaveProperty("/file/:public_id/info");
+    expect(serveCallArgs.routes).toHaveProperty("/health");
+  });
+});
