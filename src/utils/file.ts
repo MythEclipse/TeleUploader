@@ -5,12 +5,16 @@ const FILE_TYPES: Record<string, number> = {
   audio: 200 * 1024 * 1024, // 200MB
   voice: 200 * 1024 * 1024, // 200MB
   animation: 2 * 1024 * 1024 * 1024, // 2GB
+  sticker: 10 * 1024 * 1024, // 10MB
+  video_note: 2 * 1024 * 1024 * 1024, // 2GB
 };
 
 export const getFileType = (mime: string | null, caption?: string): string => {
   const mimeUpper = mime?.split('/')[0]?.toLowerCase();
   const captionLower = caption?.toLowerCase();
 
+  if (mime?.toLowerCase() === 'image/webp' || captionLower?.includes('sticker')) return 'sticker';
+  if (captionLower?.includes('video_note')) return 'video_note';
   if (mimeUpper === 'video') return 'video';
   if (mimeUpper === 'audio') return 'audio';
   if (mimeUpper === 'document') return 'document';
@@ -18,7 +22,7 @@ export const getFileType = (mime: string | null, caption?: string): string => {
   if (captionLower?.includes('voice')) return 'voice';
   if (captionLower?.includes('animation')) return 'animation';
 
-  return mimeUpper || 'document';
+  return mimeUpper === 'application' ? 'application' : 'document';
 };
 
 export const checkFileSize = (sizeBytes: number, fileType: string): boolean => {
@@ -94,4 +98,10 @@ export const extractMimeType = (msg: any, request: any): string => {
     msg.animation?.mimeType ||
     'application/octet-stream'
   );
+};
+
+export const computeHash = (buffer: Buffer): string => {
+  const hasher = new Bun.CryptoHasher('sha256');
+  hasher.update(buffer);
+  return hasher.digest('hex');
 };

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { describe, expect, it } from 'bun:test';
-import { checkFileSize, extractFileName, extractMimeType, getFileType } from '../src/utils/file';
+import { checkFileSize, computeHash, extractFileName, extractMimeType, getFileType } from '../src/utils/file';
 
 describe('File Utilities', () => {
   describe('getFileType', () => {
@@ -26,9 +26,17 @@ describe('File Utilities', () => {
       expect(getFileType('application/octet-stream', 'cool animation')).toBe('animation');
     });
 
+    it('should classify sticker and video_note', () => {
+      expect(getFileType('image/webp', '')).toBe('sticker');
+      expect(getFileType('image/webp', 'some caption')).toBe('sticker');
+      expect(getFileType('video/mp4', 'this is a video_note')).toBe('video_note');
+      expect(getFileType('application/octet-stream', 'video_note file')).toBe('video_note');
+    });
+
     it('should default to mime first segment or document', () => {
       expect(getFileType('application/pdf', '')).toBe('application');
       expect(getFileType(null, '')).toBe('document');
+      expect(getFileType('unknown/type', '')).toBe('document');
     });
   });
 
@@ -36,11 +44,13 @@ describe('File Utilities', () => {
     it('should allow files under the size limit', () => {
       expect(checkFileSize(5 * 1024 * 1024, 'photo')).toBe(true); // Photo limit is 10MB
       expect(checkFileSize(1 * 1024 * 1024 * 1024, 'video')).toBe(true); // Video limit is 2GB
+      expect(checkFileSize(2 * 1024 * 1024 * 1024, 'document')).toBe(true); // Document limit is 2GB
     });
 
     it('should block files exceeding the size limit', () => {
       expect(checkFileSize(15 * 1024 * 1024, 'photo')).toBe(false); // Photo limit is 10MB
       expect(checkFileSize(3 * 1024 * 1024 * 1024, 'video')).toBe(false); // Video limit is 2GB
+      expect(checkFileSize(3 * 1024 * 1024 * 1024, 'document')).toBe(false);
     });
 
     it('should fall back to document limit if fileType is unknown', () => {
@@ -90,6 +100,15 @@ describe('File Utilities', () => {
 
     it('should return default mime type if not found', () => {
       expect(extractMimeType({}, null)).toBe('application/octet-stream');
+    });
+  });
+
+  describe('computeHash', () => {
+    it('should compute SHA-256 hash of a buffer', () => {
+      const buffer = Buffer.from('hello world');
+      const hash = computeHash(buffer);
+      // sha256 of 'hello world' is b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+      expect(hash).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
     });
   });
 });
