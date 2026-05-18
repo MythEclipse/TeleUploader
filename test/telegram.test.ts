@@ -1,7 +1,26 @@
 // @ts-nocheck
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { config } from '../src/env';
 import logger from '../src/utils/logger';
+
+let realPhotoBuffer: Buffer;
+
+beforeAll(async () => {
+  try {
+    const res = await fetch(
+      'https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png',
+    );
+    if (!res.ok) throw new Error('Wikimedia download failed');
+    const arrayBuffer = await res.arrayBuffer();
+    realPhotoBuffer = Buffer.from(arrayBuffer);
+  } catch {
+    // Fallback 1x1px JPEG
+    realPhotoBuffer = Buffer.from(
+      'ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9',
+      'hex',
+    );
+  }
+});
 
 // Mock Telegraf and fetch
 mock.module('telegraf', () => {
@@ -66,8 +85,8 @@ describe('Telegram API Utilities', () => {
 
   describe('forwardToStorage', () => {
     it('should forward photo to storage chat and return file details', async () => {
-      const chunk = Buffer.from('fake photo data');
-      const fileName = 'test_photo.jpg';
+      const chunk = realPhotoBuffer;
+      const fileName = 'test_photo.png';
       const result = await forwardToStorage(chunk, fileName, 'photo');
 
       expect(result).toEqual({
@@ -104,8 +123,8 @@ describe('Telegram API Utilities', () => {
       const bot = getBot();
       bot.telegram.sendPhoto = mock(() => Promise.reject(new Error('Telegram send failed')));
 
-      const chunk = Buffer.from('fake photo data');
-      const fileName = 'test_photo.jpg';
+      const chunk = realPhotoBuffer;
+      const fileName = 'test_photo.png';
 
       await expect(forwardToStorage(chunk, fileName, 'photo')).rejects.toThrow(
         'Telegram send failed',
@@ -130,8 +149,8 @@ describe('Telegram API Utilities', () => {
         });
       });
 
-      const chunk = Buffer.from('fake photo data');
-      const fileName = 'test_photo.jpg';
+      const chunk = realPhotoBuffer;
+      const fileName = 'test_photo.png';
 
       const startTime = Date.now();
       const result = await forwardToStorage(chunk, fileName, 'photo');

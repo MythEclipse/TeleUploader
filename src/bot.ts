@@ -6,18 +6,6 @@ import { config } from './env';
 import logger from './utils/logger';
 import { forwardToStorage } from './utils/telegram';
 
-interface MediaGroupBufferItem {
-  ctx: any;
-  fileId: string;
-  fileSize: number;
-  mimeType: string;
-  fileName: string;
-  fileType: string;
-  fileUniqueId: string;
-}
-
-const mediaGroupCache = new Map<string, { timer: any; items: MediaGroupBufferItem[] }>();
-
 export const startBot = async (): Promise<Telegraf<Context>> => {
   try {
     const bot = new Telegraf(config.botToken);
@@ -86,110 +74,6 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
 
           if (file_size > maxSize) {
             return ctx.reply(`File size exceeds ${maxSize / (1024 * 1024)}MB limit`);
-          }
-
-          const mediaGroupId = ctx.message.media_group_id;
-
-          if (mediaGroupId) {
-            if (!mediaGroupCache.has(mediaGroupId)) {
-              mediaGroupCache.set(mediaGroupId, { timer: null, items: [] });
-            }
-
-            const group = mediaGroupCache.get(mediaGroupId)!;
-
-            if (group.timer) {
-              clearTimeout(group.timer);
-            }
-
-            group.items.push({
-              ctx,
-              fileId: file_id,
-              fileSize: file_size,
-              mimeType: mime_type,
-              fileName: fileName,
-              fileType: fileType,
-              fileUniqueId: fileObj.file_unique_id,
-            });
-
-            group.timer = setTimeout(async () => {
-              mediaGroupCache.delete(mediaGroupId);
-
-              try {
-                const itemsToUpload: MediaGroupBufferItem[] = [];
-                const responses: string[] = [];
-
-                for (const item of group.items) {
-                  const existing = await db
-                    .select()
-                    .from(fileSchema)
-                    .where(eq(fileSchema.telegramFileUniqueId, item.fileUniqueId))
-                    .limit(1);
-
-                  if (existing && existing.length > 0) {
-                    const url = `${config.baseUrl}/f/${existing[0].publicId}`;
-                    responses.push(`File *${item.fileName}* sudah diupload! 📎\nDownload: ${url}`);
-                  } else {
-                    itemsToUpload.push(item);
-                  }
-                }
-
-                if (itemsToUpload.length > 0) {
-                  const uploadItems = itemsToUpload.map((item) => ({
-                    fileId: item.fileId,
-                    fileName: item.fileName,
-                    fileType: item.fileType,
-                  }));
-
-                  const { forwardMediaGroupToStorage } = await import('./utils/telegram');
-                  const batchResult = await forwardMediaGroupToStorage(uploadItems);
-
-                  const dbInserts = [];
-                  for (let i = 0; i < itemsToUpload.length; i++) {
-                    const item = itemsToUpload[i];
-                    const publicId = nanoid();
-                    const uploaded = {
-                      publicId,
-                      telegramFileId: batchResult.telegramFileIds[i],
-                      telegramFileUniqueId: batchResult.telegramFileUniqueIds[i],
-                      storageChatId: config.storageChatId,
-                      storageMessageId: batchResult.storageMessageId,
-                      fileName: item.fileName,
-                      mimeType: item.mimeType || 'application/octet-stream',
-                      sizeBytes: item.fileSize,
-                      fileType: item.fileType,
-                      uploaderId: ctx.from.id,
-                      createdAt: new Date(),
-                      updatedAt: new Date(),
-                    };
-
-                    dbInserts.push(uploaded);
-                    responses.push(
-                      `File *${item.fileName}* berhasil diupload! 📎\nDownload: ${config.baseUrl}/f/${publicId}`,
-                    );
-                  }
-
-                  if (dbInserts.length > 0) {
-                    await db.insert(fileSchema).values(dbInserts);
-                  }
-                }
-
-                await ctx.reply(responses.join('\n\n'));
-                logger.info('Media group uploaded as batch', {
-                  mediaGroupId,
-                  totalFiles: group.items.length,
-                  uploadedFiles: itemsToUpload.length,
-                  uploader: ctx.from.id,
-                });
-              } catch (error: any) {
-                logger.error('Failed to process media group batch', {
-                  error: error.message,
-                  mediaGroupId,
-                });
-                await ctx.reply('❌ Gagal mengupload beberapa file di media group.');
-              }
-            }, 600);
-
-            return;
           }
 
           const existing = await db

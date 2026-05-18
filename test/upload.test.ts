@@ -1,5 +1,24 @@
 // @ts-nocheck
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+let realPhotoBuffer: Buffer;
+
+beforeAll(async () => {
+  try {
+    const res = await fetch(
+      'https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png',
+    );
+    if (!res.ok) throw new Error('Wikimedia download failed');
+    const arrayBuffer = await res.arrayBuffer();
+    realPhotoBuffer = Buffer.from(arrayBuffer);
+  } catch {
+    // Fallback 1x1px JPEG
+    realPhotoBuffer = Buffer.from(
+      'ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9',
+      'hex',
+    );
+  }
+});
 
 // Mock db
 let mockSelectResult: any[] = [];
@@ -96,8 +115,8 @@ describe('Upload Route Handler', () => {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        file: Buffer.from('hello world').toString('base64'),
-        fileName: 'test.txt',
+        file: realPhotoBuffer.toString('base64'),
+        fileName: 'test.png',
       }),
     });
 
@@ -108,8 +127,8 @@ describe('Upload Route Handler', () => {
     expect(body.public_id).toBe('mocked-nanoid-id');
     expect(body.telegram_file_id).toBe('tg-file-id-123');
     expect(body.telegram_file_unique_id).toBe('tg-unique-id-abc');
-    expect(body.file_name).toBe('test.txt');
-    expect(body.file_type).toBe('document');
+    expect(body.file_name).toBe('test.png');
+    expect(body.file_type).toBe('photo');
   });
 
   it('should reject JSON upload without file key', async () => {
@@ -131,8 +150,8 @@ describe('Upload Route Handler', () => {
 
   it('should process multipart upload successfully', async () => {
     const formData = new FormData();
-    const fileBlob = new Blob([Buffer.from('multipart hello')], { type: 'text/plain' });
-    formData.append('file', fileBlob, 'test_multi.txt');
+    const fileBlob = new Blob([realPhotoBuffer], { type: 'image/png' });
+    formData.append('file', fileBlob, 'test_multi.png');
 
     const req = new Request('http://localhost:3000/api/upload', {
       method: 'POST',
@@ -143,7 +162,7 @@ describe('Upload Route Handler', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.public_id).toBe('mocked-nanoid-id');
-    expect(body.file_name).toBe('test_multi.txt');
+    expect(body.file_name).toBe('test_multi.png');
   });
 
   it('should deduplicate multipart upload if hash exists', async () => {
