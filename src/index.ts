@@ -3,6 +3,7 @@ import { startBot } from './bot';
 import { config } from './env';
 import { handleFileInfo, handleFileRedirect } from './routes/files';
 import { handleHealth } from './routes/health';
+import { handleSwaggerHtml, handleSwaggerJson } from './routes/swagger';
 import { handleUpload } from './routes/upload';
 import logger from './utils/logger';
 import { cleanupRateLimitCache } from './utils/rateLimit';
@@ -21,6 +22,12 @@ const server = serve({
     },
     '/health': {
       GET: handleHealth,
+    },
+    '/docs': {
+      GET: handleSwaggerHtml,
+    },
+    '/swagger.json': {
+      GET: handleSwaggerJson,
     },
   },
 });
