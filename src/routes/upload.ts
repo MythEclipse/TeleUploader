@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
 import { config } from '../env';
-import { checkFileSize, ensureExtension, extractMimeType, getFileType } from '../utils/file';
+import { checkFileSize, computeHash, ensureExtension, extractMimeType, getFileType } from '../utils/file';
 import logger from '../utils/logger';
 import { forwardToStorage, getBot } from '../utils/telegram';
 
@@ -38,6 +39,36 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
 
     const fileBytes = await file.arrayBuffer();
     const fileBuffer = Buffer.from(fileBytes);
+    const hash = computeHash(fileBuffer);
+
+    // Check for duplicate in DB
+    const existing = await db
+      .select()
+      .from(fileSchema)
+      .where(eq(fileSchema.fileHash, hash))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const existingFile = existing[0];
+      const responsePayload = {
+        public_id: existingFile.publicId,
+        telegram_file_id: existingFile.telegramFileId,
+        telegram_file_unique_id: existingFile.telegramFileUniqueId,
+        storage_chat_id: existingFile.storageChatId,
+        storage_message_id: existingFile.storageMessageId,
+        file_name: existingFile.fileName,
+        mime_type: existingFile.mimeType,
+        size_bytes: existingFile.sizeBytes,
+        file_type: existingFile.fileType,
+        uploader_id: existingFile.uploaderId,
+        created_at: existingFile.createdAt instanceof Date
+          ? existingFile.createdAt.toISOString()
+          : new Date(existingFile.createdAt).toISOString(),
+        download_url: `${config.baseUrl}/f/${existingFile.publicId}`,
+      };
+      return Response.json(responsePayload, { status: 200 });
+    }
+
     const rawMimeType = file.type || extractMimeType({}, req) || 'application/octet-stream';
     const { fileName: finalFileName, mimeType } = ensureExtension(
       fileName,
@@ -69,6 +100,7 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       sizeBytes: fileInfo.file_size || fileBuffer.byteLength,
       fileType: fileType,
       uploaderId: 0,
+      fileHash: hash,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -119,6 +151,36 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
     }
 
     const fileBytes = Buffer.from(base64Data, 'base64');
+    const hash = computeHash(fileBytes);
+
+    // Check for duplicate in DB
+    const existing = await db
+      .select()
+      .from(fileSchema)
+      .where(eq(fileSchema.fileHash, hash))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const existingFile = existing[0];
+      const responsePayload = {
+        public_id: existingFile.publicId,
+        telegram_file_id: existingFile.telegramFileId,
+        telegram_file_unique_id: existingFile.telegramFileUniqueId,
+        storage_chat_id: existingFile.storageChatId,
+        storage_message_id: existingFile.storageMessageId,
+        file_name: existingFile.fileName,
+        mime_type: existingFile.mimeType,
+        size_bytes: existingFile.sizeBytes,
+        file_type: existingFile.fileType,
+        uploader_id: existingFile.uploaderId,
+        created_at: existingFile.createdAt instanceof Date
+          ? existingFile.createdAt.toISOString()
+          : new Date(existingFile.createdAt).toISOString(),
+        download_url: `${config.baseUrl}/f/${existingFile.publicId}`,
+      };
+      return Response.json(responsePayload, { status: 200 });
+    }
+
     const { fileName: finalFileName, mimeType } = ensureExtension(fileName, fileBytes, rawMimeType);
     const fileType =
       getFileType(mimeType, finalFileName) === 'application'
@@ -148,6 +210,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       sizeBytes: fileInfo.file_size || fileBytes.byteLength,
       fileType: fileType,
       uploaderId: 0,
+      fileHash: hash,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

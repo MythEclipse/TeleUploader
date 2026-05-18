@@ -2,6 +2,19 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 // Mock db
+let mockSelectResult: any[] = [];
+
+const mockLimit = mock(() => Promise.resolve(mockSelectResult));
+const mockWhere = mock(() => ({
+  limit: mockLimit,
+}));
+const mockFrom = mock(() => ({
+  where: mockWhere,
+}));
+const mockSelect = mock(() => ({
+  from: mockFrom,
+}));
+
 const mockInsert = mock(() => ({
   values: mock(() => Promise.resolve()),
 }));
@@ -9,6 +22,7 @@ const mockInsert = mock(() => ({
 mock.module('../src/db/index', () => ({
   db: {
     insert: mockInsert,
+    select: mockSelect,
   },
   files: {},
 }));
@@ -19,23 +33,27 @@ mock.module('nanoid', () => ({
 }));
 
 // Mock telegram utils
+const mockForwardToStorage = mock(() =>
+  Promise.resolve({
+    telegramFileId: 'tg-file-id-123',
+    telegramFileUniqueId: 'tg-unique-id-abc',
+    storageMessageId: 98765,
+  }),
+);
+
+const mockGetFile = mock(() =>
+  Promise.resolve({
+    file_id: 'tg-file-id-123',
+    file_size: 1000,
+    mime_type: 'image/jpeg',
+  }),
+);
+
 mock.module('../src/utils/telegram', () => ({
-  forwardToStorage: mock(() =>
-    Promise.resolve({
-      telegramFileId: 'tg-file-id-123',
-      telegramFileUniqueId: 'tg-unique-id-abc',
-      storageMessageId: 98765,
-    }),
-  ),
+  forwardToStorage: mockForwardToStorage,
   getBot: () => ({
     telegram: {
-      getFile: mock(() =>
-        Promise.resolve({
-          file_id: 'tg-file-id-123',
-          file_size: 1000,
-          mime_type: 'image/jpeg',
-        }),
-      ),
+      getFile: mockGetFile,
     },
   }),
 }));
@@ -45,6 +63,13 @@ describe('Upload Route Handler', () => {
 
   beforeEach(async () => {
     mockInsert.mockClear();
+    mockSelect.mockClear();
+    mockFrom.mockClear();
+    mockWhere.mockClear();
+    mockLimit.mockClear();
+    mockForwardToStorage.mockClear();
+    mockGetFile.mockClear();
+    mockSelectResult = [];
     const uploadRoute = await import('../src/routes/upload');
     handleUpload = uploadRoute.handleUpload;
   });
@@ -119,6 +144,97 @@ describe('Upload Route Handler', () => {
     const body = await res.json();
     expect(body.public_id).toBe('mocked-nanoid-id');
     expect(body.file_name).toBe('test_multi.txt');
+  });
+
+  it('should deduplicate multipart upload if hash exists', async () => {
+    mockSelectResult = [
+      {
+        publicId: 'existing-id-123',
+        telegramFileId: 'existing-tg-id',
+        telegramFileUniqueId: 'existing-tg-unique',
+        storageChatId: 12345,
+        storageMessageId: 67890,
+        fileName: 'existing_name.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 100,
+        fileType: 'document',
+        uploaderId: 0,
+        createdAt: new Date('2026-05-18T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-18T00:00:00.000Z'),
+      },
+    ];
+
+    const formData = new FormData();
+    const fileBlob = new Blob([Buffer.from('multipart hello')], { type: 'text/plain' });
+    formData.append('file', fileBlob, 'test_multi.txt');
+
+    const req = new Request('http://localhost:3000/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const res = await handleUpload(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.public_id).toBe('existing-id-123');
+    expect(body.telegram_file_id).toBe('existing-tg-id');
+    expect(body.telegram_file_unique_id).toBe('existing-tg-unique');
+    expect(body.file_name).toBe('existing_name.txt');
+    expect(body.download_url).toContain('/f/existing-id-123');
+
+    // DB query happened
+    expect(mockSelect).toHaveBeenCalled();
+    // No telegram upload happened
+    expect(mockForwardToStorage).not.toHaveBeenCalled();
+    // No db insertion happened
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('should deduplicate JSON upload if hash exists', async () => {
+    mockSelectResult = [
+      {
+        publicId: 'existing-json-id',
+        telegramFileId: 'existing-tg-json-id',
+        telegramFileUniqueId: 'existing-tg-json-unique',
+        storageChatId: 12345,
+        storageMessageId: 67890,
+        fileName: 'existing_json.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 200,
+        fileType: 'document',
+        uploaderId: 0,
+        createdAt: new Date('2026-05-18T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-18T00:00:00.000Z'),
+      },
+    ];
+
+    const req = new Request('http://localhost:3000/api/upload', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        file: Buffer.from('hello world').toString('base64'),
+        fileName: 'test.txt',
+      }),
+    });
+
+    const res = await handleUpload(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.public_id).toBe('existing-json-id');
+    expect(body.telegram_file_id).toBe('existing-tg-json-id');
+    expect(body.file_name).toBe('existing_json.txt');
+    expect(body.download_url).toContain('/f/existing-json-id');
+
+    // DB query happened
+    expect(mockSelect).toHaveBeenCalled();
+    // No telegram upload happened
+    expect(mockForwardToStorage).not.toHaveBeenCalled();
+    // No db insertion happened
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   afterAll(() => {
