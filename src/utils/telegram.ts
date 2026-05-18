@@ -24,17 +24,17 @@ export const forwardToStorage = async (
 ): Promise<ForwardResult> => {
   try {
     const caption = forceDocument ? `📁 ${fileName}` : fileName;
-    const input: any = forceDocument
-      ? { document: fileChunk, caption }
-      : { photo: [fileChunk], caption };
-
-    const result = await bot.telegram.sendPhoto(config.storageChatId, input);
+    const filePayload = { source: fileChunk, filename: fileName };
+    const result: any = forceDocument
+      ? await bot.telegram.sendDocument(config.storageChatId, filePayload, { caption })
+      : await bot.telegram.sendPhoto(config.storageChatId, filePayload, { caption });
+    const uploadedFile = forceDocument ? result.document : result.photo?.slice(-1)[0];
 
     logger.info('File forwarded to storage', { fileName, message: result.message_id });
 
     return {
-      telegramFileId: result.photo?.slice(-1)[0]?.file_id || '',
-      telegramFileUniqueId: result.photo?.slice(-1)[0]?.file_unique_id || '',
+      telegramFileId: uploadedFile?.file_id || '',
+      telegramFileUniqueId: uploadedFile?.file_unique_id || '',
       storageMessageId: result.message_id,
     };
   } catch (error: any) {

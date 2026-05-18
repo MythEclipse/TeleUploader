@@ -18,6 +18,15 @@ mock.module('telegraf', () => {
               ],
             }),
           ),
+          sendDocument: mock(() =>
+            Promise.resolve({
+              message_id: 54321,
+              document: {
+                file_id: 'document_id',
+                file_unique_id: 'document_unique_id',
+              },
+            }),
+          ),
         };
       }
     },
@@ -68,6 +77,25 @@ describe('Telegram API Utilities', () => {
       expect(infoSpy).toHaveBeenCalledWith('File forwarded to storage', {
         fileName,
         message: 12345,
+      });
+    });
+
+    it('should forward documents with source and filename payload', async () => {
+      const bot = getBot();
+      const chunk = Buffer.from('fake document data');
+      const fileName = 'document.pdf';
+
+      const result = await forwardToStorage(chunk, fileName, true);
+
+      expect(bot.telegram.sendDocument).toHaveBeenCalledWith(
+        -1003996572954,
+        { source: chunk, filename: fileName },
+        { caption: `📁 ${fileName}` },
+      );
+      expect(result).toEqual({
+        telegramFileId: 'document_id',
+        telegramFileUniqueId: 'document_unique_id',
+        storageMessageId: 54321,
       });
     });
 
