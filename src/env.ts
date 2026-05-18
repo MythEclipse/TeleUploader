@@ -32,12 +32,13 @@ if (missing.length > 0) {
 
 export const config: AppConfig = {
   botToken: process.env.BOT_TOKEN!,
-  additionalBotTokens: process.env.NODE_ENV === 'test'
-    ? []
-    : (process.env.ADDITIONAL_BOT_TOKENS || '')
-        .split(',')
-        .map((t) => t.trim())
-        .filter((t) => t !== ''),
+  additionalBotTokens:
+    process.env.NODE_ENV === 'test'
+      ? []
+      : (process.env.ADDITIONAL_BOT_TOKENS || '')
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => t !== ''),
   storageChatId: parseInt(process.env.STORAGE_CHANNEL_ID!, 10),
   baseUrl: process.env.BASE_URL!,
   databaseUrl: process.env.DATABASE_URL!,

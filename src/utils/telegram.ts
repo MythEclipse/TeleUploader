@@ -30,7 +30,9 @@ const executeWithBotRetry = async (
       attemptedBots++;
 
       if (attemptedBots < bots.length) {
-        logger.info(`Bot Index ${prevIndex} hit 429. Instantly rotating to Bot Index ${nextIndex}...`);
+        logger.info(
+          `Bot Index ${prevIndex} hit 429. Instantly rotating to Bot Index ${nextIndex}...`,
+        );
         return executeWithBotRetry(action, retries, attemptedBots);
       }
 
