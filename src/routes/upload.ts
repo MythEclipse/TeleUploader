@@ -2,7 +2,13 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
 import { config } from '../env';
-import { checkFileSize, computeHash, ensureExtension, extractMimeType, getFileType } from '../utils/file';
+import {
+  checkFileSize,
+  computeHash,
+  ensureExtension,
+  extractMimeType,
+  getFileType,
+} from '../utils/file';
 import logger from '../utils/logger';
 import { forwardToStorage, getBot } from '../utils/telegram';
 
@@ -61,9 +67,10 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
         size_bytes: existingFile.sizeBytes,
         file_type: existingFile.fileType,
         uploader_id: existingFile.uploaderId,
-        created_at: existingFile.createdAt instanceof Date
-          ? existingFile.createdAt.toISOString()
-          : new Date(existingFile.createdAt).toISOString(),
+        created_at:
+          existingFile.createdAt instanceof Date
+            ? existingFile.createdAt.toISOString()
+            : new Date(existingFile.createdAt).toISOString(),
         download_url: `${config.baseUrl}/f/${existingFile.publicId}`,
       };
       return Response.json(responsePayload, { status: 200 });
@@ -173,9 +180,10 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
         size_bytes: existingFile.sizeBytes,
         file_type: existingFile.fileType,
         uploader_id: existingFile.uploaderId,
-        created_at: existingFile.createdAt instanceof Date
-          ? existingFile.createdAt.toISOString()
-          : new Date(existingFile.createdAt).toISOString(),
+        created_at:
+          existingFile.createdAt instanceof Date
+            ? existingFile.createdAt.toISOString()
+            : new Date(existingFile.createdAt).toISOString(),
         download_url: `${config.baseUrl}/f/${existingFile.publicId}`,
       };
       return Response.json(responsePayload, { status: 200 });
