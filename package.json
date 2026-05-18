@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/index.ts",
-    "start": "NODE_ENV=production bun src/index.ts",
+    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js",
+    "start": "NODE_ENV=production bun dist/index.js",
     "db:migrate": "psql $DATABASE_URL -f schema.sql",
     "test": "bun test test/rateLimit.test.ts && bun test test/file.test.ts && bun test test/telegram.test.ts && bun test test/upload.test.ts && bun test test/files.test.ts && bun test test/health.test.ts && bun test test/bot.test.ts && bun test test/bootstrap.test.ts",
     "lint": "bunx biome check src test",
