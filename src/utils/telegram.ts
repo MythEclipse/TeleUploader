@@ -6,7 +6,6 @@ import { enqueueUpload } from './telegramQueue';
 const botTokens = Array.from(new Set([config.botToken, ...config.additionalBotTokens]));
 
 const bots = botTokens.map((token) => new Telegraf(token));
-const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
 
 let currentBotIndex = 0;
 
@@ -67,20 +66,6 @@ interface TelegramFileInfo {
   file_size: number;
   mime_type: string;
   file_path: string;
-}
-
-interface TelegramGetFileResponse {
-  ok: boolean;
-  description?: string;
-  result: {
-    file_id: string;
-  };
-}
-
-interface TelegramGetInfoResponse {
-  ok: boolean;
-  description?: string;
-  result: TelegramFileInfo;
 }
 
 interface UploadedTelegramFile {
@@ -256,32 +241,17 @@ export const forwardMediaGroupToStorage = async (
 
 export const getFileInfo = async (
   telegramFileId: string,
-  telegramFileUniqueId: string,
 ): Promise<TelegramFileInfo> => {
   try {
-    const result = await fetch(`${TELEGRAM_API_URL}getFile`);
-    const data = (await result.json()) as TelegramGetFileResponse;
+    const result = await executeWithBotRetry((activeBot) =>
+      activeBot.telegram.getFile(telegramFileId),
+    );
 
-    if (!data.ok) {
-      throw new Error(data.description || 'Telegram API error');
-    }
-
-    const fileId = data.result.file_id === telegramFileId ? telegramFileId : telegramFileUniqueId;
-    const fileResult = await fetch(`${TELEGRAM_API_URL}getInfo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: fileId }),
-    });
-    const fileInfo = (await fileResult.json()) as TelegramGetInfoResponse;
-
-    if (!fileInfo.ok) {
-      throw new Error(fileInfo.description || 'Telegram info error');
-    }
-
+    const fileData = result as unknown as TelegramFileInfo;
     return {
-      file_size: fileInfo.result.file_size,
-      mime_type: fileInfo.result.mime_type,
-      file_path: fileInfo.result.file_path,
+      file_size: fileData.file_size || 0,
+      mime_type: fileData.mime_type || 'application/octet-stream',
+      file_path: fileData.file_path || '',
     };
   } catch (error: unknown) {
     logger.error('Failed to get file info', {
@@ -291,4 +261,6 @@ export const getFileInfo = async (
   }
 };
 
-export const getBot = (): Telegraf => bots[0];
+export const getBot = (): Telegraf => bots[currentBotIndex];
+
+export const getCurrentBotIndex = (): number => currentBotIndex;

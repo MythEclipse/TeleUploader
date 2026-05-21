@@ -19,5 +19,6 @@ ALTER TABLE files ADD COLUMN IF NOT EXISTS file_hash VARCHAR;
 
 CREATE INDEX IF NOT EXISTS idx_files_public_id ON files(public_id);
 CREATE INDEX IF NOT EXISTS idx_files_telegram_file_id ON files(telegram_file_id);
+CREATE INDEX IF NOT EXISTS idx_files_file_hash ON files(file_hash);
 CREATE INDEX IF NOT EXISTS idx_files_uploader_id ON files(uploader_id);
 CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);

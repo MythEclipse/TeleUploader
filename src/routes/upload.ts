@@ -14,16 +14,11 @@ import {
   getFileType,
 } from '../utils/file';
 import logger from '../utils/logger';
-import { forwardToStorage, getBot } from '../utils/telegram';
+import { forwardToStorage } from '../utils/telegram';
 
 type UploadedFile = NewFile & {
   createdAt: Date;
   updatedAt: Date;
-};
-
-type TelegramFileLookup = {
-  mime_type?: string;
-  file_size?: number;
 };
 
 interface JsonUploadPayload {
@@ -57,8 +52,6 @@ const performUpload = async (
     await Bun.write(tempPath, fileBuffer);
     const fileStream = createReadStream(tempPath);
     const result = await forwardToStorage(fileStream, fileName, getFileType(mimeType, fileName));
-    const bot = getBot();
-    const fileInfo = (await bot.telegram.getFile(result.telegramFileId)) as TelegramFileLookup;
 
     return {
       publicId: nanoid(),
@@ -67,8 +60,8 @@ const performUpload = async (
       storageChatId: config.storageChatId,
       storageMessageId: result.storageMessageId,
       fileName,
-      mimeType: fileInfo.mime_type || mimeType || 'application/octet-stream',
-      sizeBytes: fileInfo.file_size || fileBuffer.byteLength,
+      mimeType: mimeType || 'application/octet-stream',
+      sizeBytes: fileBuffer.byteLength,
       fileType: getFileType(mimeType, fileName),
       uploaderId: 0,
       fileHash: computeHash(fileBuffer),

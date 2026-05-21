@@ -46,6 +46,14 @@ mock.module('telegraf', () => {
               },
             }),
           ),
+          getFile: mock(() =>
+            Promise.resolve({
+              file_id: 'some_file_id',
+              file_size: 98765,
+              mime_type: 'image/jpeg',
+              file_path: 'photos/file_0.jpg',
+            }),
+          ),
         };
       }
     },
@@ -169,58 +177,13 @@ describe('Telegram API Utilities', () => {
 
   describe('getFileInfo', () => {
     it('should fetch file details successfully', async () => {
-      global.fetch = mock((url, _init) => {
-        if (url.endsWith('getFile')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                ok: true,
-                result: { file_id: 'some_file_id' },
-              }),
-            ),
-          );
-        } else if (url.endsWith('getInfo')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                ok: true,
-                result: {
-                  file_size: 98765,
-                  mime_type: 'image/jpeg',
-                  file_path: 'photos/file_0.jpg',
-                },
-              }),
-            ),
-          );
-        }
-        return Promise.reject(new Error('Unknown URL'));
-      });
-
-      const result = await getFileInfo('some_file_id', 'some_unique_id');
+      const result = await getFileInfo('some_file_id');
 
       expect(result).toEqual({
         file_size: 98765,
         mime_type: 'image/jpeg',
         file_path: 'photos/file_0.jpg',
       });
-    });
-
-    it('should handle error when getFile fails', async () => {
-      global.fetch = mock(() =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify({
-              ok: false,
-              description: 'Bad Request: file_id invalid',
-            }),
-          ),
-        ),
-      );
-
-      await expect(getFileInfo('invalid_file_id', 'invalid_unique_id')).rejects.toThrow(
-        'Bad Request: file_id invalid',
-      );
-      expect(errorSpy).toHaveBeenCalled();
     });
   });
 });

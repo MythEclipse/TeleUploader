@@ -2,6 +2,7 @@ import { findFileByPublicId } from '../db/files';
 import { formatCreatedAt, getErrorMessage } from '../utils/file';
 import logger from '../utils/logger';
 import { checkRateLimit } from '../utils/rateLimit';
+import { getBot } from '../utils/telegram';
 
 type RequestWithParams = Request & {
   params?: {
@@ -25,7 +26,6 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
       return Response.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const { getBot } = await import('../utils/telegram');
     const bot = getBot();
     const fileInfo = await bot.telegram.getFile(file.telegramFileId);
 
