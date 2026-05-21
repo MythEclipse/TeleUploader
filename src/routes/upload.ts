@@ -1,4 +1,5 @@
-import { createReadStream, unlinkSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
 import { findFileByHash } from '../db/files';
@@ -69,11 +70,13 @@ const performUpload = async (
       updatedAt: new Date(),
     };
   } finally {
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        unlinkSync(tempPath);
-      } catch {}
-    }, 50);
+        await unlink(tempPath);
+      } catch (err) {
+        logger.warn('Failed to cleanup temp file', { tempPath, error: getErrorMessage(err) });
+      }
+    }, 500);
   }
 };
 
