@@ -11,14 +11,27 @@ CREATE TABLE IF NOT EXISTS files (
   file_type VARCHAR NOT NULL,
   uploader_id BIGINT NOT NULL,
   file_hash VARCHAR,
+  archive_telegram_file_id VARCHAR,
+  archive_storage_message_id BIGINT,
+  archive_file_name VARCHAR,
+  archive_entry_name VARCHAR,
+  archive_mime_type VARCHAR,
+  archive_size_bytes BIGINT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE files ADD COLUMN IF NOT EXISTS file_hash VARCHAR;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_telegram_file_id VARCHAR;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_storage_message_id BIGINT;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_file_name VARCHAR;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_entry_name VARCHAR;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_mime_type VARCHAR;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS archive_size_bytes BIGINT;
 
 CREATE INDEX IF NOT EXISTS idx_files_public_id ON files(public_id);
 CREATE INDEX IF NOT EXISTS idx_files_telegram_file_id ON files(telegram_file_id);
 CREATE INDEX IF NOT EXISTS idx_files_file_hash ON files(file_hash);
+CREATE INDEX IF NOT EXISTS idx_files_archive_telegram_file_id ON files(archive_telegram_file_id);
 CREATE INDEX IF NOT EXISTS idx_files_uploader_id ON files(uploader_id);
 CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);

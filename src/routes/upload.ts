@@ -1,9 +1,7 @@
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
-import { db, files as fileSchema } from '../db';
 import { findFileByHash } from '../db/files';
-import type { NewFile } from '../db/schema';
 import { config } from '../env';
 import {
   buildUploadResponse,
@@ -15,12 +13,7 @@ import {
   getFileType,
 } from '../utils/file';
 import logger from '../utils/logger';
-import { forwardToStorage } from '../utils/telegram';
-
-type UploadedFile = NewFile & {
-  createdAt: Date;
-  updatedAt: Date;
-};
+import { enqueuePreparedUpload, type PreparedUpload } from '../utils/uploadBatcher';
 
 interface JsonUploadPayload {
   file?: unknown;
@@ -45,13 +38,6 @@ const normalizeFileType = (mimeType: string, fileName: string): string => {
 
 const JSON_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 const SIGNATURE_BYTES = 16;
-
-type PreparedUpload = {
-  tempPath: string;
-  fileHash: string;
-  sizeBytes: number;
-  signatureBuffer: Buffer;
-};
 
 const cleanupTempFile = async (tempPath: string): Promise<void> => {
   try {
@@ -137,46 +123,6 @@ const writeBufferToTemp = async (fileBuffer: Buffer, fileHash: string): Promise<
   }
 };
 
-const closeFileStream = async (fileStream: ReturnType<typeof createReadStream>): Promise<void> => {
-  if (fileStream.closed) return;
-
-  await new Promise<void>((resolve) => {
-    fileStream.once('close', resolve);
-    fileStream.destroy();
-  });
-};
-
-const performUpload = async (
-  prepared: PreparedUpload,
-  fileName: string,
-  mimeType: string,
-  fileType: string,
-): Promise<UploadedFile> => {
-  const fileStream = createReadStream(prepared.tempPath);
-  try {
-    const result = await forwardToStorage(fileStream, fileName, fileType);
-
-    return {
-      publicId: nanoid(),
-      telegramFileId: result.telegramFileId,
-      telegramFileUniqueId: result.telegramFileUniqueId,
-      storageChatId: config.storageChatId,
-      storageMessageId: result.storageMessageId,
-      fileName,
-      mimeType: mimeType || 'application/octet-stream',
-      sizeBytes: prepared.sizeBytes,
-      fileType,
-      uploaderId: 0,
-      fileHash: prepared.fileHash,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  } finally {
-    await closeFileStream(fileStream);
-    await cleanupTempFile(prepared.tempPath);
-  }
-};
-
 export const handleUpload = async (req: Request): Promise<Response> => {
   try {
     const contentType = req.headers.get('content-type') || '';
@@ -230,8 +176,12 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const uploaded = await performUpload(prepared, finalFileName, mimeType, fileType);
-    await db.insert(fileSchema).values(uploaded);
+    const uploaded = await enqueuePreparedUpload({
+      prepared,
+      fileName: finalFileName,
+      mimeType,
+      fileType,
+    });
 
     return Response.json(buildUploadResponse(uploaded, config.baseUrl), { status: 200 });
   } catch (error: unknown) {
@@ -280,8 +230,12 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
     }
 
     const prepared = await writeBufferToTemp(fileBytes, hash);
-    const uploaded = await performUpload(prepared, finalFileName, mimeType, fileType);
-    await db.insert(fileSchema).values(uploaded);
+    const uploaded = await enqueuePreparedUpload({
+      prepared,
+      fileName: finalFileName,
+      mimeType,
+      fileType,
+    });
 
     return Response.json(buildUploadResponse(uploaded, config.baseUrl), { status: 200 });
   } catch (error: unknown) {

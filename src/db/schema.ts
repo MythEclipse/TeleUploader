@@ -14,6 +14,12 @@ export const files = pgTable('files', {
   fileType: text('file_type').notNull(),
   uploaderId: bigint('uploader_id', { mode: 'number' }).notNull(),
   fileHash: text('file_hash'),
+  archiveTelegramFileId: text('archive_telegram_file_id'),
+  archiveStorageMessageId: bigint('archive_storage_message_id', { mode: 'number' }),
+  archiveFileName: text('archive_file_name'),
+  archiveEntryName: text('archive_entry_name'),
+  archiveMimeType: text('archive_mime_type'),
+  archiveSizeBytes: bigint('archive_size_bytes', { mode: 'number' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -4,12 +4,37 @@ import { formatCreatedAt, getErrorMessage } from '../utils/file';
 import logger from '../utils/logger';
 import { checkRateLimit } from '../utils/rateLimit';
 import { getBot } from '../utils/telegram';
+import { extractZipEntry } from '../utils/zip';
 
 type RequestWithParams = Request & {
   params?: {
     public_id?: string;
   };
 };
+
+const getTelegramFileInfo = async (telegramFileId: string, public_id: string) => {
+  const cacheKey = `file_info_${telegramFileId}`;
+  let fileInfo = fileInfoCache.get(cacheKey);
+
+  if (!fileInfo) {
+    const bot = getBot();
+    const apiFileInfo = await bot.telegram.getFile(telegramFileId);
+    fileInfo = {
+      file_size: (apiFileInfo as any).file_size || 0,
+      mime_type: (apiFileInfo as any).mime_type || 'application/octet-stream',
+      file_path: (apiFileInfo as any).file_path || '',
+    };
+    fileInfoCache.set(cacheKey, fileInfo);
+    logger.debug('File info cached', { public_id, cacheKey });
+  } else {
+    logger.debug('File info from cache', { public_id, cacheKey });
+  }
+
+  return fileInfo;
+};
+
+const buildTelegramFileUrl = (filePath: string): string =>
+  `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
 
 export const handleFileRedirect = async (req: RequestWithParams): Promise<Response> => {
   const public_id = req.params?.public_id;
@@ -27,27 +52,36 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
       return Response.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Check cache first
-    const cacheKey = `file_info_${file.telegramFileId}`;
-    let fileInfo = fileInfoCache.get(cacheKey);
+    const archiveEntryName = file.archiveEntryName;
+    if (archiveEntryName) {
+      const archiveFileId = file.archiveTelegramFileId || file.telegramFileId;
+      const archiveInfo = await getTelegramFileInfo(archiveFileId, public_id);
+      const archiveResponse = await fetch(buildTelegramFileUrl(archiveInfo.file_path));
 
-    if (!fileInfo) {
-      // Cache miss - fetch from Telegram API
-      const bot = getBot();
-      const apiFileInfo = await bot.telegram.getFile(file.telegramFileId);
-      fileInfo = {
-        file_size: (apiFileInfo as any).file_size || 0,
-        mime_type: (apiFileInfo as any).mime_type || 'application/octet-stream',
-        file_path: (apiFileInfo as any).file_path || '',
-      };
-      // Store in cache
-      fileInfoCache.set(cacheKey, fileInfo);
-      logger.debug('File info cached', { public_id, cacheKey });
-    } else {
-      logger.debug('File info from cache', { public_id, cacheKey });
+      if (!archiveResponse.ok) {
+        logger.error('Archive download failed', { public_id, status: archiveResponse.status });
+        return Response.json({ error: 'Server error' }, { status: 500 });
+      }
+
+      const archiveBuffer = Buffer.from(await archiveResponse.arrayBuffer());
+      const extractedFile = await extractZipEntry(archiveBuffer, archiveEntryName);
+      if (!extractedFile) {
+        logger.error('Archive entry not found', { public_id, archiveEntryName });
+        return Response.json({ error: 'File not found' }, { status: 404 });
+      }
+
+      return new Response(extractedFile, {
+        status: 200,
+        headers: {
+          'Content-Type': file.mimeType,
+          'Content-Disposition': `attachment; filename="${file.fileName.replace(/"/g, '')}"`,
+          'Content-Length': String(extractedFile.byteLength),
+        },
+      });
     }
 
-    const redirectUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
+    const fileInfo = await getTelegramFileInfo(file.telegramFileId, public_id);
+    const redirectUrl = buildTelegramFileUrl(fileInfo.file_path);
     return new Response(null, {
       status: 302,
       headers: {
