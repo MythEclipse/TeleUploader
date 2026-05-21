@@ -8,7 +8,11 @@ describe('Swagger Documentation Endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
 
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as {
+      openapi: string;
+      info: { title: string };
+      paths: Record<string, { post?: { requestBody: { content: Record<string, unknown> } } }>;
+    };
     expect(body.openapi).toBe('3.0.0');
     expect(body.info.title).toBe('TeleUploader API');
     expect(body.paths).toHaveProperty('/health');

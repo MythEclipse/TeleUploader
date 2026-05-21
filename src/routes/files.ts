@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { db, files as fileSchema } from '../db';
+import { findFileByPublicId } from '../db/files';
+import { formatCreatedAt, getErrorMessage } from '../utils/file';
 import logger from '../utils/logger';
 import { checkRateLimit } from '../utils/rateLimit';
 
@@ -18,18 +18,13 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
       return Response.json({ error: 'Rate limit exceeded' }, { status: 429 });
     }
 
-    const result = await db
-      .select()
-      .from(fileSchema)
-      .where(eq(fileSchema.publicId, public_id))
-      .limit(1);
+    const file = await findFileByPublicId(public_id);
 
-    if (!result.length) {
+    if (!file) {
       logger.warn('File not found', { public_id });
       return Response.json({ error: 'File not found' }, { status: 404 });
     }
 
-    const file = result[0];
     const { getBot } = await import('../utils/telegram');
     const bot = getBot();
     const fileInfo = await bot.telegram.getFile(file.telegramFileId);
@@ -41,8 +36,8 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
         Location: redirectUrl,
       },
     });
-  } catch (error: any) {
-    logger.error('File redirect error', { public_id, error: error.message });
+  } catch (error: unknown) {
+    logger.error('File redirect error', { public_id, error: getErrorMessage(error) });
     return Response.json({ error: 'Server error' }, { status: 500 });
   }
 };
@@ -54,18 +49,12 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
       return Response.json({ error: 'Missing file id' }, { status: 400 });
     }
 
-    const result = await db
-      .select()
-      .from(fileSchema)
-      .where(eq(fileSchema.publicId, public_id))
-      .limit(1);
+    const file = await findFileByPublicId(public_id);
 
-    if (!result.length) {
+    if (!file) {
       logger.warn('File not found', { public_id });
       return Response.json({ error: 'File not found' }, { status: 404 });
     }
-
-    const file = result[0];
     return Response.json(
       {
         public_id: file.publicId,
@@ -74,15 +63,12 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
         size_bytes: file.sizeBytes,
         file_type: file.fileType,
         uploader_id: file.uploaderId,
-        created_at:
-          typeof file.createdAt === 'string'
-            ? file.createdAt
-            : (file.createdAt as Date).toISOString(),
+        created_at: formatCreatedAt(file.createdAt),
       },
       { status: 200 },
     );
-  } catch (error: any) {
-    logger.error('File info error', { public_id, error: error.message });
+  } catch (error: unknown) {
+    logger.error('File info error', { public_id, error: getErrorMessage(error) });
     return Response.json({ error: 'Server error' }, { status: 500 });
   }
 };

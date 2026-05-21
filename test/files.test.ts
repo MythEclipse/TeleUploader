@@ -1,23 +1,62 @@
-// @ts-nocheck
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-// Mock database layer
-const mockSelect = mock(() => ({
-  from: mock(() => ({
-    where: mock(() => ({
-      limit: mock(() => Promise.resolve([])),
-    })),
-  })),
-}));
+type RequestWithParams = Request & {
+  params?: {
+    public_id?: string;
+  };
+};
 
-mock.module('../src/db/index', () => ({
-  db: {
-    select: mockSelect,
-  },
-  files: {
-    publicId: {
-      equals: (val) => ({ type: 'equals', value: val }),
-    },
+type ErrorBody = {
+  error: string;
+};
+
+type FileInfoBody = {
+  public_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  file_type: string;
+  uploader_id: number;
+  created_at: string;
+};
+
+type JsonBody = ErrorBody | FileInfoBody | Record<string, unknown>;
+
+type MockFileRecord = Record<string, unknown>;
+
+type MockSelectChain = {
+  from: () => {
+    where: () => {
+      limit: () => Promise<MockFileRecord[]>;
+    };
+  };
+};
+
+const requestWithPublicId = (url: string, publicId: string): RequestWithParams => {
+  const req = new Request(url) as RequestWithParams;
+  req.params = { public_id: publicId };
+  return req;
+};
+
+const responseJson = async <T extends JsonBody>(res: Response): Promise<T> => {
+  return (await res.json()) as T;
+};
+
+// Mock database layer
+const emptySelectChain = (): MockSelectChain => ({
+  from: () => ({
+    where: () => ({
+      limit: () => Promise.resolve([]),
+    }),
+  }),
+});
+
+const mockSelect = mock(() => emptySelectChain());
+
+mock.module('../src/db/files', () => ({
+  findFileByPublicId: async () => {
+    const chain = mockSelect();
+    return (await chain.from().where().limit())[0] || null;
   },
 }));
 
@@ -38,7 +77,8 @@ mock.module('../src/utils/rateLimit', () => ({
 }));
 
 describe('File Route Handlers', () => {
-  let handleFileRedirect: any, handleFileInfo: any;
+  let handleFileRedirect: typeof import('../src/routes/files').handleFileRedirect;
+  let handleFileInfo: typeof import('../src/routes/files').handleFileInfo;
 
   beforeEach(async () => {
     mockSelect.mockClear();
@@ -56,12 +96,11 @@ describe('File Route Handlers', () => {
   describe('handleFileRedirect', () => {
     it('should return 429 if rate limit is exceeded', async () => {
       mockCheckRateLimit.mockImplementationOnce(() => false);
-      const req = new Request('http://localhost:3000/f/test-id');
-      req.params = { public_id: 'test-id' };
+      const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
 
       const res = await handleFileRedirect(req);
       expect(res.status).toBe(429);
-      const body = await res.json();
+      const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('Rate limit exceeded');
     });
 
@@ -74,11 +113,10 @@ describe('File Route Handlers', () => {
         }),
       }));
 
-      const req = new Request('http://localhost:3000/f/missing-id');
-      req.params = { public_id: 'missing-id' };
+      const req = requestWithPublicId('http://localhost:3000/f/missing-id', 'missing-id');
       const res = await handleFileRedirect(req);
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('File not found');
     });
 
@@ -99,8 +137,7 @@ describe('File Route Handlers', () => {
         }),
       }));
 
-      const req = new Request('http://localhost:3000/f/test-id');
-      req.params = { public_id: 'test-id' };
+      const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
       const res = await handleFileRedirect(req);
       expect(res.status).toBe(302);
       expect(res.headers.get('Location')).toBe(
@@ -113,11 +150,10 @@ describe('File Route Handlers', () => {
         throw new Error('DB Connection Error');
       });
 
-      const req = new Request('http://localhost:3000/f/test-id');
-      req.params = { public_id: 'test-id' };
+      const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
       const res = await handleFileRedirect(req);
       expect(res.status).toBe(500);
-      const body = await res.json();
+      const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('Server error');
     });
   });
@@ -132,11 +168,10 @@ describe('File Route Handlers', () => {
         }),
       }));
 
-      const req = new Request('http://localhost:3000/file/missing-id/info');
-      req.params = { public_id: 'missing-id' };
+      const req = requestWithPublicId('http://localhost:3000/file/missing-id/info', 'missing-id');
       const res = await handleFileInfo(req);
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('File not found');
     });
 
@@ -159,11 +194,10 @@ describe('File Route Handlers', () => {
         }),
       }));
 
-      const req = new Request('http://localhost:3000/file/test-id/info');
-      req.params = { public_id: 'test-id' };
+      const req = requestWithPublicId('http://localhost:3000/file/test-id/info', 'test-id');
       const res = await handleFileInfo(req);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await responseJson<FileInfoBody>(res);
       expect(body).toEqual({
         public_id: 'test-id',
         file_name: 'image.png',
@@ -180,11 +214,10 @@ describe('File Route Handlers', () => {
         throw new Error('DB Connection Error');
       });
 
-      const req = new Request('http://localhost:3000/file/test-id/info');
-      req.params = { public_id: 'test-id' };
+      const req = requestWithPublicId('http://localhost:3000/file/test-id/info', 'test-id');
       const res = await handleFileInfo(req);
       expect(res.status).toBe(500);
-      const body = await res.json();
+      const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('Server error');
     });
   });

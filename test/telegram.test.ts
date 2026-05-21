@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { config } from '../src/env';
 import logger from '../src/utils/logger';
@@ -57,7 +56,9 @@ const infoSpy = spyOn(logger, 'info');
 const errorSpy = spyOn(logger, 'error');
 
 describe('Telegram API Utilities', () => {
-  let forwardToStorage: any, getFileInfo: any, getBot: any;
+  let forwardToStorage: typeof import('../src/utils/telegram').forwardToStorage;
+  let getFileInfo: typeof import('../src/utils/telegram').getFileInfo;
+  let getBot: typeof import('../src/utils/telegram').getBot;
 
   beforeEach(async () => {
     infoSpy.mockClear();

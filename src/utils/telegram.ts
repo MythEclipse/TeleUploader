@@ -10,28 +10,35 @@ const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.botToken}/`;
 
 let currentBotIndex = 0;
 
-const executeWithBotRetry = async (
-  action: (botInstance: Telegraf) => Promise<any>,
+const rotateBot = (): { previousIndex: number; nextIndex: number } => {
+  const previousIndex = currentBotIndex;
+  currentBotIndex = (currentBotIndex + 1) % bots.length;
+  return { previousIndex, nextIndex: currentBotIndex };
+};
+
+const sleep = (seconds: number): Promise<void> => {
+  return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+};
+
+const executeWithBotRetry = async <T>(
+  action: (botInstance: Telegraf) => Promise<T>,
   retries = 5,
   attemptedBots = 0,
-): Promise<any> => {
+): Promise<T> => {
   const currentBot = bots[currentBotIndex];
   try {
     return await action(currentBot);
-  } catch (error: any) {
-    const errorStr = error.message || String(error);
+  } catch (error: unknown) {
+    const errorStr = error instanceof Error ? error.message : String(error);
     const match = errorStr.match(/retry after (\d+)/i);
 
     if (match) {
-      // 429 rate limit hit! Rotate bot index instantly
-      const prevIndex = currentBotIndex;
-      currentBotIndex = (currentBotIndex + 1) % bots.length;
-      const nextIndex = currentBotIndex;
+      const { previousIndex, nextIndex } = rotateBot();
       attemptedBots++;
 
       if (attemptedBots < bots.length) {
         logger.info(
-          `Bot Index ${prevIndex} hit 429. Instantly rotating to Bot Index ${nextIndex}...`,
+          `Bot Index ${previousIndex} hit 429. Instantly rotating to Bot Index ${nextIndex}...`,
         );
         return executeWithBotRetry(action, retries, attemptedBots);
       }
@@ -42,7 +49,7 @@ const executeWithBotRetry = async (
         logger.warn(`All bots in the pool are rate-limited. Sleeping for ${seconds} seconds...`, {
           error: errorStr,
         });
-        await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+        await sleep(seconds);
         return executeWithBotRetry(action, retries - 1, 0);
       }
     }
@@ -62,61 +69,121 @@ interface TelegramFileInfo {
   file_path: string;
 }
 
+interface TelegramGetFileResponse {
+  ok: boolean;
+  description?: string;
+  result: {
+    file_id: string;
+  };
+}
+
+interface TelegramGetInfoResponse {
+  ok: boolean;
+  description?: string;
+  result: TelegramFileInfo;
+}
+
+interface UploadedTelegramFile {
+  file_id?: string;
+  file_unique_id?: string;
+}
+
+interface TelegramMessageResult {
+  message_id: number;
+  document?: UploadedTelegramFile;
+  photo?: UploadedTelegramFile[];
+  video?: UploadedTelegramFile;
+  audio?: UploadedTelegramFile;
+  voice?: UploadedTelegramFile;
+  animation?: UploadedTelegramFile;
+  sticker?: UploadedTelegramFile;
+  video_note?: UploadedTelegramFile;
+  [key: string]: unknown;
+}
+
+type FilePayload = { source: unknown; filename: string };
+type SendPayload = { caption?: string };
+type SendMethod = (
+  chatId: number,
+  filePayload: FilePayload,
+  payload?: SendPayload,
+) => Promise<TelegramMessageResult>;
+
+const sendMethodMap: Record<string, keyof Telegraf['telegram']> = {
+  photo: 'sendPhoto',
+  audio: 'sendAudio',
+  video: 'sendVideo',
+  voice: 'sendVoice',
+  animation: 'sendAnimation',
+  sticker: 'sendSticker',
+  document: 'sendDocument',
+  video_note: 'sendDocument',
+};
+
+const extractUploadedFile = (
+  result: TelegramMessageResult,
+  fileType: string,
+): UploadedTelegramFile | undefined => {
+  if (result.document) return result.document;
+  if (result.photo) return result.photo?.slice(-1)[0];
+  if (result.video) return result.video;
+  if (result.audio) return result.audio;
+  if (result.voice) return result.voice;
+  if (result.animation) return result.animation;
+  if (result.sticker) return result.sticker;
+  if (result.video_note) return result.video_note;
+  return result[fileType] as UploadedTelegramFile | undefined;
+};
+
+const buildSendPayload = (fileType: string, fileName: string): SendPayload => {
+  const basePayload = { caption: fileName };
+  if (fileType === 'sticker') return {};
+  if (fileType === 'document') return { caption: `📁 ${fileName}` };
+  return basePayload;
+};
+
+const getMediaGroupType = (fileType: string): string => {
+  if (fileType === 'photo') return 'photo';
+  if (fileType === 'video') return 'video';
+  if (fileType === 'audio') return 'audio';
+  return 'document';
+};
+
+interface MediaGroupPayloadItem {
+  type: string;
+  media: string;
+  caption: string;
+}
+
+const buildMediaGroup = (items: MediaGroupItem[]): MediaGroupPayloadItem[] => {
+  return items.map((item) => ({
+    type: getMediaGroupType(item.fileType),
+    media: item.fileId,
+    caption: item.fileName,
+  }));
+};
+
 export const forwardToStorage = async (
-  fileChunk: any,
+  fileChunk: unknown,
   fileName: string,
   fileType: string,
 ): Promise<ForwardResult> => {
   try {
-    const result: any = await enqueueUpload(async () => {
+    const result = await enqueueUpload(async (): Promise<TelegramMessageResult> => {
       const filePayload = { source: fileChunk, filename: fileName };
+      const sendMethod = sendMethodMap[fileType] || 'sendDocument';
+      const payload = buildSendPayload(fileType, fileName);
+
       const uploadResult = await executeWithBotRetry((activeBot) => {
-        if (fileType === 'photo') {
-          return activeBot.telegram.sendPhoto(config.storageChatId, filePayload, {
-            caption: fileName,
-          });
-        } else if (fileType === 'audio') {
-          return activeBot.telegram.sendAudio(config.storageChatId, filePayload, {
-            caption: fileName,
-          });
-        } else if (fileType === 'video') {
-          return activeBot.telegram.sendVideo(config.storageChatId, filePayload, {
-            caption: fileName,
-          });
-        } else if (fileType === 'voice') {
-          return activeBot.telegram.sendVoice(config.storageChatId, filePayload, {
-            caption: fileName,
-          });
-        } else if (fileType === 'animation') {
-          return activeBot.telegram.sendAnimation(config.storageChatId, filePayload, {
-            caption: fileName,
-          });
-        } else if (fileType === 'sticker') {
-          return activeBot.telegram.sendSticker(config.storageChatId, filePayload);
-        } else {
-          return activeBot.telegram.sendDocument(config.storageChatId, filePayload, {
-            caption: `📁 ${fileName}`,
-          });
-        }
+        const telegram = activeBot.telegram as unknown as Record<string, SendMethod>;
+        return telegram[sendMethod](config.storageChatId, filePayload, payload);
       });
 
-      // Advance round-robin index for next job
       currentBotIndex = (currentBotIndex + 1) % bots.length;
-
       return uploadResult;
     });
 
-    let uploadedFile: any;
-    if (result.document) uploadedFile = result.document;
-    else if (result.photo) uploadedFile = result.photo?.slice(-1)[0];
-    else if (result.video) uploadedFile = result.video;
-    else if (result.audio) uploadedFile = result.audio;
-    else if (result.voice) uploadedFile = result.voice;
-    else if (result.animation) uploadedFile = result.animation;
-    else if (result.sticker) uploadedFile = result.sticker;
-    else if (result.video_note) uploadedFile = result.video_note;
-    else uploadedFile = result[fileType];
-
+    const uploadedFile = extractUploadedFile(result, fileType);
     logger.info('File forwarded to storage', { fileName, message: result.message_id });
 
     return {
@@ -124,8 +191,11 @@ export const forwardToStorage = async (
       telegramFileUniqueId: uploadedFile?.file_unique_id || '',
       storageMessageId: result.message_id,
     };
-  } catch (error: any) {
-    logger.error('Failed to forward file to storage', { fileName, error: error.message });
+  } catch (error: unknown) {
+    logger.error('Failed to forward file to storage', {
+      fileName,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 };
@@ -144,26 +214,18 @@ export const forwardMediaGroupToStorage = async (
   telegramFileUniqueIds: string[];
 }> => {
   try {
-    const result: any = await enqueueUpload(async () => {
-      const mediaGroup: any = items.map((item) => {
-        let type: 'photo' | 'video' | 'audio' | 'document' = 'document';
-        if (item.fileType === 'photo') type = 'photo';
-        else if (item.fileType === 'video') type = 'video';
-        else if (item.fileType === 'audio') type = 'audio';
-
-        return {
-          type,
-          media: item.fileId,
-          caption: item.fileName,
-        };
-      });
+    const result = await enqueueUpload(async (): Promise<TelegramMessageResult[]> => {
+      const mediaGroup = buildMediaGroup(items);
 
       const uploadResult = await executeWithBotRetry((activeBot) => {
-        return activeBot.telegram.sendMediaGroup(config.storageChatId, mediaGroup);
+        const sendMediaGroup = activeBot.telegram.sendMediaGroup as unknown as (
+          chatId: number,
+          media: MediaGroupPayloadItem[],
+        ) => Promise<TelegramMessageResult[]>;
+        return sendMediaGroup(config.storageChatId, mediaGroup);
       });
 
       currentBotIndex = (currentBotIndex + 1) % bots.length;
-
       return uploadResult;
     });
 
@@ -174,20 +236,7 @@ export const forwardMediaGroupToStorage = async (
     const telegramFileUniqueIds: string[] = [];
 
     for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      const fileType = items[i]?.fileType || 'document';
-      let uploadedFile: any;
-
-      if (msg.document) uploadedFile = msg.document;
-      else if (msg.photo) uploadedFile = msg.photo?.slice(-1)[0];
-      else if (msg.video) uploadedFile = msg.video;
-      else if (msg.audio) uploadedFile = msg.audio;
-      else if (msg.voice) uploadedFile = msg.voice;
-      else if (msg.animation) uploadedFile = msg.animation;
-      else if (msg.sticker) uploadedFile = msg.sticker;
-      else if (msg.video_note) uploadedFile = msg.video_note;
-      else uploadedFile = msg[fileType];
-
+      const uploadedFile = extractUploadedFile(messages[i], items[i]?.fileType || 'document');
       telegramFileIds.push(uploadedFile?.file_id || '');
       telegramFileUniqueIds.push(uploadedFile?.file_unique_id || '');
     }
@@ -197,8 +246,10 @@ export const forwardMediaGroupToStorage = async (
       telegramFileIds,
       telegramFileUniqueIds,
     };
-  } catch (error: any) {
-    logger.error('Failed to forward media group to storage', { error: error.message });
+  } catch (error: unknown) {
+    logger.error('Failed to forward media group to storage', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 };
@@ -209,7 +260,7 @@ export const getFileInfo = async (
 ): Promise<TelegramFileInfo> => {
   try {
     const result = await fetch(`${TELEGRAM_API_URL}getFile`);
-    const data: any = await result.json();
+    const data = (await result.json()) as TelegramGetFileResponse;
 
     if (!data.ok) {
       throw new Error(data.description || 'Telegram API error');
@@ -221,7 +272,7 @@ export const getFileInfo = async (
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_id: fileId }),
     });
-    const fileInfo: any = await fileResult.json();
+    const fileInfo = (await fileResult.json()) as TelegramGetInfoResponse;
 
     if (!fileInfo.ok) {
       throw new Error(fileInfo.description || 'Telegram info error');
@@ -232,8 +283,10 @@ export const getFileInfo = async (
       mime_type: fileInfo.result.mime_type,
       file_path: fileInfo.result.file_path,
     };
-  } catch (error: any) {
-    logger.error('Failed to get file info', { error: error.message });
+  } catch (error: unknown) {
+    logger.error('Failed to get file info', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 };

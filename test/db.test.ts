@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it } from 'bun:test';
 import { db, files } from '../src/db/index';
 import { files as schemaFiles } from '../src/db/schema';

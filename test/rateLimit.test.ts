@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import logger from '../src/utils/logger';
 import { checkRateLimit, cleanupRateLimitCache } from '../src/utils/rateLimit';

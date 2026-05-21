@@ -1,3 +1,21 @@
+export const getErrorMessage = (error: unknown): string => {
+  return error instanceof Error ? error.message : String(error);
+};
+
+interface FileMetadata {
+  publicId: string;
+  telegramFileId: string;
+  telegramFileUniqueId: string;
+  storageChatId: number;
+  storageMessageId: number;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  fileType: string;
+  uploaderId: number;
+  createdAt: Date | string | number;
+}
+
 const FILE_TYPES: Record<string, number> = {
   document: 2 * 1024 * 1024 * 1024, // 2GB
   photo: 10 * 1024 * 1024, // 10MB
@@ -72,10 +90,41 @@ export const ensureExtension = (
   return { fileName: finalFileName, mimeType };
 };
 
-export const extractFileName = (msg: any, request: any): string => {
-  if (request?.headers?.['x-file-name']) {
-    return request.headers['x-file-name'];
-  }
+type HeaderMapRequest = {
+  headers?:
+    | {
+        get?: (name: string) => string | null;
+      }
+    | Record<string, string>;
+};
+
+type FileLike = {
+  fileName?: string;
+  mimeType?: string;
+};
+
+type MessageLike = {
+  document?: FileLike;
+  photo?: FileLike[];
+  audio?: FileLike;
+  voice?: FileLike;
+  animation?: FileLike;
+};
+
+const getHeader = (request: HeaderMapRequest | null, name: string): string | undefined => {
+  const headers = request?.headers;
+  if (!headers) return undefined;
+
+  const get = 'get' in headers ? headers.get : undefined;
+  if (typeof get === 'function') return get(name) || undefined;
+
+  return (headers as Record<string, string>)[name];
+};
+
+export const extractFileName = (msg: MessageLike, request: HeaderMapRequest | null): string => {
+  const headerFileName = getHeader(request, 'x-file-name');
+  if (headerFileName) return headerFileName;
+
   return (
     msg.document?.fileName ||
     msg.photo?.slice(-1)[0]?.fileName ||
@@ -86,10 +135,10 @@ export const extractFileName = (msg: any, request: any): string => {
   );
 };
 
-export const extractMimeType = (msg: any, request: any): string => {
-  if (request?.headers?.['x-mime-type']) {
-    return request.headers['x-mime-type'];
-  }
+export const extractMimeType = (msg: MessageLike, request: HeaderMapRequest | null): string => {
+  const headerMimeType = getHeader(request, 'x-mime-type');
+  if (headerMimeType) return headerMimeType;
+
   return (
     msg.document?.mimeType ||
     msg.photo?.slice(-1)[0]?.mimeType ||
@@ -104,4 +153,84 @@ export const computeHash = (buffer: Buffer): string => {
   const hasher = new Bun.CryptoHasher('sha256');
   hasher.update(buffer);
   return hasher.digest('hex');
+};
+
+export interface TelegramMessageFile {
+  file_id: string;
+  file_unique_id: string;
+  file_size?: number;
+  mime_type?: string;
+  file_name?: string;
+}
+
+export interface TelegramMediaMessage {
+  message_id: number;
+  document?: TelegramMessageFile;
+  photo?: TelegramMessageFile[];
+  video?: TelegramMessageFile;
+  audio?: TelegramMessageFile;
+  voice?: TelegramMessageFile;
+  animation?: TelegramMessageFile;
+  sticker?: TelegramMessageFile;
+  video_note?: TelegramMessageFile;
+}
+
+export const extractFileFromMessage = (
+  msg: TelegramMediaMessage,
+  fileType: string,
+): TelegramMessageFile => {
+  if (fileType === 'photo') return msg.photo?.slice(-1)[0] as TelegramMessageFile;
+  if (fileType === 'sticker') return msg.sticker as TelegramMessageFile;
+  return msg[fileType as keyof TelegramMediaMessage] as TelegramMessageFile;
+};
+
+export const detectFileType = (msg: TelegramMediaMessage): string => {
+  if (msg.document) return 'document';
+  if (msg.photo) return 'photo';
+  if (msg.video) return 'video';
+  if (msg.audio) return 'audio';
+  if (msg.voice) return 'voice';
+  if (msg.animation) return 'animation';
+  if (msg.sticker) return 'sticker';
+  if (msg.video_note) return 'video_note';
+  return 'document';
+};
+
+export const getFileSizeLimit = (fileType: string): number =>
+  FILE_TYPES[fileType] || FILE_TYPES.document;
+
+export const formatCreatedAt = (createdAt: Date | string | number): string => {
+  return createdAt instanceof Date ? createdAt.toISOString() : new Date(createdAt).toISOString();
+};
+
+export interface UploadResponse {
+  public_id: string;
+  telegram_file_id: string;
+  telegram_file_unique_id: string;
+  storage_chat_id: number;
+  storage_message_id: number;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  file_type: string;
+  uploader_id: number;
+  created_at: string;
+  download_url: string;
+}
+
+export const buildUploadResponse = (file: FileMetadata, baseUrl: string): UploadResponse => {
+  return {
+    public_id: file.publicId,
+    telegram_file_id: file.telegramFileId,
+    telegram_file_unique_id: file.telegramFileUniqueId,
+    storage_chat_id: file.storageChatId,
+    storage_message_id: file.storageMessageId,
+    file_name: file.fileName,
+    mime_type: file.mimeType,
+    size_bytes: file.sizeBytes,
+    file_type: file.fileType,
+    uploader_id: file.uploaderId,
+    created_at: formatCreatedAt(file.createdAt),
+    download_url: `${baseUrl}/f/${file.publicId}`,
+  };
 };

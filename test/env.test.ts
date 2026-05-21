@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it } from 'bun:test';
 import { config } from '../src/env';
 
@@ -16,12 +15,12 @@ describe('Environment Variables Validation', () => {
   });
 
   it('config.botToken should return BOT_TOKEN from process.env', () => {
-    expect(config.botToken).toBe(process.env.BOT_TOKEN);
+    expect(config.botToken).toBe(process.env.BOT_TOKEN || '');
   });
 
   it('config.storageChatId should be parsed as integer from STORAGE_CHANNEL_ID', () => {
     expect(typeof config.storageChatId).toBe('number');
-    expect(config.storageChatId).toBe(parseInt(process.env.STORAGE_CHANNEL_ID, 10));
+    expect(config.storageChatId).toBe(parseInt(process.env.STORAGE_CHANNEL_ID || '0', 10));
   });
 
   it('config.port should default to 3000 when not specified', () => {

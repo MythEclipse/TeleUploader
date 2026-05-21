@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import type { TelegramMediaMessage } from '../src/utils/file';
 import logger from '../src/utils/logger';
 
 // Mock environment
@@ -7,48 +7,66 @@ process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGhIJKlmNoPQRsT
 process.env.STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID || '-1001234567890';
 process.env.BASE_URL = process.env.BASE_URL || 'https://tele.asepharyana.tech';
 
+type BotTestContext = {
+  message: TelegramMediaMessage;
+  from: { id: number };
+  reply: ReturnType<typeof mock>;
+};
+
+type BotFileHandler = (ctx: BotTestContext) => Promise<unknown>;
+type StartHandler = (ctx: { reply: ReturnType<typeof mock> }) => Promise<unknown>;
+
+const getStartHandler = (): StartHandler => {
+  return mockCommand.mock.calls.find((call) => call[0] === 'start')?.[1] as StartHandler;
+};
+
+const getFileHandler = (): BotFileHandler => {
+  return mockOn.mock.calls[0][1] as BotFileHandler;
+};
+
 // Mock Telegraf
 const mockLaunch = mock(() => Promise.resolve());
 const mockCommand = mock();
 const mockOn = mock();
 const mockUse = mock();
 
-mock.module('telegraf', () => {
-  return {
-    Telegraf: class {
-      constructor(token) {
-        this.token = token;
-        this.launch = mockLaunch;
-        this.command = mockCommand;
-        this.on = mockOn;
-        this.use = mockUse;
-      }
-    },
-  };
-});
+class MockTelegraf {
+  token: string;
+  launch = mockLaunch;
+  command = mockCommand;
+  on = mockOn;
+  use = mockUse;
+
+  constructor(token: string) {
+    this.token = token;
+  }
+}
+
+mock.module('telegraf', () => ({
+  Telegraf: MockTelegraf,
+}));
 
 // Mock database
 const mockInsert = mock(() => ({
   values: mock(() => Promise.resolve()),
 }));
-const mockLimit = mock(() => Promise.resolve([]));
-const mockWhere = mock(() => ({
-  limit: mockLimit,
-}));
-const mockFrom = mock(() => ({
-  where: mockWhere,
-}));
-const mockSelect = mock(() => ({
-  from: mockFrom,
-}));
+type ExistingFile = {
+  publicId: string;
+  telegramFileId: string;
+  telegramFileUniqueId: string;
+};
+
+const mockFindFileByUniqueId = mock((): Promise<ExistingFile | null> => Promise.resolve(null));
+
 mock.module('../src/db/index', () => ({
   db: {
     insert: mockInsert,
-    select: mockSelect,
   },
-  files: {
-    telegramFileUniqueId: 'telegram_file_unique_id',
-  },
+  files: {},
+}));
+
+mock.module('../src/db/files', () => ({
+  findFileByUniqueId: mockFindFileByUniqueId,
 }));
 
 // Mock forwardToStorage
@@ -73,8 +91,8 @@ describe('Telegram Bot Handler', () => {
     mockOn.mockClear();
     mockUse.mockClear();
     mockInsert.mockClear();
-    mockLimit.mockClear();
-    mockLimit.mockResolvedValue([]);
+    mockFindFileByUniqueId.mockClear();
+    mockFindFileByUniqueId.mockResolvedValue(null);
     mockForwardToStorage.mockClear();
     infoSpy.mockClear();
     errorSpy.mockClear();
@@ -98,7 +116,7 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const startHandler = mockCommand.mock.calls.find((call) => call[0] === 'start')[1];
+    const startHandler = getStartHandler();
     const replyMock = mock(() => Promise.resolve());
     const ctx = {
       reply: replyMock,
@@ -112,7 +130,7 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const fileHandler = mockOn.mock.calls[0][1];
+    const fileHandler = getFileHandler();
     const replyMock = mock(() => Promise.resolve());
     const ctx = {
       message: {
@@ -144,7 +162,7 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const fileHandler = mockOn.mock.calls[0][1];
+    const fileHandler = getFileHandler();
     const replyMock = mock(() => Promise.resolve());
     const ctx = {
       message: {
@@ -173,17 +191,14 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const fileHandler = mockOn.mock.calls[0][1];
+    const fileHandler = getFileHandler();
     const replyMock = mock(() => Promise.resolve());
 
-    // Mock DB to return an existing match
-    mockLimit.mockResolvedValueOnce([
-      {
-        publicId: 'already_exists_abc',
-        telegramFileId: 'stored_file_id',
-        telegramFileUniqueId: 'doc_uniq_123',
-      },
-    ]);
+    mockFindFileByUniqueId.mockResolvedValueOnce({
+      publicId: 'already_exists_abc',
+      telegramFileId: 'stored_file_id',
+      telegramFileUniqueId: 'doc_uniq_123',
+    });
 
     const ctx = {
       message: {
@@ -215,7 +230,7 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const fileHandler = mockOn.mock.calls[0][1];
+    const fileHandler = getFileHandler();
     const replyMock = mock(() => Promise.resolve());
     const ctx = {
       message: {
@@ -245,7 +260,7 @@ describe('Telegram Bot Handler', () => {
     const { startBot } = await import('../src/bot');
     await startBot();
 
-    const fileHandler = mockOn.mock.calls[0][1];
+    const fileHandler = getFileHandler();
     const replyMock = mock(() => Promise.resolve());
     const ctx = {
       message: {

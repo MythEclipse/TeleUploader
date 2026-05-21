@@ -1,7 +1,17 @@
-// @ts-nocheck
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const mockServe = mock((options) => {
+type ServeOptions = {
+  port?: number;
+  routes?: Record<string, unknown>;
+};
+
+type MockServer = {
+  port?: number;
+  routes?: Record<string, unknown>;
+  stop: ReturnType<typeof mock>;
+};
+
+const mockServe = mock((options: ServeOptions): MockServer => {
   return {
     port: options.port,
     routes: options.routes,
@@ -10,7 +20,7 @@ const mockServe = mock((options) => {
 });
 
 const originalServe = Bun.serve;
-Bun.serve = mockServe;
+Bun.serve = mockServe as unknown as typeof Bun.serve;
 
 const mockStartBot = mock(() =>
   Promise.resolve({
@@ -58,6 +68,7 @@ describe('Bootstrap Server', () => {
     const serveCallArgs = mockServe.mock.calls[0][0];
     expect(serveCallArgs).toHaveProperty('port');
     expect(serveCallArgs).toHaveProperty('routes');
+    expect(serveCallArgs.routes).toBeDefined();
     expect(serveCallArgs.routes).toHaveProperty('/api/upload');
     expect(serveCallArgs.routes).toHaveProperty('/f/:public_id');
     expect(serveCallArgs.routes).toHaveProperty('/file/:public_id/info');

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 // Mock database layer
@@ -11,7 +10,7 @@ mock.module('../src/db/index', () => ({
 }));
 
 describe('Health Route Handler', () => {
-  let handleHealth: any;
+  let handleHealth: typeof import('../src/routes/health').handleHealth;
 
   beforeEach(async () => {
     mockExecute.mockClear();

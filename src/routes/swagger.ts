@@ -11,6 +11,45 @@ const jsonContent = (schema: object) => ({
   'application/json': { schema },
 });
 
+const publicIdParameter = {
+  name: 'public_id',
+  in: 'path',
+  required: true,
+  description: 'Permanent public file ID.',
+  schema: { type: 'string' },
+};
+
+const fileInfoProperties = {
+  public_id: { type: 'string', example: 'xYz123' },
+  file_name: { type: 'string', example: 'document.pdf' },
+  mime_type: { type: 'string', example: 'application/pdf' },
+  size_bytes: { type: 'integer', example: 1048576 },
+  file_type: { type: 'string', example: 'document' },
+  uploader_id: { type: 'integer', example: 0 },
+  created_at: {
+    type: 'string',
+    format: 'date-time',
+    example: '2026-05-18T10:00:00.000Z',
+  },
+};
+
+const uploadProperties = {
+  ...fileInfoProperties,
+  telegram_file_id: { type: 'string', example: 'BQACAgQAAxkBA...' },
+  telegram_file_unique_id: { type: 'string', example: 'AgAD8w...' },
+  storage_chat_id: { type: 'integer', example: -1001234567890 },
+  storage_message_id: { type: 'integer', example: 42 },
+  download_url: {
+    type: 'string',
+    example: `${config.baseUrl}/f/xYz123`,
+  },
+};
+
+const objectSchema = (properties: object) => ({
+  type: 'object',
+  properties,
+});
+
 export const handleSwaggerJson = async (): Promise<Response> => {
   const spec = {
     openapi: '3.0.0',
@@ -99,30 +138,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
           responses: {
             '200': {
               description: 'Successful upload metadata.',
-              content: jsonContent({
-                type: 'object',
-                properties: {
-                  public_id: { type: 'string', example: 'xYz123' },
-                  telegram_file_id: { type: 'string', example: 'BQACAgQAAxkBA...' },
-                  telegram_file_unique_id: { type: 'string', example: 'AgAD8w...' },
-                  storage_chat_id: { type: 'integer', example: -1001234567890 },
-                  storage_message_id: { type: 'integer', example: 42 },
-                  file_name: { type: 'string', example: 'document.pdf' },
-                  mime_type: { type: 'string', example: 'application/pdf' },
-                  size_bytes: { type: 'integer', example: 1048576 },
-                  file_type: { type: 'string', example: 'document' },
-                  uploader_id: { type: 'integer', example: 0 },
-                  created_at: {
-                    type: 'string',
-                    format: 'date-time',
-                    example: '2026-05-18T10:00:00.000Z',
-                  },
-                  download_url: {
-                    type: 'string',
-                    example: `${config.baseUrl}/f/xYz123`,
-                  },
-                },
-              }),
+              content: jsonContent(objectSchema(uploadProperties)),
             },
             '400': {
               description: 'Bad request.',
@@ -140,15 +156,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
           summary: 'Redirect to Telegram File URL',
           description:
             'Gets a fresh Telegram download URL and redirects with 302. Rate-limited by IP.',
-          parameters: [
-            {
-              name: 'public_id',
-              in: 'path',
-              required: true,
-              description: 'Permanent public file ID.',
-              schema: { type: 'string' },
-            },
-          ],
+          parameters: [publicIdParameter],
           responses: {
             '302': {
               description: 'Redirect to Telegram CDN URL.',
@@ -180,34 +188,11 @@ export const handleSwaggerJson = async (): Promise<Response> => {
         get: {
           summary: 'Get File Info',
           description: 'Gets saved file metadata by public ID.',
-          parameters: [
-            {
-              name: 'public_id',
-              in: 'path',
-              required: true,
-              description: 'Permanent public file ID.',
-              schema: { type: 'string' },
-            },
-          ],
+          parameters: [publicIdParameter],
           responses: {
             '200': {
               description: 'File metadata.',
-              content: jsonContent({
-                type: 'object',
-                properties: {
-                  public_id: { type: 'string', example: 'xYz123' },
-                  file_name: { type: 'string', example: 'document.pdf' },
-                  mime_type: { type: 'string', example: 'application/pdf' },
-                  size_bytes: { type: 'integer', example: 1048576 },
-                  file_type: { type: 'string', example: 'document' },
-                  uploader_id: { type: 'integer', example: 0 },
-                  created_at: {
-                    type: 'string',
-                    format: 'date-time',
-                    example: '2026-05-18T10:00:00.000Z',
-                  },
-                },
-              }),
+              content: jsonContent(objectSchema(fileInfoProperties)),
             },
             '400': {
               description: 'Missing public ID.',

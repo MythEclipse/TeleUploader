@@ -1,10 +1,35 @@
-import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { type Context, Telegraf } from 'telegraf';
 import { db, files as fileSchema } from './db';
+import { findFileByUniqueId } from './db/files';
 import { config } from './env';
+import {
+  detectFileType,
+  extractFileFromMessage,
+  getErrorMessage,
+  getFileSizeLimit,
+  type TelegramMediaMessage,
+} from './utils/file';
 import logger from './utils/logger';
 import { forwardToStorage } from './utils/telegram';
+
+type BotContext = {
+  message: TelegramMediaMessage;
+  from: { id: number };
+  chat?: { id: number };
+  reply: (text: string, extra?: { reply_parameters: { message_id: number } }) => Promise<unknown>;
+};
+
+type MediaEventRegistrar = {
+  on: (events: string[], handler: (ctx: BotContext) => Promise<unknown>) => void;
+};
+
+const replyWithDownloadUrl = async (ctx: BotContext, publicId: string): Promise<void> => {
+  const url = `${config.baseUrl}/f/${publicId}`;
+  await ctx.reply(`File berhasil diupload! 📎\n\nDownload: ${url}`, {
+    reply_parameters: { message_id: ctx.message.message_id },
+  });
+};
 
 export const startBot = async (): Promise<Telegraf<Context>> => {
   try {
@@ -17,44 +42,15 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
       );
     });
 
-    // Cast bot.on elements individually or explicitly as any to bypass Telegraf v4 typescript deprecation warnings on array syntax
-    (bot as any).on(
+    const mediaBot = bot as unknown as MediaEventRegistrar;
+    mediaBot.on(
       ['document', 'photo', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'],
-      async (ctx: any) => {
+      async (ctx) => {
         try {
-          const fileType:
-            | 'document'
-            | 'photo'
-            | 'video'
-            | 'audio'
-            | 'voice'
-            | 'animation'
-            | 'sticker'
-            | 'video_note' = ctx.message.document
-            ? 'document'
-            : ctx.message.photo
-              ? 'photo'
-              : ctx.message.video
-                ? 'video'
-                : ctx.message.audio
-                  ? 'audio'
-                  : ctx.message.voice
-                    ? 'voice'
-                    : ctx.message.animation
-                      ? 'animation'
-                      : ctx.message.sticker
-                        ? 'sticker'
-                        : ctx.message.video_note
-                          ? 'video_note'
-                          : 'document';
-
-          const fileObj =
-            fileType === 'photo'
-              ? ctx.message.photo.slice(-1)[0]
-              : fileType === 'sticker'
-                ? ctx.message.sticker
-                : ctx.message[fileType];
-          const { file_id, file_size, mime_type } = fileObj;
+          const fileType = detectFileType(ctx.message);
+          const fileObj = extractFileFromMessage(ctx.message, fileType);
+          const { file_id, mime_type } = fileObj;
+          const fileSize = fileObj.file_size || 0;
           const fileName =
             ctx.message.document?.file_name ||
             ctx.message.photo?.slice(-1)[0]?.file_name ||
@@ -63,32 +59,18 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
             ctx.message.voice?.file_name ||
             'file';
 
-          const maxSize =
-            fileType === 'photo'
-              ? 10 * 1024 * 1024
-              : fileType === 'audio'
-                ? 200 * 1024 * 1024
-                : fileType === 'voice'
-                  ? 200 * 1024 * 1024
-                  : 2 * 1024 * 1024 * 1024;
+          const maxSize = getFileSizeLimit(fileType);
 
-          if (file_size > maxSize) {
+          if (fileSize > maxSize) {
             return ctx.reply(`File size exceeds ${maxSize / (1024 * 1024)}MB limit`);
           }
 
-          const existing = await db
-            .select()
-            .from(fileSchema)
-            .where(eq(fileSchema.telegramFileUniqueId, fileObj.file_unique_id))
-            .limit(1);
+          const existing = await findFileByUniqueId(fileObj.file_unique_id);
 
-          if (existing && existing.length > 0) {
-            const url = `${config.baseUrl}/f/${existing[0].publicId}`;
-            await ctx.reply(`File berhasil diupload! 📎\n\nDownload: ${url}`, {
-              reply_parameters: { message_id: ctx.message.message_id },
-            });
+          if (existing) {
+            await replyWithDownloadUrl(ctx, existing.publicId);
             logger.info('Duplicate file detected in bot, returned existing link', {
-              publicId: existing[0].publicId,
+              publicId: existing.publicId,
               fileType,
               fileName,
               uploader: ctx.from.id,
@@ -107,7 +89,7 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
             storageMessageId: result.storageMessageId,
             fileName: fileName,
             mimeType: mime_type || 'application/octet-stream',
-            sizeBytes: file_size,
+            sizeBytes: fileSize,
             fileType: fileType,
             uploaderId: ctx.from.id,
             createdAt: new Date(),
@@ -116,10 +98,7 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
 
           await db.insert(fileSchema).values(uploaded);
 
-          const url = `${config.baseUrl}/f/${publicId}`;
-          await ctx.reply(`File berhasil diupload! 📎\n\nDownload: ${url}`, {
-            reply_parameters: { message_id: ctx.message.message_id },
-          });
+          await replyWithDownloadUrl(ctx, publicId);
 
           logger.info('File uploaded via bot', {
             publicId,
@@ -127,8 +106,11 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
             fileName,
             uploader: ctx.from.id,
           });
-        } catch (error: any) {
-          logger.error('Bot file handler error', { error: error.message, chat_id: ctx.chat?.id });
+        } catch (error: unknown) {
+          logger.error('Bot file handler error', {
+            error: getErrorMessage(error),
+            chat_id: ctx.chat?.id,
+          });
           await ctx.reply('❌ Gagal mengupload file. Coba lagi nanti.');
         }
       },
@@ -136,7 +118,7 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
 
     bot.use((ctx, next) => {
       logger.info('Telegram event received', {
-        type: (ctx.update as any).type,
+        type: 'type' in ctx.update ? ctx.update.type : undefined,
         chat_id: ctx.chat?.id,
       });
       return next();
@@ -147,8 +129,8 @@ export const startBot = async (): Promise<Telegraf<Context>> => {
     logger.info('Telegram bot started', { botToken: `${config.botToken?.substring(0, 10)}...` });
 
     return bot;
-  } catch (error: any) {
-    logger.error('Failed to start bot', { error: error.message });
+  } catch (error: unknown) {
+    logger.error('Failed to start bot', { error: getErrorMessage(error) });
     throw error;
   }
 };

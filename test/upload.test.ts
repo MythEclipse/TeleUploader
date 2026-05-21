@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 let realPhotoBuffer: Buffer;
@@ -21,7 +20,26 @@ beforeAll(async () => {
 });
 
 // Mock db
-let mockSelectResult: any[] = [];
+type UploadResponseBody = {
+  public_id: string;
+  telegram_file_id: string;
+  telegram_file_unique_id: string;
+  file_name: string;
+  file_type: string;
+  download_url: string;
+};
+
+type ErrorResponseBody = {
+  error: string;
+};
+
+type UploadJsonBody = UploadResponseBody & Partial<ErrorResponseBody>;
+
+let mockSelectResult: unknown[] = [];
+
+const uploadResponseJson = async (res: Response): Promise<UploadJsonBody> => {
+  return (await res.json()) as UploadJsonBody;
+};
 
 const mockLimit = mock(() => Promise.resolve(mockSelectResult));
 const mockWhere = mock(() => ({
@@ -79,7 +97,7 @@ mock.module('../src/utils/telegram', () => ({
 }));
 
 describe('Upload Route Handler', () => {
-  let handleUpload: any;
+  let handleUpload: typeof import('../src/routes/upload').handleUpload;
 
   beforeEach(async () => {
     mockInsert.mockClear();
@@ -105,7 +123,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
     expect(body.error).toContain('Unsupported content type');
   });
 
@@ -123,7 +141,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
 
     expect(body.public_id).toContain('mocked-nanoid-id');
     expect(body.telegram_file_id).toBe('tg-file-id-123');
@@ -145,7 +163,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
     expect(body.error).toContain('Invalid JSON');
   });
 
@@ -161,7 +179,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
     expect(body.public_id).toContain('mocked-nanoid-id');
     expect(body.file_name).toBe('test_multi.png');
   });
@@ -195,7 +213,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
 
     expect(body.public_id).toBe('existing-id-123');
     expect(body.telegram_file_id).toBe('existing-tg-id');
@@ -242,7 +260,7 @@ describe('Upload Route Handler', () => {
 
     const res = await handleUpload(req);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await uploadResponseJson(res);
 
     expect(body.public_id).toBe('existing-json-id');
     expect(body.telegram_file_id).toBe('existing-tg-json-id');
