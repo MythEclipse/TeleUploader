@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import { db, files as fileSchema } from '../db';
@@ -43,16 +43,118 @@ const normalizeFileType = (mimeType: string, fileName: string): string => {
   return fileType === 'application' ? 'document' : fileType;
 };
 
-const performUpload = async (
-  fileBuffer: Buffer,
-  fileName: string,
-  mimeType: string,
-): Promise<UploadedFile> => {
+const JSON_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
+const SIGNATURE_BYTES = 16;
+
+type PreparedUpload = {
+  tempPath: string;
+  fileHash: string;
+  sizeBytes: number;
+  signatureBuffer: Buffer;
+};
+
+const cleanupTempFile = async (tempPath: string): Promise<void> => {
+  try {
+    await unlink(tempPath);
+  } catch (err) {
+    logger.warn('Failed to cleanup temp file', { tempPath, error: getErrorMessage(err) });
+  }
+};
+
+const streamFileToTemp = async (file: File): Promise<PreparedUpload> => {
+  const tempPath = `/tmp/teleuploader-${nanoid()}`;
+  const writer = createWriteStream(tempPath);
+  const hasher = new Bun.CryptoHasher('sha256');
+  const reader = file.stream().getReader();
+  const signatureChunks: Buffer[] = [];
+  let signatureBytes = 0;
+  let sizeBytes = 0;
+
+  const writeChunk = async (chunk: Buffer): Promise<void> => {
+    if (!writer.write(chunk)) {
+      await new Promise<void>((resolve, reject) => {
+        writer.once('drain', resolve);
+        writer.once('error', reject);
+      });
+    }
+  };
+
+  const finishWriter = async (): Promise<void> => {
+    await new Promise<void>((resolve, reject) => {
+      writer.end(() => resolve());
+      writer.once('error', reject);
+    });
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = Buffer.from(value);
+      sizeBytes += chunk.byteLength;
+      hasher.update(chunk);
+      await writeChunk(chunk);
+
+      if (signatureBytes < SIGNATURE_BYTES) {
+        const remaining = SIGNATURE_BYTES - signatureBytes;
+        const signatureChunk = chunk.subarray(0, remaining);
+        signatureChunks.push(signatureChunk);
+        signatureBytes += signatureChunk.byteLength;
+      }
+    }
+
+    await finishWriter();
+
+    return {
+      tempPath,
+      fileHash: hasher.digest('hex'),
+      sizeBytes,
+      signatureBuffer: Buffer.concat(signatureChunks, signatureBytes),
+    };
+  } catch (error) {
+    writer.destroy();
+    await cleanupTempFile(tempPath);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+};
+
+const writeBufferToTemp = async (fileBuffer: Buffer, fileHash: string): Promise<PreparedUpload> => {
   const tempPath = `/tmp/teleuploader-${nanoid()}`;
   try {
     await Bun.write(tempPath, fileBuffer);
-    const fileStream = createReadStream(tempPath);
-    const result = await forwardToStorage(fileStream, fileName, getFileType(mimeType, fileName));
+    return {
+      tempPath,
+      fileHash,
+      sizeBytes: fileBuffer.byteLength,
+      signatureBuffer: fileBuffer.subarray(0, SIGNATURE_BYTES),
+    };
+  } catch (error) {
+    await cleanupTempFile(tempPath);
+    throw error;
+  }
+};
+
+const closeFileStream = async (fileStream: ReturnType<typeof createReadStream>): Promise<void> => {
+  if (fileStream.closed) return;
+
+  await new Promise<void>((resolve) => {
+    fileStream.once('close', resolve);
+    fileStream.destroy();
+  });
+};
+
+const performUpload = async (
+  prepared: PreparedUpload,
+  fileName: string,
+  mimeType: string,
+  fileType: string,
+): Promise<UploadedFile> => {
+  const fileStream = createReadStream(prepared.tempPath);
+  try {
+    const result = await forwardToStorage(fileStream, fileName, fileType);
 
     return {
       publicId: nanoid(),
@@ -62,21 +164,16 @@ const performUpload = async (
       storageMessageId: result.storageMessageId,
       fileName,
       mimeType: mimeType || 'application/octet-stream',
-      sizeBytes: fileBuffer.byteLength,
-      fileType: getFileType(mimeType, fileName),
+      sizeBytes: prepared.sizeBytes,
+      fileType,
       uploaderId: 0,
-      fileHash: computeHash(fileBuffer),
+      fileHash: prepared.fileHash,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
   } finally {
-    setTimeout(async () => {
-      try {
-        await unlink(tempPath);
-      } catch (err) {
-        logger.warn('Failed to cleanup temp file', { tempPath, error: getErrorMessage(err) });
-      }
-    }, 500);
+    await closeFileStream(fileStream);
+    await cleanupTempFile(prepared.tempPath);
   }
 };
 
@@ -112,28 +209,28 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    const fileBytes = await file.arrayBuffer();
-    const fileBuffer = Buffer.from(fileBytes);
-    const hash = computeHash(fileBuffer);
+    const prepared = await streamFileToTemp(file);
 
-    const existingFile = await findFileByHash(hash);
+    const existingFile = await findFileByHash(prepared.fileHash);
     if (existingFile) {
+      await cleanupTempFile(prepared.tempPath);
       return Response.json(buildUploadResponse(existingFile, config.baseUrl), { status: 200 });
     }
 
     const rawMimeType = file.type || extractMimeType({}, req) || 'application/octet-stream';
     const { fileName: finalFileName, mimeType } = ensureExtension(
       fileName,
-      fileBuffer,
+      prepared.signatureBuffer,
       rawMimeType,
     );
     const fileType = getFileType(mimeType, finalFileName);
 
-    if (!checkFileSize(fileBuffer.byteLength, fileType)) {
+    if (!checkFileSize(prepared.sizeBytes, fileType)) {
+      await cleanupTempFile(prepared.tempPath);
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const uploaded = await performUpload(fileBuffer, finalFileName, mimeType);
+    const uploaded = await performUpload(prepared, finalFileName, mimeType, fileType);
     await db.insert(fileSchema).values(uploaded);
 
     return Response.json(buildUploadResponse(uploaded, config.baseUrl), { status: 200 });
@@ -156,6 +253,17 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
     }
 
     const { base64Data, mimeType: rawMimeType } = parseBase64File(file);
+    const estimatedSizeBytes = Math.floor((base64Data.length * 3) / 4);
+    if (estimatedSizeBytes > JSON_UPLOAD_LIMIT_BYTES) {
+      return Response.json(
+        {
+          error:
+            'JSON base64 uploads are limited to 50MB. Use multipart/form-data for larger files',
+        },
+        { status: 400 },
+      );
+    }
+
     const fileBytes = Buffer.from(base64Data, 'base64');
     const hash = computeHash(fileBytes);
 
@@ -171,7 +279,8 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: `File size exceeds ${fileType} limit` }, { status: 400 });
     }
 
-    const uploaded = await performUpload(fileBytes, finalFileName, mimeType);
+    const prepared = await writeBufferToTemp(fileBytes, hash);
+    const uploaded = await performUpload(prepared, finalFileName, mimeType, fileType);
     await db.insert(fileSchema).values(uploaded);
 
     return Response.json(buildUploadResponse(uploaded, config.baseUrl), { status: 200 });

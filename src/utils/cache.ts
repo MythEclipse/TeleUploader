@@ -71,11 +71,14 @@ export const fileInfoCache = new Cache<{
 }>(3600);
 
 // Cleanup expired cache entries every 5 minutes
-setInterval(() => {
-  const removed = fileInfoCache.cleanup();
-  if (removed > 0) {
-    console.log(`Cleaned up ${removed} expired cache entries`);
-  }
-}, 5 * 60 * 1000);
+setInterval(
+  () => {
+    const removed = fileInfoCache.cleanup();
+    if (removed > 0) {
+      console.log(`Cleaned up ${removed} expired cache entries`);
+    }
+  },
+  5 * 60 * 1000,
+);
 
 export { Cache };

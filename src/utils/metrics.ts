@@ -109,14 +109,17 @@ class MetricsCollector {
 export const metricsCollector = new MetricsCollector();
 
 // Log metrics every 5 minutes
-setInterval(() => {
-  const snapshot = metricsCollector.getSnapshot();
-  logger.info('Metrics snapshot', {
-    uploadLatency: snapshot.uploadLatency,
-    uploadThroughput: snapshot.uploadThroughput.toFixed(2),
-    errorRate: snapshot.errorRate.toFixed(2),
-    cacheHitRate: snapshot.cacheHitRate.toFixed(2),
-  });
-}, 5 * 60 * 1000);
+setInterval(
+  () => {
+    const snapshot = metricsCollector.getSnapshot();
+    logger.info('Metrics snapshot', {
+      uploadLatency: snapshot.uploadLatency,
+      uploadThroughput: snapshot.uploadThroughput.toFixed(2),
+      errorRate: snapshot.errorRate.toFixed(2),
+      cacheHitRate: snapshot.cacheHitRate.toFixed(2),
+    });
+  },
+  5 * 60 * 1000,
+);
 
 export { MetricsCollector };

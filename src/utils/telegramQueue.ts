@@ -1,14 +1,8 @@
 import PQueue from 'p-queue';
 import logger from './logger';
 
-// Create queue with concurrency limit matching bot pool size
-// Concurrency: 4-8 uploads in parallel
-// Interval: 1 second window for rate limiting
-// IntervalCap: Max 10 tasks per second
 const uploadQueue = new PQueue({
-  concurrency: 4,
-  interval: 1000,
-  intervalCap: 10,
+  concurrency: Number.POSITIVE_INFINITY,
 });
 
 // Monitor queue events
