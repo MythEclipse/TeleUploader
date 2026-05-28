@@ -109,19 +109,12 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
     }
 
     const fileInfo = await getTelegramFileInfo(file.telegramFileId, public_id);
-    const tgResponse = await fetch(buildTelegramFileUrl(fileInfo.file_path));
+    const redirectUrl = buildTelegramFileUrl(fileInfo.file_path);
 
-    if (!tgResponse.ok) {
-      logger.error('File download failed', { public_id, status: tgResponse.status });
-      return fail(502, 'Server error');
-    }
-
-    return new Response(tgResponse.body, {
-      status: 200,
+    return new Response(null, {
+      status: 302,
       headers: {
-        'Content-Type': file.mimeType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-        'Content-Length': String(file.sizeBytes),
+        Location: redirectUrl,
       },
     });
   } catch (error: unknown) {

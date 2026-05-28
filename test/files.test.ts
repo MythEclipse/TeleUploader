@@ -120,7 +120,7 @@ describe('File Route Handlers', () => {
       expect(body.error).toBe('File not found');
     });
 
-    it('should proxy download (200 stream) instead of 302 redirect', async () => {
+    it('should redirect to telegram file url with 302', async () => {
       mockSelect.mockImplementationOnce(() => ({
         from: () => ({
           where: () => ({
@@ -142,19 +142,10 @@ describe('File Route Handlers', () => {
       const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
       const res = await handleFileRedirect(req);
 
-      // No longer 302 redirect
-      expect(res.status).toBe(200);
-
-      // No Location header with token
-      expect(res.headers.get('Location')).toBeNull();
-
-      // Should have Content-Disposition
-      const disposition = res.headers.get('Content-Disposition');
-      expect(disposition).toBeTruthy();
-      expect(disposition).toContain('test.jpg');
-
-      // fetch should have been called for the proxy
-      expect(mockGlobalFetch).toHaveBeenCalled();
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe(
+        'https://api.telegram.org/file/bot123456:ABC-DEF/photos/file_0.jpg',
+      );
     });
 
     it('should return 500 on database or external errors', async () => {

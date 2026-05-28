@@ -30,10 +30,10 @@ describe('Swagger Documentation Endpoints', () => {
     const uploadResponses = uploadPath.post.responses;
     expect(uploadResponses).toHaveProperty('429');
 
-    // Verify download is no longer documented as 302 redirect
+    // Verify download is 302 redirect to Telegram CDN
     const downloadResponses = downloadPath.get.responses;
-    expect(downloadResponses['200'].description).toContain('stream');
-    expect(downloadResponses).not.toHaveProperty('302');
+    expect(downloadResponses).toHaveProperty('302');
+    expect(downloadResponses['302'].description).toContain('Redirect');
   });
 
   it('returns Swagger UI HTML page', async () => {

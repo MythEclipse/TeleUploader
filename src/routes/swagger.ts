@@ -157,11 +157,11 @@ export const handleSwaggerJson = async (): Promise<Response> => {
       '/f/{public_id}': {
         get: {
           summary: 'Download File',
-          description: 'Proxies file from Telegram storage as a streamed download. Rate-limited by IP.',
+          description: 'Redirects to Telegram CDN for direct download. Rate-limited by IP.',
           parameters: [publicIdParameter],
           responses: {
-            '200': {
-              description: 'File binary stream.',
+            '302': {
+              description: 'Redirect to Telegram CDN URL.',
             },
             '404': {
               description: 'File not found.',
