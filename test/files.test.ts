@@ -16,7 +16,6 @@ type FileInfoBody = {
   mime_type: string;
   size_bytes: number;
   file_type: string;
-  uploader_id: number;
   created_at: string;
 };
 
@@ -70,11 +69,16 @@ mock.module('../src/utils/telegram', () => ({
   }),
 }));
 
-// Mock rateLimit
-const mockCheckRateLimit = mock(() => true);
-mock.module('../src/utils/rateLimit', () => ({
-  checkRateLimit: mockCheckRateLimit,
-}));
+// Mock global fetch for proxy path
+const originalFetch = globalThis.fetch;
+const mockGlobalFetch = mock(async (_url: string) =>
+  Promise.resolve(
+    new Response('fake-file-content', {
+      status: 200,
+      headers: { 'Content-Type': 'application/octet-stream' },
+    }),
+  ),
+);
 
 describe('File Route Handlers', () => {
   let handleFileRedirect: typeof import('../src/routes/files').handleFileRedirect;
@@ -83,27 +87,23 @@ describe('File Route Handlers', () => {
   beforeEach(async () => {
     mockSelect.mockClear();
     mockGetFile.mockClear();
-    mockCheckRateLimit.mockClear();
+    mockGlobalFetch.mockClear();
 
     // Set up mock token
     process.env.BOT_TOKEN = '123456:ABC-DEF';
+    globalThis.fetch = mockGlobalFetch as any;
 
     const filesRoute = await import('../src/routes/files');
     handleFileRedirect = filesRoute.handleFileRedirect;
     handleFileInfo = filesRoute.handleFileInfo;
   });
 
+  afterAll(() => {
+    mock.restore();
+    globalThis.fetch = originalFetch;
+  });
+
   describe('handleFileRedirect', () => {
-    it('should return 429 if rate limit is exceeded', async () => {
-      mockCheckRateLimit.mockImplementationOnce(() => false);
-      const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
-
-      const res = await handleFileRedirect(req);
-      expect(res.status).toBe(429);
-      const body = await responseJson<ErrorBody>(res);
-      expect(body.error).toBe('Rate limit exceeded');
-    });
-
     it('should return 404 if file is not found in database', async () => {
       mockSelect.mockImplementationOnce(() => ({
         from: () => ({
@@ -120,7 +120,7 @@ describe('File Route Handlers', () => {
       expect(body.error).toBe('File not found');
     });
 
-    it('should redirect to telegram file url if file is found', async () => {
+    it('should proxy download (200 stream) instead of 302 redirect', async () => {
       mockSelect.mockImplementationOnce(() => ({
         from: () => ({
           where: () => ({
@@ -131,6 +131,8 @@ describe('File Route Handlers', () => {
                   publicId: 'test-id',
                   telegramFileId: 'tg-file-id',
                   fileName: 'test.jpg',
+                  mimeType: 'image/jpeg',
+                  sizeBytes: 100,
                 },
               ]),
           }),
@@ -139,10 +141,20 @@ describe('File Route Handlers', () => {
 
       const req = requestWithPublicId('http://localhost:3000/f/test-id', 'test-id');
       const res = await handleFileRedirect(req);
-      expect(res.status).toBe(302);
-      expect(res.headers.get('Location')).toBe(
-        'https://api.telegram.org/file/bot123456:ABC-DEF/photos/file_0.jpg',
-      );
+
+      // No longer 302 redirect
+      expect(res.status).toBe(200);
+
+      // No Location header with token
+      expect(res.headers.get('Location')).toBeNull();
+
+      // Should have Content-Disposition
+      const disposition = res.headers.get('Content-Disposition');
+      expect(disposition).toBeTruthy();
+      expect(disposition).toContain('test.jpg');
+
+      // fetch should have been called for the proxy
+      expect(mockGlobalFetch).toHaveBeenCalled();
     });
 
     it('should return 500 on database or external errors', async () => {
@@ -175,7 +187,7 @@ describe('File Route Handlers', () => {
       expect(body.error).toBe('File not found');
     });
 
-    it('should return file info JSON if file is found', async () => {
+    it('should return file info JSON without internal fields', async () => {
       const dbFile = {
         publicId: 'test-id',
         fileName: 'image.png',
@@ -204,9 +216,11 @@ describe('File Route Handlers', () => {
         mime_type: 'image/png',
         size_bytes: 2048,
         file_type: 'photo',
-        uploader_id: 99999,
         created_at: '2026-05-18T00:00:00.000Z',
       });
+      // No internal fields
+      expect(body).not.toHaveProperty('uploader_id');
+      expect(body).not.toHaveProperty('telegram_file_id');
     });
 
     it('should return 500 on database or external errors', async () => {
@@ -220,9 +234,5 @@ describe('File Route Handlers', () => {
       const body = await responseJson<ErrorBody>(res);
       expect(body.error).toBe('Server error');
     });
-  });
-
-  afterAll(() => {
-    mock.restore();
   });
 });

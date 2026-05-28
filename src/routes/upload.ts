@@ -39,6 +39,23 @@ const normalizeFileType = (mimeType: string, fileName: string): string => {
 const JSON_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 const SIGNATURE_BYTES = 16;
 
+const getContentLength = (req: Request): number | null => {
+  const value = req.headers.get('content-length');
+  if (!value) return null;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const rejectOversizedRequest = (req: Request): Response | null => {
+  const contentLength = getContentLength(req);
+  if (contentLength !== null && contentLength > config.maxRequestBodyBytes) {
+    return Response.json({ error: 'Request body too large' }, { status: 413 });
+  }
+
+  return null;
+};
+
 const cleanupTempFile = async (tempPath: string): Promise<void> => {
   try {
     await unlink(tempPath);
@@ -47,7 +64,7 @@ const cleanupTempFile = async (tempPath: string): Promise<void> => {
   }
 };
 
-const streamFileToTemp = async (file: File): Promise<PreparedUpload> => {
+const streamFileToTemp = async (file: File, maxSizeBytes: number): Promise<PreparedUpload> => {
   const tempPath = `/tmp/teleuploader-${nanoid()}`;
   const writer = createWriteStream(tempPath);
   const hasher = new Bun.CryptoHasher('sha256');
@@ -79,6 +96,10 @@ const streamFileToTemp = async (file: File): Promise<PreparedUpload> => {
 
       const chunk = Buffer.from(value);
       sizeBytes += chunk.byteLength;
+      if (sizeBytes > maxSizeBytes) {
+        throw new Error('File size exceeds upload limit');
+      }
+
       hasher.update(chunk);
       await writeChunk(chunk);
 
@@ -126,6 +147,8 @@ const writeBufferToTemp = async (fileBuffer: Buffer, fileHash: string): Promise<
 export const handleUpload = async (req: Request): Promise<Response> => {
   try {
     const contentType = req.headers.get('content-type') || '';
+    const oversizedResponse = rejectOversizedRequest(req);
+    if (oversizedResponse) return oversizedResponse;
 
     if (contentType.includes('multipart/form-data')) {
       return handleMultipartUpload(req);
@@ -155,7 +178,11 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
       return Response.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    const prepared = await streamFileToTemp(file);
+    if (file.size > config.maxRequestBodyBytes) {
+      return Response.json({ error: 'File size exceeds upload limit' }, { status: 413 });
+    }
+
+    const prepared = await streamFileToTemp(file, config.maxRequestBodyBytes);
 
     const existingFile = await findFileByHash(prepared.fileHash);
     if (existingFile) {
@@ -204,7 +231,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
 
     const { base64Data, mimeType: rawMimeType } = parseBase64File(file);
     const estimatedSizeBytes = Math.floor((base64Data.length * 3) / 4);
-    if (estimatedSizeBytes > JSON_UPLOAD_LIMIT_BYTES) {
+    if (estimatedSizeBytes > JSON_UPLOAD_LIMIT_BYTES || estimatedSizeBytes > config.maxRequestBodyBytes) {
       return Response.json(
         {
           error:

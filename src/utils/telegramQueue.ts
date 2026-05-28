@@ -1,8 +1,9 @@
 import PQueue from 'p-queue';
+import { config } from '../env';
 import logger from './logger';
 
 const uploadQueue = new PQueue({
-  concurrency: Number.POSITIVE_INFINITY,
+  concurrency: config.uploadConcurrency,
 });
 
 // Monitor queue events

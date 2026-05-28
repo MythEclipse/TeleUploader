@@ -6,19 +6,19 @@ import { handleHealth } from './routes/health';
 import { handleSwaggerHtml, handleSwaggerJson } from './routes/swagger';
 import { handleUpload } from './routes/upload';
 import logger from './utils/logger';
-import { cleanupRateLimitCache } from './utils/rateLimit';
+import { cleanupRateLimitCache, withRateLimit } from './utils/rateLimit';
 
 const server = serve({
   port: config.port,
   routes: {
     '/api/upload': {
-      POST: handleUpload,
+      POST: withRateLimit(handleUpload),
     },
     '/f/:public_id': {
-      GET: handleFileRedirect,
+      GET: withRateLimit(handleFileRedirect),
     },
     '/file/:public_id/info': {
-      GET: handleFileInfo,
+      GET: withRateLimit(handleFileInfo),
     },
     '/health': {
       GET: handleHealth,

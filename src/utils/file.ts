@@ -205,15 +205,10 @@ export const formatCreatedAt = (createdAt: Date | string | number): string => {
 
 export interface UploadResponse {
   public_id: string;
-  telegram_file_id: string;
-  telegram_file_unique_id: string;
-  storage_chat_id: number;
-  storage_message_id: number;
   file_name: string;
   mime_type: string;
   size_bytes: number;
   file_type: string;
-  uploader_id: number;
   created_at: string;
   download_url: string;
 }
@@ -221,15 +216,10 @@ export interface UploadResponse {
 export const buildUploadResponse = (file: FileMetadata, baseUrl: string): UploadResponse => {
   return {
     public_id: file.publicId,
-    telegram_file_id: file.telegramFileId,
-    telegram_file_unique_id: file.telegramFileUniqueId,
-    storage_chat_id: file.storageChatId,
-    storage_message_id: file.storageMessageId,
     file_name: file.fileName,
     mime_type: file.mimeType,
     size_bytes: file.sizeBytes,
     file_type: file.fileType,
-    uploader_id: file.uploaderId,
     created_at: formatCreatedAt(file.createdAt),
     download_url: `${baseUrl}/f/${file.publicId}`,
   };

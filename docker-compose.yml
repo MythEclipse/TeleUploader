@@ -7,12 +7,41 @@ services:
     restart: always
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
+      - ADDITIONAL_BOT_TOKENS=${ADDITIONAL_BOT_TOKENS:-}
       - STORAGE_CHANNEL_ID=${STORAGE_CHANNEL_ID}
       - BASE_URL=${BASE_URL}
       - DATABASE_URL=${DATABASE_URL}
       - PORT=3000
       - NODE_ENV=production
       - LOG_LEVEL=info
+      - TRUST_PROXY=true
+      - UPLOAD_CONCURRENCY=${UPLOAD_CONCURRENCY:-8}
+      - BATCH_MAX_ITEMS=${BATCH_MAX_ITEMS:-20}
+      - BATCH_MAX_SIZE_BYTES=${BATCH_MAX_SIZE_BYTES:-524288000}
+      - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-2147483648}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-30}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -sf http://localhost:3000/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     networks:
       - app-shared-net
     labels:
@@ -22,6 +51,11 @@ services:
       - "traefik.http.routers.teleuploader.tls=true"
       - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"
       - "traefik.http.services.teleuploader.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.teleuploader-rl.ratelimit.average=300"
+      - "traefik.http.middlewares.teleuploader-rl.ratelimit.burst=100"
+      - "traefik.http.middlewares.teleuploader-rl.ratelimit.period=1m"
+      - "traefik.http.middlewares.teleuploader-buf.buffering.maxRequestBodyBytes=2147483648"
+      - "traefik.http.routers.teleuploader.middlewares=teleuploader-rl@docker,teleuploader-buf@docker"
 
 networks:
   app-shared-net:

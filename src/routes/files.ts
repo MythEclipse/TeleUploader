@@ -1,10 +1,12 @@
+import { createReadStream } from 'node:fs';
+import { unlink } from 'node:fs/promises';
+import { nanoid } from 'nanoid';
 import { findFileByPublicId } from '../db/files';
 import { fileInfoCache } from '../utils/cache';
 import { formatCreatedAt, getErrorMessage } from '../utils/file';
 import logger from '../utils/logger';
-import { checkRateLimit } from '../utils/rateLimit';
 import { getBot } from '../utils/telegram';
-import { extractZipEntry } from '../utils/zip';
+import { locateZipEntry } from '../utils/zip';
 
 type RequestWithParams = Request & {
   params?: {
@@ -36,20 +38,31 @@ const getTelegramFileInfo = async (telegramFileId: string, public_id: string) =>
 const buildTelegramFileUrl = (filePath: string): string =>
   `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
 
+const cleanupTempFile = async (tempPath: string): Promise<void> => {
+  try {
+    await unlink(tempPath);
+  } catch (err) {
+    logger.warn('Failed to cleanup temp file', { tempPath, error: getErrorMessage(err) });
+  }
+};
+
+const sanitizeFilenameHeader = (fileName: string): string =>
+  fileName.replace(/[\\"]/g, '').replace(/[\n\r]/g, '');
+
+const fail = (status: number, error: string): Response =>
+  Response.json({ error }, { status });
+
 export const handleFileRedirect = async (req: RequestWithParams): Promise<Response> => {
   const public_id = req.params?.public_id;
   try {
-    const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
-
-    if (!public_id || !checkRateLimit(ip)) {
-      return Response.json({ error: 'Rate limit exceeded' }, { status: 429 });
+    if (!public_id) {
+      return fail(400, 'Missing file id');
     }
 
     const file = await findFileByPublicId(public_id);
-
     if (!file) {
       logger.warn('File not found', { public_id });
-      return Response.json({ error: 'File not found' }, { status: 404 });
+      return fail(404, 'File not found');
     }
 
     const archiveEntryName = file.archiveEntryName;
@@ -60,37 +73,60 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 
       if (!archiveResponse.ok) {
         logger.error('Archive download failed', { public_id, status: archiveResponse.status });
-        return Response.json({ error: 'Server error' }, { status: 500 });
+        return fail(500, 'Server error');
       }
 
-      const archiveBuffer = Buffer.from(await archiveResponse.arrayBuffer());
-      const extractedFile = await extractZipEntry(archiveBuffer, archiveEntryName);
-      if (!extractedFile) {
+      const tempZipPath = `/tmp/teleuploader-dl-${nanoid()}.zip`;
+      await Bun.write(tempZipPath, archiveResponse);
+
+      const loc = await locateZipEntry(tempZipPath, archiveEntryName);
+      if (!loc) {
+        await cleanupTempFile(tempZipPath);
         logger.error('Archive entry not found', { public_id, archiveEntryName });
-        return Response.json({ error: 'File not found' }, { status: 404 });
+        return fail(404, 'File not found');
       }
 
-      return new Response(extractedFile, {
+      const fileStream = createReadStream(tempZipPath, {
+        start: loc.start,
+        end: loc.start + loc.length - 1,
+      });
+
+      fileStream.on('close', () => {
+        void cleanupTempFile(tempZipPath);
+      });
+      fileStream.on('error', () => {
+        void cleanupTempFile(tempZipPath);
+      });
+
+      return new Response(fileStream as any, {
         status: 200,
         headers: {
-          'Content-Type': file.mimeType,
-          'Content-Disposition': `attachment; filename="${file.fileName.replace(/"/g, '')}"`,
-          'Content-Length': String(extractedFile.byteLength),
+          'Content-Type': file.mimeType || 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+          'Content-Length': String(loc.length),
         },
       });
     }
 
     const fileInfo = await getTelegramFileInfo(file.telegramFileId, public_id);
-    const redirectUrl = buildTelegramFileUrl(fileInfo.file_path);
-    return new Response(null, {
-      status: 302,
+    const tgResponse = await fetch(buildTelegramFileUrl(fileInfo.file_path));
+
+    if (!tgResponse.ok) {
+      logger.error('File download failed', { public_id, status: tgResponse.status });
+      return fail(502, 'Server error');
+    }
+
+    return new Response(tgResponse.body, {
+      status: 200,
       headers: {
-        Location: redirectUrl,
+        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+        'Content-Length': String(file.sizeBytes),
       },
     });
   } catch (error: unknown) {
     logger.error('File redirect error', { public_id, error: getErrorMessage(error) });
-    return Response.json({ error: 'Server error' }, { status: 500 });
+    return fail(500, 'Server error');
   }
 };
 
@@ -98,15 +134,15 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
   const public_id = req.params?.public_id;
   try {
     if (!public_id) {
-      return Response.json({ error: 'Missing file id' }, { status: 400 });
+      return fail(400, 'Missing file id');
     }
 
     const file = await findFileByPublicId(public_id);
-
     if (!file) {
       logger.warn('File not found', { public_id });
-      return Response.json({ error: 'File not found' }, { status: 404 });
+      return fail(404, 'File not found');
     }
+
     return Response.json(
       {
         public_id: file.publicId,
@@ -114,13 +150,12 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
         mime_type: file.mimeType,
         size_bytes: file.sizeBytes,
         file_type: file.fileType,
-        uploader_id: file.uploaderId,
         created_at: formatCreatedAt(file.createdAt),
       },
       { status: 200 },
     );
   } catch (error: unknown) {
     logger.error('File info error', { public_id, error: getErrorMessage(error) });
-    return Response.json({ error: 'Server error' }, { status: 500 });
+    return fail(500, 'Server error');
   }
 };

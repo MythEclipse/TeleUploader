@@ -11,6 +11,11 @@ interface AppConfig {
   logLevel: string;
   rateLimitWindowMs: number;
   rateLimitMaxRequests: number;
+  trustProxy: boolean;
+  uploadConcurrency: number;
+  batchMaxItems: number;
+  batchMaxSizeBytes: number;
+  maxRequestBodyBytes: number;
 }
 
 const requiredEnv = {
@@ -30,25 +35,48 @@ if (missing.length > 0) {
   throw new Error(`Missing environment variables: ${missing.join(', ')}`);
 }
 
+const parseNumber = (value: string | undefined, fallback: number): number => {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const parseTokens = (value: string | undefined): string[] =>
+  (value || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t !== '');
+
+const maskSecret = (value: string): string => {
+  if (!value) return '';
+  if (value.length <= 10) return '***';
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+};
+
+const maskDatabaseUrl = (value: string): string => value.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@');
+
 export const config: AppConfig = {
   botToken: process.env.BOT_TOKEN!,
-  additionalBotTokens:
-    process.env.NODE_ENV === 'test'
-      ? []
-      : (process.env.ADDITIONAL_BOT_TOKENS || '')
-          .split(',')
-          .map((t) => t.trim())
-          .filter((t) => t !== ''),
+  additionalBotTokens: process.env.NODE_ENV === 'test' ? [] : parseTokens(process.env.ADDITIONAL_BOT_TOKENS),
   storageChatId: parseInt(process.env.STORAGE_CHANNEL_ID!, 10),
   baseUrl: process.env.BASE_URL!,
   databaseUrl: process.env.DATABASE_URL!,
   port: parseInt(process.env.PORT!, 10) || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
   logLevel: process.env.LOG_LEVEL || 'info',
-  rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS!, 10) || 60000,
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS!, 10) || 30,
+  rateLimitWindowMs: parseNumber(process.env.RATE_LIMIT_WINDOW_MS, 60000),
+  rateLimitMaxRequests: parseNumber(process.env.RATE_LIMIT_MAX_REQUESTS, 150),
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  uploadConcurrency: parseNumber(process.env.UPLOAD_CONCURRENCY, 8),
+  batchMaxItems: parseNumber(process.env.BATCH_MAX_ITEMS, 20),
+  batchMaxSizeBytes: parseNumber(process.env.BATCH_MAX_SIZE_BYTES, 500 * 1024 * 1024),
+  maxRequestBodyBytes: parseNumber(process.env.MAX_REQUEST_BODY_BYTES, 2 * 1024 * 1024 * 1024),
 };
 
 logger.info('Environment variables loaded', {
-  config: { ...config, botToken: `${config.botToken?.substring(0, 10)}...` },
+  config: {
+    ...config,
+    botToken: maskSecret(config.botToken),
+    additionalBotTokens: config.additionalBotTokens.map(maskSecret),
+    databaseUrl: maskDatabaseUrl(config.databaseUrl),
+  },
 });

@@ -34,8 +34,6 @@ type PendingUpload = BatchUploadItem & {
 };
 
 const BATCH_WINDOW_MS = 2000;
-const MAX_BATCH_ITEMS = 100;
-const MAX_BATCH_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
 let pendingUploads: PendingUpload[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -142,7 +140,7 @@ export const enqueuePreparedUpload = (item: BatchUploadItem): Promise<UploadedFi
       }, BATCH_WINDOW_MS);
     }
 
-    if (pendingUploads.length >= MAX_BATCH_ITEMS || getPendingSize() >= MAX_BATCH_SIZE_BYTES) {
+    if (pendingUploads.length >= config.batchMaxItems || getPendingSize() >= config.batchMaxSizeBytes) {
       void flushUploads();
     }
   });

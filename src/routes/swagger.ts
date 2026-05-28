@@ -25,7 +25,6 @@ const fileInfoProperties = {
   mime_type: { type: 'string', example: 'application/pdf' },
   size_bytes: { type: 'integer', example: 1048576 },
   file_type: { type: 'string', example: 'document' },
-  uploader_id: { type: 'integer', example: 0 },
   created_at: {
     type: 'string',
     format: 'date-time',
@@ -35,10 +34,6 @@ const fileInfoProperties = {
 
 const uploadProperties = {
   ...fileInfoProperties,
-  telegram_file_id: { type: 'string', example: 'BQACAgQAAxkBA...' },
-  telegram_file_unique_id: { type: 'string', example: 'AgAD8w...' },
-  storage_chat_id: { type: 'integer', example: -1001234567890 },
-  storage_message_id: { type: 'integer', example: 42 },
   download_url: {
     type: 'string',
     example: `${config.baseUrl}/f/xYz123`,
@@ -56,7 +51,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
     info: {
       title: 'TeleUploader API',
       version: '1.0.0',
-      description: 'Telegram-backed file uploader API with redirect-based downloads.',
+      description: 'Telegram-backed file uploader API with stream-based downloads.',
     },
     servers: [
       {
@@ -95,7 +90,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
       '/api/upload': {
         post: {
           summary: 'Upload File',
-          description: 'Uploads a file to Telegram storage via multipart/form-data or JSON base64.',
+          description: 'Uploads a file to Telegram storage via multipart/form-data or JSON base64. Rate-limited by IP.',
           requestBody: {
             required: true,
             content: {
@@ -144,6 +139,14 @@ export const handleSwaggerJson = async (): Promise<Response> => {
               description: 'Bad request.',
               content: jsonContent(errorSchema('No file provided')),
             },
+            '413': {
+              description: 'Request body too large.',
+              content: jsonContent(errorSchema('Request body too large')),
+            },
+            '429': {
+              description: 'Rate limit exceeded.',
+              content: jsonContent(errorSchema('Rate limit exceeded')),
+            },
             '500': {
               description: 'Internal server error.',
               content: jsonContent(errorSchema('Upload failed')),
@@ -153,21 +156,12 @@ export const handleSwaggerJson = async (): Promise<Response> => {
       },
       '/f/{public_id}': {
         get: {
-          summary: 'Redirect to Telegram File URL',
-          description:
-            'Gets a fresh Telegram download URL and redirects with 302. Rate-limited by IP.',
+          summary: 'Download File',
+          description: 'Proxies file from Telegram storage as a streamed download. Rate-limited by IP.',
           parameters: [publicIdParameter],
           responses: {
-            '302': {
-              description: 'Redirect to Telegram CDN URL.',
-              headers: {
-                Location: {
-                  schema: {
-                    type: 'string',
-                    example: 'https://api.telegram.org/file/botTOKEN/documents/file_0.pdf',
-                  },
-                },
-              },
+            '200': {
+              description: 'File binary stream.',
             },
             '404': {
               description: 'File not found.',
@@ -212,12 +206,7 @@ export const handleSwaggerJson = async (): Promise<Response> => {
     },
   };
 
-  return Response.json(spec, {
-    status: 200,
-    headers: {
-      'access-control-allow-origin': '*',
-    },
-  });
+  return Response.json(spec, { status: 200 });
 };
 
 export const handleSwaggerHtml = async (): Promise<Response> => {
@@ -256,7 +245,6 @@ export const handleSwaggerHtml = async (): Promise<Response> => {
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'access-control-allow-origin': '*',
       'x-content-type-options': 'nosniff',
     },
   });

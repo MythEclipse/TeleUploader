@@ -11,7 +11,7 @@ describe('Swagger Documentation Endpoints', () => {
     const body = (await res.json()) as {
       openapi: string;
       info: { title: string };
-      paths: Record<string, { post?: { requestBody: { content: Record<string, unknown> } } }>;
+      paths: Record<string, { get?: object; post?: object }>;
     };
     expect(body.openapi).toBe('3.0.0');
     expect(body.info.title).toBe('TeleUploader API');
@@ -19,10 +19,21 @@ describe('Swagger Documentation Endpoints', () => {
     expect(body.paths).toHaveProperty('/api/upload');
     expect(body.paths).toHaveProperty('/f/{public_id}');
     expect(body.paths).toHaveProperty('/file/{public_id}/info');
-    expect(body.paths['/api/upload'].post.requestBody.content).toHaveProperty(
-      'multipart/form-data',
-    );
-    expect(body.paths['/api/upload'].post.requestBody.content).toHaveProperty('application/json');
+
+    const uploadPath = body.paths['/api/upload'] as any;
+    const downloadPath = body.paths['/f/{public_id}'] as any;
+
+    expect(uploadPath.post.requestBody.content).toHaveProperty('multipart/form-data');
+    expect(uploadPath.post.requestBody.content).toHaveProperty('application/json');
+
+    // Verify 429 response documented
+    const uploadResponses = uploadPath.post.responses;
+    expect(uploadResponses).toHaveProperty('429');
+
+    // Verify download is no longer documented as 302 redirect
+    const downloadResponses = downloadPath.get.responses;
+    expect(downloadResponses['200'].description).toContain('stream');
+    expect(downloadResponses).not.toHaveProperty('302');
   });
 
   it('returns Swagger UI HTML page', async () => {
@@ -36,5 +47,10 @@ describe('Swagger Documentation Endpoints', () => {
     expect(html).toContain('swagger-ui');
     expect(html).toContain('/swagger.json');
     expect(html).toContain('swagger-ui-bundle.js');
+  });
+
+  it('should not expose CORS * header', async () => {
+    const res = await handleSwaggerJson();
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
   });
 });
