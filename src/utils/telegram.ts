@@ -5,6 +5,11 @@ import { enqueueUpload } from './telegramQueue';
 
 const botTokens = Array.from(new Set([config.botToken, ...config.additionalBotTokens]));
 
+type FileInfoResult = {
+  result: unknown;
+  botToken: string;
+};
+
 const bots = botTokens.map((token) => new Telegraf(token));
 
 let nextBotIndex = 0;
@@ -20,14 +25,15 @@ const sleep = (seconds: number): Promise<void> => {
 };
 
 const executeWithBotRetry = async <T>(
-  action: (botInstance: Telegraf) => Promise<T>,
+  action: (botInstance: Telegraf, botToken: string) => Promise<T>,
   retries = 5,
   attemptedBots = 0,
 ): Promise<T> => {
   const botIndex = claimBotIndex();
   const currentBot = bots[botIndex];
+  const currentToken = botTokens[botIndex];
   try {
-    return await action(currentBot);
+    return await action(currentBot, currentToken);
   } catch (error: unknown) {
     const errorStr = error instanceof Error ? error.message : String(error);
     const match = errorStr.match(/retry after (\d+)/i);
@@ -62,10 +68,11 @@ interface ForwardResult {
   storageMessageId: number;
 }
 
-interface TelegramFileInfo {
+export interface TelegramFileInfo {
   file_size: number;
   mime_type: string;
   file_path: string;
+  bot_token: string;
 }
 
 interface UploadedTelegramFile {
@@ -94,7 +101,7 @@ type SendMethod = (
   payload?: SendPayload,
 ) => Promise<TelegramMessageResult>;
 
-const sendMethodMap: Record<string, keyof Telegraf['telegram']> = {
+const sendMethodMap: Record<string, string> = {
   photo: 'sendPhoto',
   audio: 'sendAudio',
   video: 'sendVideo',
@@ -235,8 +242,11 @@ export const forwardMediaGroupToStorage = async (
 
 export const getFileInfo = async (telegramFileId: string): Promise<TelegramFileInfo> => {
   try {
-    const result = await executeWithBotRetry((activeBot) =>
-      activeBot.telegram.getFile(telegramFileId),
+    const { result, botToken } = await executeWithBotRetry<FileInfoResult>(
+      async (activeBot, activeToken) => ({
+        result: await activeBot.telegram.getFile(telegramFileId),
+        botToken: activeToken,
+      }),
     );
 
     const fileData = result as unknown as TelegramFileInfo;
@@ -244,6 +254,7 @@ export const getFileInfo = async (telegramFileId: string): Promise<TelegramFileI
       file_size: fileData.file_size || 0,
       mime_type: fileData.mime_type || 'application/octet-stream',
       file_path: fileData.file_path || '',
+      bot_token: botToken,
     };
   } catch (error: unknown) {
     logger.error('Failed to get file info', {

@@ -5,7 +5,7 @@ import { findFileByPublicId } from '../db/files';
 import { fileInfoCache } from '../utils/cache';
 import { formatCreatedAt, getErrorMessage } from '../utils/file';
 import logger from '../utils/logger';
-import { getBot } from '../utils/telegram';
+import { getFileInfo } from '../utils/telegram';
 import { locateZipEntry } from '../utils/zip';
 
 type RequestWithParams = Request & {
@@ -19,13 +19,7 @@ const getTelegramFileInfo = async (telegramFileId: string, public_id: string) =>
   let fileInfo = fileInfoCache.get(cacheKey);
 
   if (!fileInfo) {
-    const bot = getBot();
-    const apiFileInfo = await bot.telegram.getFile(telegramFileId);
-    fileInfo = {
-      file_size: (apiFileInfo as any).file_size || 0,
-      mime_type: (apiFileInfo as any).mime_type || 'application/octet-stream',
-      file_path: (apiFileInfo as any).file_path || '',
-    };
+    fileInfo = await getFileInfo(telegramFileId);
     fileInfoCache.set(cacheKey, fileInfo);
     logger.debug('File info cached', { public_id, cacheKey });
   } else {
@@ -35,8 +29,8 @@ const getTelegramFileInfo = async (telegramFileId: string, public_id: string) =>
   return fileInfo;
 };
 
-const buildTelegramFileUrl = (filePath: string): string =>
-  `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
+const buildTelegramFileUrl = (filePath: string, botToken: string): string =>
+  `https://api.telegram.org/file/bot${botToken}/${filePath}`;
 
 const cleanupTempFile = async (tempPath: string): Promise<void> => {
   try {
@@ -69,7 +63,9 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
     if (archiveEntryName) {
       const archiveFileId = file.archiveTelegramFileId || file.telegramFileId;
       const archiveInfo = await getTelegramFileInfo(archiveFileId, public_id);
-      const archiveResponse = await fetch(buildTelegramFileUrl(archiveInfo.file_path));
+      const archiveResponse = await fetch(
+        buildTelegramFileUrl(archiveInfo.file_path, archiveInfo.bot_token),
+      );
 
       if (!archiveResponse.ok) {
         logger.error('Archive download failed', { public_id, status: archiveResponse.status });
@@ -109,7 +105,7 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
     }
 
     const fileInfo = await getTelegramFileInfo(file.telegramFileId, public_id);
-    const redirectUrl = buildTelegramFileUrl(fileInfo.file_path);
+    const redirectUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
 
     return new Response(null, {
       status: 302,

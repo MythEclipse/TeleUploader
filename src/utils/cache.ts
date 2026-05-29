@@ -68,6 +68,7 @@ export const fileInfoCache = new Cache<{
   file_size: number;
   mime_type: string;
   file_path: string;
+  bot_token: string;
 }>(3600);
 
 // Cleanup expired cache entries every 5 minutes
