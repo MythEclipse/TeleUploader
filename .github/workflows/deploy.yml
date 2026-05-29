@@ -1,13 +1,20 @@
-name: Deploy TeleUploader
+name: Build and Test
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -32,92 +39,3 @@ jobs:
           DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
           PORT: "3000"
         run: bun run test
-
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and Push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/mytheclipse/teleuploader:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 45.127.35.244
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            mkdir -p /opt/teleuploader
-            cd /opt/teleuploader
-
-            # Log in to GHCR on VPS
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # Write dynamic docker-compose.yml
-            cat << 'EOF' > docker-compose.yml
-            version: '3.8'
-
-            services:
-              app:
-                image: ghcr.io/mytheclipse/teleuploader:latest
-                container_name: teleuploader-app
-                restart: always
-                environment:
-                  - BOT_TOKEN=${BOT_TOKEN}
-                  - STORAGE_CHANNEL_ID=${STORAGE_CHANNEL_ID}
-                  - BASE_URL=${BASE_URL}
-                  - DATABASE_URL=${DATABASE_URL}
-                  - PORT=3000
-                  - NODE_ENV=production
-                  - LOG_LEVEL=info
-                networks:
-                  - app-shared-net
-                labels:
-                  - "traefik.enable=true"
-                  - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.tech`)"
-                  - "traefik.http.routers.teleuploader.entrypoints=websecure"
-                  - "traefik.http.routers.teleuploader.tls=true"
-                  - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"
-                  - "traefik.http.services.teleuploader.loadbalancer.server.port=3000"
-
-            networks:
-              app-shared-net:
-                name: app-shared-net
-                external: true
-            EOF
-
-            # Write .env file from secrets
-            cat << EOF > .env
-            BOT_TOKEN=${{ secrets.BOT_TOKEN }}
-            STORAGE_CHANNEL_ID=${{ secrets.STORAGE_CHANNEL_ID }}
-            BASE_URL=${{ secrets.BASE_URL }}
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            PORT=3000
-            EOF
-
-            # Pull latest docker image
-            docker compose pull
-
-            # Run DB migrations
-            docker compose run --rm app bun run db:migrate
-
-            # Start service
-            docker compose up -d
