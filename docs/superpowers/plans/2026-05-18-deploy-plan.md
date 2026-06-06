@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Containerize TeleUploader using Bun, configure Traefik labels for routing `upload.asepharyana.tech`, and set up full GitHub Actions CI/CD to VPS `45.127.35.244`.
+**Goal:** Containerize TeleUploader using Bun, configure Traefik labels for routing `upload.asepharyana.my.id`, and set up full GitHub Actions CI/CD to VPS `45.127.35.244`.
 
 **Architecture:** Use a multi-stage `Dockerfile` with Bun to bundle and run the application. Serve via `docker-compose.yml` linking to external Traefik network `app-shared-net`. Deploy via GitHub Action workflow SSH using GitHub secrets for secure configuration.
 
@@ -111,7 +111,7 @@ services:
       - app-shared-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.tech`)"
+      - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.my.id`)"
       - "traefik.http.routers.teleuploader.entrypoints=websecure"
       - "traefik.http.routers.teleuploader.tls=true"
       - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"
@@ -230,7 +230,7 @@ jobs:
                   - app-shared-net
                 labels:
                   - "traefik.enable=true"
-                  - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.tech`)"
+                  - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.my.id`)"
                   - "traefik.http.routers.teleuploader.entrypoints=websecure"
                   - "traefik.http.routers.teleuploader.tls=true"
                   - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"

@@ -45,7 +45,7 @@ services:
       - app-shared-net
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.tech`)"
+      - "traefik.http.routers.teleuploader.rule=Host(`upload.asepharyana.my.id`)"
       - "traefik.http.routers.teleuploader.entrypoints=websecure"
       - "traefik.http.routers.teleuploader.tls=true"
       - "traefik.http.routers.teleuploader.tls.certresolver=letsencrypt"

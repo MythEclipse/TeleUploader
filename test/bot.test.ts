@@ -5,7 +5,7 @@ import logger from '../src/utils/logger';
 // Mock environment
 process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ';
 process.env.STORAGE_CHANNEL_ID = process.env.STORAGE_CHANNEL_ID || '-1001234567890';
-process.env.BASE_URL = process.env.BASE_URL || 'https://tele.asepharyana.tech';
+process.env.BASE_URL = process.env.BASE_URL || 'https://tele.asepharyana.my.id';
 
 type BotTestContext = {
   message: TelegramMediaMessage;

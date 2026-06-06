@@ -75,7 +75,7 @@ schema.sql
 ```bash
 BOT_TOKEN=isi_token_bot_telegram
 STORAGE_CHANNEL_ID=-1001234567890
-BASE_URL=https://tele.asepharyana.tech
+BASE_URL=https://tele.asepharyana.my.id
 DATABASE_URL=postgresql://user:password@localhost:5432/telegram_uploader
 PORT=3000
 NODE_ENV=production
@@ -148,7 +148,7 @@ bun run start    # Production mode
 ## FAQ
 
 **URL permanen maksudnya apa?**
-URL backend tetap permanen: `https://tele.asepharyana.tech/f/{public_id}`
+URL backend tetap permanen: `https://tele.asepharyana.my.id/f/{public_id}`
 Ini berarti URL service Anda fix, bukan jaminan file Telegram abadi.
 
 ## Testing

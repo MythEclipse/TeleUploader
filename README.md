@@ -34,7 +34,7 @@ bun run start    # Production mode
 ## FAQ
 
 **URL permanen maksudnya apa?**
-URL backend tetap permanen: `https://tele.asepharyana.tech/f/{public_id}`
+URL backend tetap permanen: `https://tele.asepharyana.my.id/f/{public_id}`
 Ini berarti URL service Anda fix, bukan jaminan file Telegram abadi.
 
 ## Testing
