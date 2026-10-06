@@ -1,27 +1,33 @@
 #!/bin/bash
-# ⚠️ LEGACY — Script deploy lama berbasis Docker. Sejak 2026-08-02 Docker dihapus
-# dari orangevps; produksi kini memakai Nix + systemd (lihat flake.nix, dan CI
-# .github/workflows/deploy.yml yang menjalankan `nix build` → `nix copy` →
-# `systemctl restart teleuploader`). Berkas ini hanya dipertahankan sebagai
-# referensi historis — JANGAN dipakai untuk deploy produksi.
-# ─── FileDrop Deploy Script ──────────────────────────────────────────────────
-# Builds the Bun app locally and deploys to the VPS via Docker.
+# ─── TeleUploader Deploy Script ──────────────────────────────────────────────
+# Builds the pnpm/Node app and ships it to the VPS as a plain systemd deploy.
 #
-# Strategy: build dist locally, ship dist + Docker context to VPS via tar pipe,
-# then rebuild the Docker image and restart the container on the VPS.
+# There is no Nix on orangevps anymore (`ls /nix` → No such file or directory),
+# so the old store-based deploy chain (`nix build` → push store path → activate
+# profile) could never work — every run died on the push with
+# `error: cannot connect`. The unit itself was
+# already migrated by hand:
+#
+#     ExecStart=/usr/local/bin/bws-exec teleuploader /opt/teleuploader/bin/teleuploader
+#       → cd /var/lib/teleuploader
+#       → exec /usr/bin/node /opt/teleuploader/dist/index.js
+#
+# So a deploy is only: build dist, ship it, install it under
+# /opt/teleuploader/dist, `systemctl restart teleuploader`, then prove that
+# /health answers on the port the service's own PID is listening on — with an
+# automatic rollback to the previous dist if it does not.
 #
 # Prerequisites:
 #   - SSH access to the VPS
-#   - Docker + docker compose on the VPS
-#   - For CI: Gitea Actions secrets injected as environment variables
+#   - pnpm + Node on this machine (for the build step)
 #
 # Usage:
 #   ./deploy.sh                          # build + deploy
-#   ./deploy.sh --no-build               # skip build, just deploy dist
+#   ./deploy.sh --no-build               # ship the existing dist/
 #   ./deploy.sh --help                   # show this message
 #   ./deploy.sh --check                  # dry-run: show vars and exit
 #
-# Required env in CI:
+# Required env in CI (Gitea Actions secrets / GitHub Actions secrets):
 #   VPS_HOST              — VPS IP/hostname
 #   VPS_USER              — SSH user
 #   VPS_SSH_KEY           — path to SSH private key file
@@ -32,17 +38,18 @@
 #   VPS_SSH_KEY           — ~/.ssh/id_ed25519
 #
 # Optional:
-#   DEPLOY_DIR            — deploy dir on VPS (default: /opt/filedrop)
-#   ADMIN_PASSWORD        — verify health after deploy (optional)
+#   DEPLOY_DIR            — app dir on VPS (default: /opt/teleuploader)
+#   UNIT                  — systemd unit to restart (default: teleuploader)
+#   HEALTH_PATH           — HTTP path to probe (default: /health)
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -eu
 
 # ── Config ────────────────────────────────────────────────────────────────────
-APP_NAME="filedrop"
+APP_NAME="teleuploader"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/${APP_NAME}}"
-COMPOSE_FILE="docker-compose.yml"
-DOCKER_IMAGE="ghcr.io/mytheclipse/${APP_NAME}"
+UNIT="${UNIT:-${APP_NAME}}"
+HEALTH_PATH="${HEALTH_PATH:-/health}"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 DO_BUILD=true
@@ -59,7 +66,7 @@ for arg in "$@"; do
   esac
 done
 
-# ── Default credentials ─────────────────────────────────────────────────────
+# ── Default credentials ───────────────────────────────────────────────────────
 # Local defaults for this project. CI-provided environment variables take precedence.
 : "${VPS_HOST:=45.127.35.244}"
 : "${VPS_USER:=root}"
@@ -70,7 +77,8 @@ if $DO_CHECK; then
   echo "=== Config ==="
   echo "App name:     $APP_NAME"
   echo "Deploy dir:   $DEPLOY_DIR"
-  echo "Image:        $DOCKER_IMAGE"
+  echo "Unit:         $UNIT"
+  echo "Health path:  $HEALTH_PATH"
   echo ""
   echo "=== Credentials ==="
   echo "VPS_HOST:     ${VPS_HOST:-<not set>}"
@@ -78,7 +86,7 @@ if $DO_CHECK; then
   echo "VPS_SSH_KEY:  ${VPS_SSH_KEY:+<set (${#VPS_SSH_KEY} chars)>}"
   echo ""
   echo "=== Files to deploy ==="
-  for f in .env package.json bun.lock schema.sql Dockerfile docker-compose.yml dist/index.js dist/migrate.js; do
+  for f in package.json pnpm-lock.yaml schema.sql dist/index.js dist/migrate.js; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
   exit 0
@@ -90,16 +98,20 @@ ok()   { echo "✓ $*"; }
 die()  { echo "✗ $*"; exit 1; }
 
 # ── Validate ──────────────────────────────────────────────────────────────────
-# (Defaults are set above — this fails only if something went wrong)
 : "${VPS_HOST:?VPS_HOST resolved to empty}"
 : "${VPS_USER:?VPS_USER resolved to empty}"
 : "${VPS_SSH_KEY:?VPS_SSH_KEY resolved to empty}"
 [ -f "$VPS_SSH_KEY" ] || die "SSH key not found at $VPS_SSH_KEY"
 
 SSH_DEST="${VPS_USER}@${VPS_HOST}"
-SSH_OPTS="-i $VPS_SSH_KEY -o StrictHostKeyChecking=accept-new"
+SSH_OPTS="-i $VPS_SSH_KEY -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
 
 vps()  { ssh $SSH_OPTS "$SSH_DEST" "$@"; }
+
+REPO_ROOT=$(cd "$(dirname "$0")" && pwd)
+cd "$REPO_ROOT"
+STAGE_REMOTE="/tmp/${APP_NAME}-deploy"
+DIST_REMOTE="${DEPLOY_DIR}/dist"
 
 # ── 1. Test SSH connection ────────────────────────────────────────────────────
 log "Testing SSH connection to ${VPS_USER}@${VPS_HOST}..."
@@ -107,102 +119,143 @@ vps "echo connected" > /dev/null 2>&1 || die "SSH connection failed"
 ok "SSH connection established"
 
 # ── 2. Build ──────────────────────────────────────────────────────────────────
-REPO_ROOT=$(cd "$(dirname "$0")" && pwd)
-cd "$REPO_ROOT"
-
 if $DO_BUILD; then
-  log "Installing dependencies..."
-  bun install 2>&1 | tail -1 || die "bun install failed"
+  command -v pnpm > /dev/null 2>&1 || die "pnpm not found (this project builds with pnpm)"
 
-  log "Formatting code..."
-  bun run format 2>&1 | tail -3 || log "Format skipped (may be clean)"
+  log "Installing dependencies..."
+  pnpm install --frozen-lockfile 2>&1 | tail -2
 
   log "Linting..."
-  bun run lint 2>&1 | tail -5 || die "Lint failed"
+  pnpm run lint 2>&1 | tail -5 || die "Lint failed"
 
   log "Building dist..."
-  bun run build 2>&1 || die "Build failed"
+  pnpm run build 2>&1 | tail -5 || die "Build failed"
 
-  # Verify dist output exists
   [ -f dist/index.js ] || die "dist/index.js not found after build"
   [ -f dist/migrate.js ] || die "dist/migrate.js not found after build"
   ok "Build complete (dist/index.js: $(wc -c < dist/index.js | numfmt --to=iec) — dist/migrate.js: $(wc -c < dist/migrate.js | numfmt --to=iec))"
 else
   log "Skipping build (--no-build)"
+  [ -f dist/index.js ] || die "dist/index.js missing — run without --no-build first"
 fi
 
-# ── 3. Ensure remote deploy directory exists ─────────────────────────────────
-log "Ensuring remote directory ${DEPLOY_DIR} exists..."
-vps "mkdir -p '${DEPLOY_DIR}'"
-ok "Remote directory ready"
+# ── 3. Stage on the VPS ───────────────────────────────────────────────────────
+log "Staging build at ${STAGE_REMOTE}..."
+vps "rm -rf '${STAGE_REMOTE}' && mkdir -p '${STAGE_REMOTE}'"
 
-# ── 4. Deploy to VPS ─────────────────────────────────────────────────────────
-log "Creating deploy archive..."
-# Build context: everything needed for `docker compose build` on the VPS
-DEPLOY_FILES=(
-  .env
-  package.json
-  bun.lock
-  schema.sql
-  Dockerfile
-  docker-compose.yml
-  biome.json
-  tsconfig.json
-  src
-  dist
-)
+log "Shipping dist to VPS..."
+scp $SSH_OPTS dist/index.js dist/migrate.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
+ok "Build shipped"
 
-log "Shipping files to VPS..."
-# Atomic deploy: extract into temp dir, then rename — avoids partial state
-vps "rm -rf '${DEPLOY_DIR}.new' && mkdir -p '${DEPLOY_DIR}.new'"
-tar czf - "${DEPLOY_FILES[@]}" | vps "tar xzf - -C '${DEPLOY_DIR}.new'"
-vps "rm -rf '${DEPLOY_DIR}.old' && mv '${DEPLOY_DIR}' '${DEPLOY_DIR}.old' 2>/dev/null; mv '${DEPLOY_DIR}.new' '${DEPLOY_DIR}' && rm -rf '${DEPLOY_DIR}.old'"
+# ── 4. Install + restart + verify (runs on the VPS) ───────────────────────────
+# Fed through stdin so the whole remote transaction — atomic install, restart,
+# health probe, rollback — happens in one session with no quoting traps.
+log "Installing under ${DIST_REMOTE} and restarting ${UNIT}..."
+if ! vps bash -s -- "${STAGE_REMOTE}" "${DIST_REMOTE}" "${UNIT}" "${HEALTH_PATH}" <<'REMOTE'
+set -Eeuo pipefail
+STAGE="$1"; DIST_DIR="$2"; UNIT="$3"; HEALTH_PATH="$4"
 
-ok "Files shipped to ${DEPLOY_DIR}"
+say()  { echo "[deploy] $*"; }
+boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }
 
-# ── 5. Build Docker image & restart ──────────────────────────────────────
-log "Building Docker image on VPS..."
-vps "cd '${DEPLOY_DIR}' && docker compose build --pull 2>&1" | tail -5 || die "Docker build failed on VPS"
+[ -f "$STAGE/index.js" ] || boom "staged index.js not found in $STAGE"
+command -v systemctl > /dev/null 2>&1 || boom "systemctl not found"
+command -v curl > /dev/null 2>&1 || boom "curl not found"
 
-log "Restarting container (zero-downtime via healthcheck)..."
-vps "cd '${DEPLOY_DIR}' && docker compose up -d --force-recreate --wait --wait-timeout 60 2>&1" || {
-  log "Warn: --wait not supported on this docker-compose version, falling back to basic restart"
-  vps "cd '${DEPLOY_DIR}' && docker compose up -d --force-recreate 2>&1" || die "Container restart failed"
+# The deploy user owns /opt/<app> here; fall back to sudo only if needed.
+as_root() {
+  if [ -w "$DIST_DIR" ] 2>/dev/null && [ -w "$(dirname "$DIST_DIR")" ] 2>/dev/null; then
+    "$@"
+  elif sudo -n true 2>/dev/null; then
+    sudo -n "$@"
+  else
+    "$@"
+  fi
 }
 
-# ── 6. Verify container is running ────────────────────────────────────────────
-log "Waiting for container to be healthy..."
-sleep 5
-CONTAINER_ID=$(vps "docker ps --filter 'name=${APP_NAME}' --format '{{.ID}}' 2>/dev/null" || true)
+PREV="${DIST_DIR}.previous"
+if [ -d "$DIST_DIR" ]; then
+  rm -rf "$PREV"
+  as_root cp -a "$DIST_DIR" "$PREV"
+  say "backed up current dist to $PREV"
+fi
 
-if [ -n "$CONTAINER_ID" ]; then
-  HEALTH=$(vps "docker inspect --format='{{.State.Health.Status}}' '${CONTAINER_ID}'" 2>/dev/null || echo "no-healthcheck")
-  STATUS=$(vps "docker inspect --format='{{.State.Status}}' '${CONTAINER_ID}'" 2>/dev/null || echo "unknown")
-  log "Container status: ${STATUS} | health: ${HEALTH}"
+RESTORE=0
+restore() {
+  [ -d "$PREV" ] || return 0
+  say "restoring previous dist"
+  local f base
+  for f in "$PREV"/*.js; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    as_root cp -a "$f" "$DIST_DIR/$base.new" && as_root mv -f "$DIST_DIR/$base.new" "$DIST_DIR/$base"
+  done
+  as_root systemctl restart "$UNIT" || true
+}
 
-  # Tail recent logs
-  vps "docker logs --tail 10 '${CONTAINER_ID}' 2>&1" || true
+report() {
+  echo "=== systemctl status $UNIT ==="
+  as_root systemctl status "$UNIT" --no-pager 2>&1 | head -20 || true
+  echo "=== journalctl -u $UNIT (last 60) ==="
+  as_root journalctl -u "$UNIT" -n 60 --no-pager 2>&1 | tail -60 || true
+}
+
+on_error() {
+  local rc="$1" line="$2"
+  echo "[deploy] ERROR: step failed at line $line (exit $rc)" >&2
+  if [ "$RESTORE" = "1" ]; then restore; fi
+  report
+  exit "$rc"
+}
+trap 'on_error $? $LINENO' ERR
+
+# Per-file rename on the same filesystem: the running process keeps its old
+# inode until the restart, so nothing half-written is ever executed.
+RESTORE=1
+for f in "$STAGE"/*.js; do
+  base="$(basename "$f")"
+  as_root cp -a "$f" "$DIST_DIR/$base.new"
+  as_root mv -f "$DIST_DIR/$base.new" "$DIST_DIR/$base"
+  say "installed $base"
+done
+RESTORE=0
+
+say "restarting $UNIT"
+as_root systemctl restart "$UNIT"
+
+active=0
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet "$UNIT"; then active=1; break; fi
+  sleep 1
+done
+[ "$active" = "1" ] || boom "$UNIT never became active"
+
+# The port is injected at run time by bws-exec, so read it off the running PID
+# instead of hardcoding it (it has already moved once: 4189 → 4000).
+pid="$(systemctl show -p MainPID --value "$UNIT")"
+port="$(ss -ltnpH 2>/dev/null | grep -F "pid=$pid," | head -1 | grep -oE ':[0-9]+' | head -1 | tr -d ':' || true)"
+
+if [ -n "$port" ]; then
+  url="http://127.0.0.1:${port}${HEALTH_PATH}"
+  say "health-check $url"
+  body="$(curl -fsS -m 5 --retry 15 --retry-delay 2 --retry-connrefused --retry-all-errors "$url")"
+  say "health: $body"
 else
-  log "No container found with name '${APP_NAME}' — checking all recent..."
-  vps "docker ps -a --filter 'name=${APP_NAME}' 2>/dev/null" || true
+  # systemd already says active, but name the miss loudly instead of passing silently.
+  say "WARNING: no listening socket found for pid $pid — $HEALTH_PATH not probed"
 fi
 
-# ── 7. Health check ───────────────────────────────────────────────────────────
-if [ -n "${ADMIN_PASSWORD:-}" ]; then
-  log "Running health check via HTTP..."
-  sleep 3
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://${VPS_HOST}/health" 2>/dev/null || echo "000")
-  if [ "$HTTP_CODE" = "200" ]; then
-    ok "Health check passed (HTTP ${HTTP_CODE})"
-  else
-    log "Health check returned HTTP ${HTTP_CODE} (may need a moment or TLS not set up)"
-  fi
+say "deploy of $UNIT complete (active: $(systemctl is-active "$UNIT"))"
+rm -rf "$STAGE"
+REMOTE
+then
+  die "remote deploy failed (see log above)"
 fi
 
-# ── Cleanup temp SSH key ─────────────────────────────────────────────────────
+# ── Cleanup temp SSH key ──────────────────────────────────────────────────────
 if [[ "${VPS_SSH_KEY:-}" == /tmp/* ]]; then
   rm -f "$VPS_SSH_KEY"
 fi
 
 echo ""
-echo "✓ Deploy complete — ${APP_NAME} is running on ${VPS_HOST}"
+echo "✓ Deploy complete — ${APP_NAME} is running on ${VPS_HOST} (unit: ${UNIT})"

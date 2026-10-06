@@ -23,19 +23,23 @@ bun run dev      # Development mode
 bun run start    # Production mode
 ```
 
-## Deployment (Produksi — Nix + systemd)
+## Deployment (Produksi — systemd, tanpa Nix)
 
 > Infra lama berbasis Docker + Traefik sudah dihapus dari orangevps (2026-08-02).
+> Nix juga sudah dihapus dari VPS (`/nix` tidak ada lagi) sehingga seluruh
+> jalur deploy kini pindah ke pnpm + systemd.
 
 - **Host**: orangevps
-- **Service**: systemd unit `teleuploader` (env via `/etc/teleuploader/env` / BWS secrets)
-- **Build**: Nix flake (`flake.nix`) — `nix build .#teleuploader` → `nix copy` → `systemctl restart teleuploader`
-- **CI**: `.github/workflows/deploy.yml` (Gitea Actions / GitHub Actions)
+- **Service**: systemd unit `teleuploader` (env via BWS `bws-exec`)
+- **Build**: `pnpm run build` (esbuild → `dist/index.js`) — `deploy.sh`
+  mengirim `dist/` ke `/opt/teleuploader/dist`, `systemctl restart teleuploader`,
+  lalu cek `GET /health` pada port yang didengarkan PID service
+- **CI**: `.github/workflows/deploy.yml` (GitHub Actions / Gitea Actions)
 - **Port**: `4000` (`PORT` env)
 - **Domain**: `https://upload.asepharyana.my.id`
 - **Reverse proxy**: Caddy (bukan Traefik/Docker)
 - **Database**: `postgresql://asephs:***@100.121.180.82:6432/uploader` (PgBouncer pool di imrnes, **bukan** 5432/localhost)
-- `deploy.sh` & `Dockerfile` & `docker-compose.yml` bersifat **legacy** — jangan dipakai untuk deploy produksi.
+- `deploy.sh` adalah satu-satunya jalur deploy; `Dockerfile` & `docker-compose.yml` bersifat **legacy** — jangan dipakai untuk deploy produksi.
 
 ## API Endpoints
 
@@ -63,6 +67,7 @@ This repository uses auto semantic versioning via [semantic-release](https://git
 - breaking changes → major bump (v2.0.0)
 - `chore/ci/docs/refactor/test` commits → no release
 
-On every release, `prepare.mjs` syncs the version across `package.json` and
-`flake.nix`, guaranteeing a fresh Nix store path and true auto-deploy via
-the `Build & Deploy (Nix)` workflow.
+On every release, `prepare.mjs` syncs the version across `package.json`
+(and `flake.nix` only if that file ever comes back), and the
+`Build & Deploy` workflow picks the new `dist/` up over plain SSH — no Nix
+store path involved.

@@ -53,14 +53,33 @@ const workflowFile = readFileSync(
   'utf8',
 );
 
-test('deploy workflow builds with nix and deploys to VPS on main', () => {
+test('deploy workflow builds with pnpm and ships over systemd (no Nix)', () => {
   expect(workflowFile).toContain('branches: [main]');
   expect(workflowFile).toContain('uses: actions/checkout@v7');
-  expect(workflowFile).toContain('uses: oven-sh/setup-bun@v2');
-  expect(workflowFile).toContain('bun install --frozen-lockfile');
-  expect(workflowFile).toContain('bunx biome check src test');
+  expect(workflowFile).toContain('uses: pnpm/action-setup@v4');
+  expect(workflowFile).toContain('pnpm install --frozen-lockfile');
+  expect(workflowFile).toContain('pnpm run lint');
   expect(workflowFile).toContain('VPS_HOST');
   expect(workflowFile).toContain('VPS_USER');
-  expect(workflowFile).toContain('nix copy');
-  expect(workflowFile).toContain('systemctl restart teleuploader');
+  expect(workflowFile).toContain('./deploy.sh --no-build');
+  // Nix was removed from the VPS, so `nix copy` failed with
+  // `error: cannot connect` on every run — never reintroduce it here.
+  expect(workflowFile).not.toContain('nix copy');
+  expect(workflowFile).not.toContain('nix-installer-action');
+  expect(workflowFile).not.toContain('magic-nix-cache');
+  expect(workflowFile).not.toContain('nix-env');
+  expect(workflowFile).not.toContain('oven-sh/setup-bun');
+});
+
+test('deploy script drives the systemd unit and probes health', () => {
+  expect(deployScript).toContain('APP_NAME="teleuploader"');
+  expect(deployScript).toContain('systemctl restart');
+  expect(deployScript).toContain('is-active');
+  expect(deployScript).toContain('HEALTH_PATH');
+  expect(deployScript).toContain('/health');
+  expect(deployScript).toContain('pnpm install --frozen-lockfile');
+  // Plain systemd only: no Nix, no Docker, no Bun left in the deploy path.
+  expect(deployScript).not.toContain('nix copy');
+  expect(deployScript).not.toContain('docker compose');
+  expect(deployScript).not.toContain('bun install');
 });

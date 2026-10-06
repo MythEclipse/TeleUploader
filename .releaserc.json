@@ -23,14 +23,14 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "node ./.semrel/prepare.mjs '${nextRelease.version}' && pnpm exec biome check package.json flake.nix CHANGELOG.md 2>/dev/null || true",
+        "prepareCmd": "node ./.semrel/prepare.mjs '${nextRelease.version}' && pnpm exec biome check package.json CHANGELOG.md 2>/dev/null || true",
         "successCmd": "node ./.semrel/dispatch.mjs '${nextRelease.version}'"
       }
     ],
     [
       "@semantic-release/git",
       {
-        "assets": ["package.json", "flake.nix", "CHANGELOG.md"],
+        "assets": ["package.json", "CHANGELOG.md"],
         "message": "chore(release): ${nextRelease.version}\n\n${nextRelease.notes}"
       }
     ],

@@ -1,5 +1,5 @@
-# ⚠️ LEGACY — pembangunan & deploy sekarang DISARANKAN memakai Nix + systemd
-# (lihat flake.nix + .github/workflows/deploy.yml + Caddy reverse proxy di orangevps).
+# ⚠️ LEGACY — deploy sekarang pnpm + systemd
+# (lihat deploy.sh + .github/workflows/deploy.yml + Caddy reverse proxy di orangevps).
 # Dockerfile ini hanya dipertahankan untuk konteks historis / fallback, bukan deploy produksi.
 
 # Stage 1: Builder
