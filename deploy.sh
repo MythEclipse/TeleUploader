@@ -162,11 +162,13 @@ boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }
 command -v systemctl > /dev/null 2>&1 || boom "systemctl not found"
 command -v curl > /dev/null 2>&1 || boom "curl not found"
 
-# The deploy user owns /opt/<app> here; fall back to sudo only if needed.
+# Prefer sudo: on this box the deploy user can write /opt/<app> (so a plain
+# write test would pick the no-privilege branch) but restarting a unit, reading
+# its journal, or seeing another user's process in `ss` needs root. The CI user
+# has NOPASSWD sudo; if it ever loses that, fall back to running as-is so the
+# error surfaces from systemd itself instead of silently doing nothing.
 as_root() {
-  if [ -w "$DIST_DIR" ] 2>/dev/null && [ -w "$(dirname "$DIST_DIR")" ] 2>/dev/null; then
-    "$@"
-  elif sudo -n true 2>/dev/null; then
+  if command -v sudo > /dev/null 2>&1 && sudo -n true 2>/dev/null; then
     sudo -n "$@"
   else
     "$@"
@@ -225,15 +227,16 @@ as_root systemctl restart "$UNIT"
 
 active=0
 for _ in $(seq 1 30); do
-  if systemctl is-active --quiet "$UNIT"; then active=1; break; fi
+  if as_root systemctl is-active --quiet "$UNIT"; then active=1; break; fi
   sleep 1
 done
 [ "$active" = "1" ] || boom "$UNIT never became active"
 
 # The port is injected at run time by bws-exec, so read it off the running PID
-# instead of hardcoding it (it has already moved once: 4189 → 4000).
-pid="$(systemctl show -p MainPID --value "$UNIT")"
-port="$(ss -ltnpH 2>/dev/null | grep -F "pid=$pid," | head -1 | grep -oE ':[0-9]+' | head -1 | tr -d ':' || true)"
+# instead of hardcoding it (it has already moved once: 4189 → 4000). `ss -p`
+# only shows processes the caller may inspect, hence as_root.
+pid="$(as_root systemctl show -p MainPID --value "$UNIT")"
+port="$(as_root ss -ltnpH 2>/dev/null | grep -F "pid=$pid," | head -1 | grep -oE ':[0-9]+' | head -1 | tr -d ':' || true)"
 
 if [ -n "$port" ]; then
   url="http://127.0.0.1:${port}${HEALTH_PATH}"
@@ -245,7 +248,7 @@ else
   say "WARNING: no listening socket found for pid $pid — $HEALTH_PATH not probed"
 fi
 
-say "deploy of $UNIT complete (active: $(systemctl is-active "$UNIT"))"
+say "deploy of $UNIT complete (active: $(as_root systemctl is-active "$UNIT"))"
 rm -rf "$STAGE"
 REMOTE
 then
