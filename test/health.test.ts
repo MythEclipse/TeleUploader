@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Read the expected version from the manifest so a version bump can never
+// desync this assertion again.
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 // Mock database layer
-const mockExecute = mock(() => Promise.resolve());
+const mockExecute = vi.fn(() => Promise.resolve());
 
-mock.module('../src/infrastructure/persistence/drizzle/index', () => ({
+vi.mock('../src/infrastructure/persistence/drizzle/index', () => ({
   db: {
     execute: mockExecute,
   },
@@ -24,7 +31,7 @@ describe('Health Route Handler', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ status: 'ok', version: '1.2.2' });
+    expect(body).toEqual({ status: 'ok', version: pkg.version });
     expect(mockExecute).toHaveBeenCalled();
   });
 
@@ -34,7 +41,7 @@ describe('Health Route Handler', () => {
     const res = await handleHealth(req);
 
     expect(res.status).toBe(500);
-    const body = await res.json();
+    const body = (await res.json()) as { status: string; error: string };
     expect(body.status).toBe('error');
     expect(body.error).toBe('DB Connection Failed');
   });
