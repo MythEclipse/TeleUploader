@@ -1,3 +1,10 @@
+## [1.2.9](https://github.com/asepharyana/TeleUploader/compare/v1.2.8...v1.2.9) (2026-10-06)
+
+
+### Bug Fixes
+
+* **build:** keep AbortSignal class name after esbuild renaming ([172cc73](https://github.com/asepharyana/TeleUploader/commit/172cc739ea2f1395488b27c60544a8b96a89f709))
+
 ## [1.2.8](https://github.com/asepharyana/TeleUploader/compare/v1.2.7...v1.2.8) (2026-10-06)
 
 
