@@ -83,7 +83,17 @@ jobs:
         run: |
           STORE_PATH="${{ steps.build.outputs.store-path }}"
           echo "=== Copying teleuploader: $STORE_PATH ==="
-          nix copy --to "ssh://$VPS_USER@$VPS_HOST" "$STORE_PATH"
+          # The VPS's login shell is zsh and its PATH does not carry
+          # /nix/var/nix/profiles/default/bin, so `nix copy` running a bare
+          # "nix-store" there answers "command not found" and nix turns that
+          # into "cannot connect". Name the same absolute path this workflow
+          # already uses for nix-env in the step below.
+          NIX_STORE_URL="ssh://$VPS_USER@$VPS_HOST?remote-program=/nix/var/nix/profiles/default/bin/nix-store"
+          nix copy --to "$NIX_STORE_URL" "$STORE_PATH" || {
+            echo "=== nix copy failed; what does the VPS actually have? ==="
+            ssh "$VPS_USER@$VPS_HOST" 'command -v nix-store || ls -1 /nix/var/nix/profiles/default/bin 2>/dev/null | head' || true
+            exit 1
+          }
 
           echo "=== Updating profile ==="
           ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-env --profile /nix/var/nix/profiles/teleuploader --set '$STORE_PATH'"
