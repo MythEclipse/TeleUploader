@@ -1,3 +1,10 @@
+## [1.2.8](https://github.com/asepharyana/TeleUploader/compare/v1.2.7...v1.2.8) (2026-10-06)
+
+
+### Bug Fixes
+
+* **deploy:** sudo the systemd calls in the remote deploy step ([fefab44](https://github.com/asepharyana/TeleUploader/commit/fefab4494d091a05a756c23e58f88879b6fbef0b))
+
 ## [1.2.7](https://github.com/asepharyana/TeleUploader/compare/v1.2.6...v1.2.7) (2026-10-06)
 
 ## [1.2.6](https://github.com/asepharyana/TeleUploader/compare/v1.2.5...v1.2.6) (2026-10-06)
