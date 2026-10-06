@@ -91,7 +91,7 @@ jobs:
           NIX_STORE_URL="ssh://$VPS_USER@$VPS_HOST?remote-program=/nix/var/nix/profiles/default/bin/nix-store"
           nix copy --to "$NIX_STORE_URL" "$STORE_PATH" || {
             echo "=== nix copy failed; what does the VPS actually have? ==="
-            ssh "$VPS_USER@$VPS_HOST" 'command -v nix-store || ls -1 /nix/var/nix/profiles/default/bin 2>/dev/null | head' || true
+            ssh "$VPS_USER@$VPS_HOST" 'echo "PATH=$PATH"; command -v nix-store; ls -la /nix/var/nix/profiles/default/bin 2>&1 | head; ls -la /nix 2>&1 | head' || echo "(ssh itself failed)"
             exit 1
           }
 
