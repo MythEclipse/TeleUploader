@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { createHash, createHmac } from 'node:crypto';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 describe('S3 Auth (SigV4)', () => {
   let verifySignature: typeof import('../src/interfaces/s3/auth').verifySignature;
@@ -86,7 +87,7 @@ describe('S3 Auth (SigV4)', () => {
   });
 
   const sha256hex = (data: string): string => {
-    const h = new Bun.CryptoHasher('sha256');
+    const h = createHash('sha256');
     h.update(data);
     return Array.from(h.digest())
       .map((b) => b.toString(16).padStart(2, '0'))
@@ -94,7 +95,7 @@ describe('S3 Auth (SigV4)', () => {
   };
 
   const hmacSha256 = (key: Uint8Array, msg: string): Uint8Array => {
-    const h = new Bun.CryptoHasher('sha256', key);
+    const h = createHmac('sha256', key);
     h.update(msg);
     return h.digest();
   };

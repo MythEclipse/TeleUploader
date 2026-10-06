@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 process.env.BOT_TOKENS = 'bot1:token,bot2:token,bot3:token';
 process.env.STORAGE_CHANNEL_ID = '-1001234567890';
@@ -9,19 +9,19 @@ process.env.PORT = '4000';
 // Track mock queue instances for per-bot assertions
 const queueInstances: Array<{
   concurrency: number;
-  add: ReturnType<typeof mock>;
+  add: ReturnType<typeof vi.fn>;
   pending: number;
   size: number;
 }> = [];
 
 // Mock PQueue so we can verify concurrency
-const mockAdd = mock(function addFn(this: any, fn: () => Promise<any>) {
+const mockAdd = vi.fn(function addFn(this: any, fn: () => Promise<any>) {
   return Promise.resolve().then(() => fn());
 });
 
-mock.module('p-queue', () => {
+vi.mock('p-queue', () => {
   return {
-    default: mock(function MockQueue(this: any, opts?: { concurrency?: number }) {
+    default: vi.fn(function MockQueue(this: any, opts?: { concurrency?: number }) {
       const instance = {
         concurrency: opts?.concurrency ?? 1,
         add: mockAdd,
@@ -39,9 +39,9 @@ const mockTelegramInstances: Record<
   string,
   {
     token: string;
-    sendDocument: ReturnType<typeof mock>;
-    sendPhoto: ReturnType<typeof mock>;
-    getFile: ReturnType<typeof mock>;
+    sendDocument: ReturnType<typeof vi.fn>;
+    sendPhoto: ReturnType<typeof vi.fn>;
+    getFile: ReturnType<typeof vi.fn>;
   }
 > = {};
 
@@ -49,28 +49,28 @@ class MockTelegraf {
   token: string;
   telegram: {
     token: string;
-    sendDocument: ReturnType<typeof mock>;
-    sendPhoto: ReturnType<typeof mock>;
-    getFile: ReturnType<typeof mock>;
+    sendDocument: ReturnType<typeof vi.fn>;
+    sendPhoto: ReturnType<typeof vi.fn>;
+    getFile: ReturnType<typeof vi.fn>;
   };
 
   constructor(token: string) {
     this.token = token;
     this.telegram = {
       token,
-      sendDocument: mock(() =>
+      sendDocument: vi.fn(() =>
         Promise.resolve({
           message_id: 1,
           document: { file_id: `file_${token}`, file_unique_id: `uniq_${token}` },
         }),
       ),
-      sendPhoto: mock(() =>
+      sendPhoto: vi.fn(() =>
         Promise.resolve({
           message_id: 1,
           photo: [{ file_id: `photo_${token}`, file_unique_id: `photo_uniq_${token}` }],
         }),
       ),
-      getFile: mock(() =>
+      getFile: vi.fn(() =>
         Promise.resolve({ file_size: 100, mime_type: 'text/plain', file_path: 'path' }),
       ),
     };
@@ -78,7 +78,7 @@ class MockTelegraf {
   }
 }
 
-mock.module('telegraf', () => ({
+vi.mock('telegraf', () => ({
   Telegraf: MockTelegraf,
 }));
 

@@ -1,6 +1,10 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { BunFile } from 'bun';
+import { fileURLToPath } from 'node:url';
+
+/** Directory of this module — the Node replacement for bun's `import.meta.dir`. */
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Maximum number of parent directories to walk up when locating home.html.
@@ -12,17 +16,17 @@ const MAX_PARENT_WALK = 6;
  * Resolves the absolute path to `home.html` by walking up from `startDir`.
  *
  * The file lives at different depths depending on how the app is run:
- * - Dev (`bun --hot src/index.ts`): `import.meta.dir` is
+ * - Dev (`tsx watch src/index.ts`): the module directory is
  *   `src/interfaces/http/controllers/`, home.html lives at `src/home.html`
  *   (4 levels up).
- * - Prod (bundled `dist/index.js`): `import.meta.dir` is
+ * - Prod (bundled `dist/index.js`): the module directory is
  *   `$out/share/teleuploader/dist/`, home.html lives next to dist/
  *   (1 level up, per flake.nix installPhase).
  *
  * Returns the first existing candidate, or `null` if none is found within
  * the walk bound.
  *
- * @param startDir - Directory to start the search from (typically `import.meta.dir`).
+ * @param startDir - Directory to start the search from (typically `MODULE_DIR`).
  * @param maxDepth - Maximum number of parent directories to walk (default: 6).
  * @returns Absolute path to home.html, or `null` if not found.
  */
@@ -43,18 +47,18 @@ export const resolveHomeHtml = (startDir: string, maxDepth = MAX_PARENT_WALK): s
  *
  * Reads the `home.html` file and serves it as an HTML response with UTF-8
  * charset. Fails fast with a clear error when the file cannot be located
- * instead of letting Bun.serve swallow the ENOENT into a bare 500.
+ * instead of letting the HTTP server swallow the ENOENT into a bare 500.
  *
  * @returns An HTML response containing the home page content.
  */
 export const handleHome = async (): Promise<Response> => {
-  const homeHtml = resolveHomeHtml(import.meta.dir);
+  const homeHtml = resolveHomeHtml(MODULE_DIR);
   if (!homeHtml) {
     throw new Error(
-      `home.html not found — looked up from ${import.meta.dir} and ${MAX_PARENT_WALK} parent dirs`,
+      `home.html not found — looked up from ${MODULE_DIR} and ${MAX_PARENT_WALK} parent dirs`,
     );
   }
-  const html = await (Bun.file(homeHtml) as BunFile).text();
+  const html = await readFile(homeHtml, 'utf8');
   return new Response(html, {
     status: 200,
     headers: {

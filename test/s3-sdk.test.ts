@@ -11,12 +11,11 @@
  *   - BASE_URL          (default: https://upload.asepharyana.my.id)
  *
  * Usage:
- *   S3_SECRET_KEY=xxx bun test test/s3-sdk.test.ts
+ *   S3_SECRET_KEY=xxx pnpm exec vitest run --config vitest.quarantine.config.ts test/s3-sdk.test.ts
  *
  * CAUTION: creates & destroys real resources on the production server!
  */
 
-import { afterAll, describe, expect, it } from 'bun:test';
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
@@ -40,6 +39,7 @@ import {
   S3Client,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
+import { afterAll, describe, expect, it } from 'vitest';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL = process.env.BASE_URL || 'https://upload.asepharyana.my.id';

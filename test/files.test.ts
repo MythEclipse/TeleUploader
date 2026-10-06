@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type RequestWithParams = Request & {
   params?: {
@@ -47,20 +47,20 @@ const responseJson = async <T extends JsonBody>(res: Response): Promise<T> => {
 };
 
 // Mock the DI module — file-controller imports fileRepository + chunkedStorage from here
-const mockFindByPublicId = mock(
+const mockFindByPublicId = vi.fn(
   (_publicId: string): Promise<MockFileRecord | null> => Promise.resolve(null),
 );
 
-const mockGetFileInfo = mock(async (_telegramFileId: string) => ({
+const mockGetFileInfo = vi.fn(async (_telegramFileId: string) => ({
   file_size: 98765,
   mime_type: 'image/jpeg',
   file_path: 'photos/file_0.jpg',
   bot_token: '123456:ABC-DEF',
 }));
 
-const mockCreateChunkedObjectResponse = mock(async () => new Response(null, { status: 200 }));
+const mockCreateChunkedObjectResponse = vi.fn(async () => new Response(null, { status: 200 }));
 
-mock.module('../src/infrastructure/di', () => ({
+vi.mock('../src/infrastructure/di', () => ({
   fileRepository: {
     findByPublicId: mockFindByPublicId,
     findByHash: async () => null,
@@ -113,7 +113,7 @@ mock.module('../src/infrastructure/di', () => ({
 }));
 
 // Mock botPool.getFileInfo used in file redirect
-mock.module('../src/infrastructure/telegram/bot-pool', () => ({
+vi.mock('../src/infrastructure/telegram/bot-pool', () => ({
   botPool: {
     getFileInfo: mockGetFileInfo,
     forwardToStorage: async () => ({
@@ -144,7 +144,7 @@ describe('File Route Handlers', () => {
   });
 
   afterAll(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   describe('handleFileRedirect', () => {

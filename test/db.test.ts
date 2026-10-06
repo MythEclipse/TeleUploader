@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { db, files } from '../src/infrastructure/persistence/drizzle/index';
 import { files as schemaFiles } from '../src/infrastructure/persistence/drizzle/schema';
 

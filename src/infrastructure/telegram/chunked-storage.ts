@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { nanoid } from 'nanoid';
 import type { File as FileEntity } from '../../domain/entities/file';
@@ -112,7 +113,7 @@ export class ChunkedStorage {
     compressionMinSizeBytes: number;
   }): Promise<ChunkedUploadResult> {
     const chunkSizeBytes = asSafeChunkSize(input.chunkSizeBytes);
-    const hasher = new Bun.CryptoHasher('sha256');
+    const hasher = createHash('sha256');
     const parts: ChunkedUploadPart[] = [];
     let totalSizeBytes = 0;
     let partNumber = 0;

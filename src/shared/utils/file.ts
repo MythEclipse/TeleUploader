@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import logger from '../logger/index';
 
@@ -262,7 +263,7 @@ export const extractMimeType = (msg: MessageLike, request: HeaderMapRequest | nu
  * @returns The 64-character hex-encoded SHA-256 hash.
  */
 export const computeHash = (buffer: Buffer): string => {
-  const hasher = new Bun.CryptoHasher('sha256');
+  const hasher = createHash('sha256');
   hasher.update(buffer);
   return hasher.digest('hex');
 };

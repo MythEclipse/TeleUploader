@@ -1,5 +1,8 @@
 version: 2
 updates:
+  # This repo installs with pnpm (see packageManager in package.json).
+  # Dependabot has no `pnpm` ecosystem value: `npm` is the ecosystem that
+  # reads package.json + pnpm-lock.yaml, so it stays `npm` by design.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:

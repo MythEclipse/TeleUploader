@@ -9,7 +9,9 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["bun-types"]
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*", "test/**/*", "vitest.config.ts", "vitest.quarantine.config.ts"]
 }

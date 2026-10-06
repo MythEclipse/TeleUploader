@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
 import { createUploadFileUseCase } from '../../../application/use-cases/upload-file';
 import { config } from '../../../env';
@@ -197,7 +198,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
     }
 
     const tempPath = `/tmp/teleuploader-${nanoid()}`;
-    await Bun.write(tempPath, fileBytes);
+    await writeFile(tempPath, fileBytes);
     const output = await getUploadUseCase()({
       tempPath,
       fileHash: hash,

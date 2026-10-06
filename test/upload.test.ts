@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let realPhotoBuffer: Buffer;
 
@@ -40,8 +40,8 @@ const uploadResponseJson = async (res: Response): Promise<UploadJsonBody> => {
 };
 
 const mockFileRepo = {
-  findByHash: mock(() => Promise.resolve(mockFindByHashResult)),
-  create: mock((input: unknown) =>
+  findByHash: vi.fn(() => Promise.resolve(mockFindByHashResult)),
+  create: vi.fn((input: unknown) =>
     Promise.resolve({
       ...(input as object),
       publicId: (input as Record<string, unknown>).publicId || 'mocked-id',
@@ -50,7 +50,7 @@ const mockFileRepo = {
   ),
 };
 
-const mockForwardToStorage = mock(() =>
+const mockForwardToStorage = vi.fn(() =>
   Promise.resolve({
     telegramFileId: 'tg-file-id-123',
     telegramFileUniqueId: 'tg-unique-id-abc',
@@ -58,10 +58,10 @@ const mockForwardToStorage = mock(() =>
   }),
 );
 
-mock.module('../src/infrastructure/di', () => ({
+vi.mock('../src/infrastructure/di', () => ({
   fileRepository: mockFileRepo,
   chunkedStorage: {
-    storeFileInTelegramChunks: mock(() =>
+    storeFileInTelegramChunks: vi.fn(() =>
       Promise.resolve({
         fileHash: 'hash',
         publicId: 'mock',
@@ -86,12 +86,12 @@ mock.module('../src/infrastructure/di', () => ({
 
 // Mock nanoid
 let nanoidCounter = 0;
-mock.module('nanoid', () => ({
+vi.mock('nanoid', () => ({
   nanoid: () => `mocked-nanoid-id-${nanoidCounter++}`,
 }));
 
 // Mock streamToTemp — bypass actual file I/O in tests
-const mockStreamToTemp = mock((_reader: unknown) =>
+const mockStreamToTemp = vi.fn((_reader: unknown) =>
   Promise.resolve({
     tempPath: '/tmp/filedrop-test-photo',
     fileHash: 'mock-sha256-hash',
@@ -99,7 +99,7 @@ const mockStreamToTemp = mock((_reader: unknown) =>
     signatureBuffer: (realPhotoBuffer || Buffer.alloc(16)).subarray(0, 16),
   }),
 );
-mock.module('../src/shared/utils/temp-stream', () => ({
+vi.mock('../src/shared/utils/temp-stream', () => ({
   streamToTemp: mockStreamToTemp,
 }));
 
@@ -178,7 +178,7 @@ describe('Upload Route Handler', () => {
 
   it('should process multipart upload successfully', async () => {
     const formData = new FormData();
-    const fileBlob = new Blob([realPhotoBuffer], { type: 'image/png' });
+    const fileBlob = new Blob([new Uint8Array(realPhotoBuffer)], { type: 'image/png' });
     formData.append('file', fileBlob, 'test_multi.png');
 
     const req = new Request('http://localhost:4000/api/upload', {
@@ -300,6 +300,6 @@ describe('Upload Route Handler', () => {
   });
 
   afterAll(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 });

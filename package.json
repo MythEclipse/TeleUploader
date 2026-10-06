@@ -3,21 +3,27 @@
   "version": "1.2.3",
   "description": "Telegram file uploader backend",
   "type": "module",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "build": "bun build src/index.ts --target=bun --outfile=dist/index.js && bun build src/infrastructure/persistence/drizzle/migrate.ts --target=bun --outfile=dist/migrate.js",
-    "start": "NODE_ENV=production bun dist/index.js",
-    "db:migrate": "bun dist/migrate.js",
-    "test": "bun run test:unit",
-    "test:unit": "bun test --preload ./test/helpers/setup-env.ts test/rateLimit.test.ts && bun test --preload ./test/helpers/setup-env.ts test/file.test.ts && bun test --preload ./test/helpers/setup-env.ts test/files.test.ts && bun test --preload ./test/helpers/setup-env.ts test/health.test.ts && bun test --preload ./test/helpers/setup-env.ts test/db.test.ts && bun test --preload ./test/helpers/setup-env.ts test/bot-pool.test.ts && bun test --preload ./test/helpers/setup-env.ts test/bot.test.ts && bun test --preload ./test/helpers/setup-env.ts test/bootstrap.test.ts && bun test --preload ./test/helpers/setup-env.ts test/swagger.test.ts && bun test --preload ./test/helpers/setup-env.ts test/auth.test.ts && bun test --preload ./test/helpers/setup-env.ts test/auth-routes.test.ts && bun test --preload ./test/helpers/setup-env.ts test/validation.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-auth.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-auth-edge.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-operations.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-routing.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-range.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-object-stream.test.ts && bun test --preload ./test/helpers/setup-env.ts test/object-stream-parallel.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-helpers-edge.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-bucket-config.test.ts && bun test --preload ./test/helpers/setup-env.ts test/chunked-storage.test.ts && bun test --preload ./test/helpers/setup-env.ts test/temp-stream.test.ts && bun test --preload ./test/helpers/setup-env.ts test/zip.test.ts && bun test --preload ./test/helpers/setup-env.ts test/web-api.test.ts && bun test --preload ./test/helpers/setup-env.ts test/env.test.ts && bun test --preload ./test/helpers/setup-env.ts test/home.test.ts && bun test --preload ./test/helpers/setup-env.ts test/deploy-config.test.ts && bun test --preload ./test/helpers/setup-env.ts test/public-readonly-routes.test.ts",
-    "test:quarantine": "bun test --preload ./test/helpers/setup-env.ts test/telegram.test.ts && bun test --preload ./test/helpers/setup-env.ts test/upload.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-docker-registry.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-sdk.test.ts && bun test --preload ./test/helpers/setup-env.ts test/production-e2e.test.ts",
-    "test:s3-auth": "bun test --preload ./test/helpers/setup-env.ts test/s3-auth.test.ts",
-    "test:s3-ops": "bun test --preload ./test/helpers/setup-env.ts test/s3-operations.test.ts",
-    "test:web-api": "bun test --preload ./test/helpers/setup-env.ts test/web-api.test.ts",
-    "test:s3": "bun test --preload ./test/helpers/setup-env.ts test/s3-auth.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-auth-edge.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-operations.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-routing.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-range.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-object-stream.test.ts && bun test --preload ./test/helpers/setup-env.ts test/object-stream-parallel.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-helpers-edge.test.ts && bun test --preload ./test/helpers/setup-env.ts test/s3-bucket-config.test.ts && bun test --preload ./test/helpers/setup-env.ts test/web-api.test.ts",
-    "lint": "bunx biome check src test",
-    "format": "bunx biome format --write src test",
+    "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js",
+    "start": "NODE_ENV=production node dist/index.js",
+    "db:migrate": "node dist/migrate.js",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run --config vitest.config.ts test/rateLimit.test.ts test/file.test.ts test/files.test.ts test/health.test.ts test/db.test.ts test/bot-pool.test.ts test/bot.test.ts test/bootstrap.test.ts test/swagger.test.ts test/auth.test.ts test/auth-routes.test.ts test/validation.test.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/chunked-storage.test.ts test/temp-stream.test.ts test/zip.test.ts test/web-api.test.ts test/env.test.ts test/home.test.ts test/deploy-config.test.ts test/public-readonly-routes.test.ts",
+    "test:quarantine": "vitest run --config vitest.quarantine.config.ts test/telegram.test.ts test/upload.test.ts test/s3-docker-registry.test.ts test/s3-sdk.test.ts test/production-e2e.test.ts",
+    "test:s3-auth": "vitest run --config vitest.config.ts test/s3-auth.test.ts",
+    "test:s3-ops": "vitest run --config vitest.config.ts test/s3-operations.test.ts",
+    "test:web-api": "vitest run --config vitest.config.ts test/web-api.test.ts",
+    "test:s3": "vitest run --config vitest.config.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/web-api.test.ts",
+    "lint": "biome check src test",
+    "format": "biome format --write src test",
     "prepare": "husky"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "dependencies": {
     "@prisma/engines": "^7.8.0",
@@ -35,7 +41,10 @@
     "@biomejs/biome": "^2.4.15",
     "@types/node": "^26.2.0",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "husky": "^9.1.7",
-    "typescript": "^7.0.2"
+    "tsx": "^4.20.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }

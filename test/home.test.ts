@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
 import { handleHome, resolveHomeHtml } from '../src/interfaces/http/controllers/home-controller';
 
 describe('resolveHomeHtml', () => {
@@ -48,7 +49,7 @@ describe('resolveHomeHtml', () => {
 describe('handleHome', () => {
   it('serves the dashboard HTML with 200 and text/html', async () => {
     // handleHome resolves from the real source tree: src/home.html must exist.
-    const srcHome = join(import.meta.dir, '..', 'src', 'home.html');
+    const srcHome = join(fileURLToPath(new URL('..', import.meta.url)), 'src', 'home.html');
     expect(existsSync(srcHome)).toBe(true);
 
     const res = await handleHome();

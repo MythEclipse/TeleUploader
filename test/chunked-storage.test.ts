@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { rm, writeFile } from 'node:fs/promises';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ITelegramService } from '../src/domain/ports/telegram-service';
 import { ChunkedStorage } from '../src/infrastructure/telegram/chunked-storage';
 
@@ -10,12 +11,12 @@ import { ChunkedStorage } from '../src/infrastructure/telegram/chunked-storage';
  */
 const makeTelegramStub = (): ITelegramService =>
   ({
-    forwardToStorage: mock(async (_bytes: unknown, fileName: string) => ({
+    forwardToStorage: vi.fn(async (_bytes: unknown, fileName: string) => ({
       telegramFileId: `tg-${fileName}`,
       telegramFileUniqueId: `tg-unique-${fileName}`,
       storageMessageId: Math.floor(Math.random() * 100000) + 1,
     })),
-    getFileInfo: mock(async (telegramFileId: string) => ({
+    getFileInfo: vi.fn(async (telegramFileId: string) => ({
       file_size: 0,
       mime_type: 'application/octet-stream',
       file_path: `documents/${telegramFileId}`,
@@ -26,12 +27,12 @@ const makeTelegramStub = (): ITelegramService =>
 const noopRepo = {} as never;
 
 const writeTemp = async (path: string, data: Buffer): Promise<void> => {
-  await Bun.write(path, data);
+  await writeFile(path, data);
 };
 
 const rmTemp = async (path: string): Promise<void> => {
   try {
-    await Bun.$`rm -f ${path}`;
+    await rm(path, { force: true });
   } catch {
     /* ignore */
   }
@@ -186,7 +187,7 @@ describe('ChunkedStorage.uploadFileInTelegramChunks', () => {
     });
     await rmTemp(path);
 
-    const fwd = tg.forwardToStorage as unknown as ReturnType<typeof mock>;
+    const fwd = tg.forwardToStorage as unknown as ReturnType<typeof vi.fn>;
     expect(fwd).toHaveBeenCalledTimes(3);
     expect(result.parts.every((p) => p.telegramFileId.startsWith('tg-'))).toBe(true);
   });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { nanoid } from 'nanoid';
 import { buildNewFile } from '../../../../domain/entities/file-factory';
@@ -11,6 +12,7 @@ import {
 } from '../../../../infrastructure/di';
 import { botPool } from '../../../../infrastructure/telegram/bot-pool';
 import { cleanupTempFile, DEFAULT_FILE_TYPE } from '../../../../shared/utils/file';
+import { createFileSink } from '../../../../shared/utils/file-sink';
 import {
   CompletePartSchema,
   clampMaxKeys,
@@ -111,7 +113,7 @@ export const handleUploadPart = async (
 
   // Stream the part body to temp — O(1) memory, safe for large parts
   const tempPath = `/tmp/filedrop-mp-${nanoid()}`;
-  const writer = Bun.file(tempPath).writer();
+  const writer = createFileSink(tempPath);
   const reader = (
     req.body ??
     new ReadableStream({
@@ -120,7 +122,7 @@ export const handleUploadPart = async (
       },
     })
   ).getReader();
-  const hasher = new Bun.CryptoHasher('sha256');
+  const hasher = createHash('sha256');
   let sizeBytes = 0;
 
   try {
@@ -135,7 +137,7 @@ export const handleUploadPart = async (
     await writer.end();
   } catch (error) {
     try {
-      writer.end();
+      await writer.end();
     } catch {
       // ignore during error path
     }

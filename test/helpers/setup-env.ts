@@ -2,8 +2,9 @@
  * Test environment setup — sets default env vars BEFORE any module is loaded.
  *
  * This prevents `src/env.ts` from throwing at import time when required
- * environment variables are absent.  Add this file as a `--preload` argument
- * to `bun test` calls in package.json.
+ * environment variables are absent.  It is registered as `setupFiles` in
+ * vitest.config.ts / vitest.quarantine.config.ts (the old `--preload`
+ * argument for `bun test`).
  *
  * Only the 5 env vars that `src/env.ts` considers required are set here.
  * Optional vars (S3_SECRET_KEY, ADMIN_API_TOKEN, etc.) use their own
@@ -12,7 +13,14 @@
 
 process.env.BOT_TOKENS ||= '123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR';
 process.env.STORAGE_CHANNEL_ID ||= '-1001234567890';
-process.env.BASE_URL ||= 'https://example.com';
+// Vitest/Vite seeds process.env from import.meta.env before the setup file
+// runs, so BASE_URL arrives as vite's `base` ("/") and defeats the `||=`
+// fallback (bun never did this). Treat anything that is not an absolute
+// http(s) URL as "unset" so every test gets the same value bun gave it.
+const seededBaseUrl = process.env.BASE_URL;
+if (!seededBaseUrl || !/^https?:\/\//.test(seededBaseUrl)) {
+  process.env.BASE_URL = 'https://example.com';
+}
 process.env.DATABASE_URL ||= 'postgresql://asephs:***@100.121.180.82:6432/test';
 process.env.PORT ||= '4000';
 process.env.NODE_ENV = 'test';

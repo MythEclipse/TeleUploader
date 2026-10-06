@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 
 const defaultEnv = (key: string, value: string) => {
   process.env[key] ||= value;
@@ -55,7 +55,7 @@ describe('auth utilities', () => {
       maxAgeMs: 60_000,
     });
 
-    expect(cookie).toStartWith(`${cookieName}=`);
+    expect(cookie.slice(0, cookieName.length + 1)).toBe(`${cookieName}=`);
     expect(cookie).toContain('Max-Age=60');
     expect(cookie).toContain('Path=/');
     expect(cookie).toContain('HttpOnly');
@@ -66,7 +66,7 @@ describe('auth utilities', () => {
   it('clears a session cookie', () => {
     const cookie = auth.clearSessionCookie(cookieName);
 
-    expect(cookie).toStartWith(`${cookieName}=;`);
+    expect(cookie.slice(0, cookieName.length + 2)).toBe(`${cookieName}=;`);
     expect(cookie).toContain('Max-Age=0');
     expect(cookie).toContain('HttpOnly');
   });

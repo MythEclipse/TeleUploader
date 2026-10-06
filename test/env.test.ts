@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
 import { config } from '../src/env';
 import { asSafeChunkSize, TELEGRAM_CHUNK_SIZE_MAX_BYTES } from '../src/shared/utils/validation';
 
@@ -34,9 +36,8 @@ describe('Environment Variables Validation', () => {
 
   it('startup fails fast when PORT is present but invalid', async () => {
     for (const badPort of ['abc', '-5', '0']) {
-      const proc = Bun.spawn({
-        cmd: ['bun', '-e', "import('./src/env')"],
-        cwd: `${import.meta.dir}/..`,
+      const proc = spawn('node', ['--import', 'tsx', '-e', "import('./src/env')"], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
         env: {
           ...process.env,
           BOT_TOKENS: '123456:ABC-DEF',
@@ -45,11 +46,19 @@ describe('Environment Variables Validation', () => {
           DATABASE_URL: 'postgresql://asephs:***@100.121.180.82:6432/test',
           PORT: badPort,
         },
-        stdout: 'pipe',
-        stderr: 'pipe',
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      const exitCode = await proc.exited;
-      const stderr = await new Response(proc.stderr).text();
+      const [stderr, exitCode] = await Promise.all([
+        new Promise<string>((resolve, reject) => {
+          let out = '';
+          proc.stderr.on('data', (d: Buffer) => {
+            out += d.toString();
+          });
+          proc.stderr.on('end', () => resolve(out));
+          proc.stderr.on('error', reject);
+        }),
+        new Promise<number | null>((resolve) => proc.on('close', resolve)),
+      ]);
       expect(exitCode).not.toBe(0);
       expect(stderr).toContain('PORT must be a positive integer');
     }
@@ -123,9 +132,8 @@ describe('Telegram chunk size validation', () => {
   it('startup fails fast when TELEGRAM_CHUNK_SIZE_BYTES exceeds the limit', async () => {
     // Spawn a real process that imports src/env with an oversized chunk size;
     // it must exit non-zero with a clear error instead of starting silently.
-    const proc = Bun.spawn({
-      cmd: ['bun', '-e', "import('./src/env')"],
-      cwd: `${import.meta.dir}/..`,
+    const proc = spawn('node', ['--import', 'tsx', '-e', "import('./src/env')"], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
       env: {
         ...process.env,
         BOT_TOKENS: '123456:ABC-DEF',
@@ -135,20 +143,27 @@ describe('Telegram chunk size validation', () => {
         PORT: '4000',
         TELEGRAM_CHUNK_SIZE_BYTES: String(48 * 1024 * 1024),
       },
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const exitCode = await proc.exited;
-    const stderr = await new Response(proc.stderr).text();
+    const [stderr, exitCode] = await Promise.all([
+      new Promise<string>((resolve, reject) => {
+        let out = '';
+        proc.stderr.on('data', (d: Buffer) => {
+          out += d.toString();
+        });
+        proc.stderr.on('end', () => resolve(out));
+        proc.stderr.on('error', reject);
+      }),
+      new Promise<number | null>((resolve) => proc.on('close', resolve)),
+    ]);
     expect(exitCode).not.toBe(0);
     expect(stderr).toContain('TELEGRAM_CHUNK_SIZE_BYTES');
     expect(stderr).toContain('exceeds');
   });
 
   it('startup succeeds when TELEGRAM_CHUNK_SIZE_BYTES is at the safe limit', async () => {
-    const proc = Bun.spawn({
-      cmd: ['bun', '-e', "import('./src/env')"],
-      cwd: `${import.meta.dir}/..`,
+    const proc = spawn('node', ['--import', 'tsx', '-e', "import('./src/env')"], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
       env: {
         ...process.env,
         BOT_TOKENS: '123456:ABC-DEF',
@@ -158,10 +173,9 @@ describe('Telegram chunk size validation', () => {
         PORT: '4000',
         TELEGRAM_CHUNK_SIZE_BYTES: String(TELEGRAM_CHUNK_SIZE_MAX_BYTES),
       },
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const exitCode = await proc.exited;
+    const exitCode = await new Promise<number | null>((resolve) => proc.on('close', resolve));
     expect(exitCode).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGetObjectResponse, type ObjectPartSource } from '../src/interfaces/s3/object-stream';
 import type { RangeParseResult } from '../src/interfaces/s3/range';
 
@@ -11,7 +11,7 @@ import type { RangeParseResult } from '../src/interfaces/s3/range';
 const installFetchMock = () => {
   const original = globalThis.fetch;
 
-  const fakeFetch = mock((url: string | URL | Request) => {
+  const fakeFetch = vi.fn((url: string | URL | Request) => {
     const u = url.toString();
     const match = u.match(/part(\d+)\.bin/);
     const part = match ? Number.parseInt(match[1], 10) : 0;

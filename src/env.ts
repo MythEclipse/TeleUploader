@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import logger from './shared/logger/index';
 import { TELEGRAM_CHUNK_SIZE_MAX_BYTES } from './shared/utils/validation';
 import { PositiveIntSchema } from './shared/validation/schemas';
@@ -168,11 +170,11 @@ if (telegramChunkSizeBytes > TELEGRAM_CHUNK_SIZE_MAX_BYTES) {
 const readPackageVersion = (): string => {
   // Candidates in priority order. In the Nix bundle the app lives at
   // $out/share/teleuploader/dist/index.js, so the package.json that was
-  // copied alongside it is one level up from import.meta.dir. In a dev
-  // checkout it sits in the repo root (process.cwd()). Bun bundles JSON
-  // imports statically, so we read the file at runtime instead.
+  // copied alongside it is one level up from this module's directory. In a dev
+  // checkout it sits in the repo root (process.cwd()). The version is read at
+  // runtime so a bundled build still picks up the right file.
   const candidates = [
-    import.meta.dir ? `${import.meta.dir}/../package.json` : undefined,
+    `${dirname(fileURLToPath(import.meta.url))}/../package.json`,
     `${process.cwd()}/package.json`,
   ];
   for (const candidate of candidates) {

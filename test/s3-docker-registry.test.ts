@@ -7,8 +7,12 @@
  * - Concurrent operation safety
  */
 
-import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
+import { describe, expect, it } from 'vitest';
+import { createFileSink } from '../src/shared/utils/file-sink';
 
 // ─── streamBodyToTemp tests ──────────────────────────────────────
 
@@ -37,6 +41,7 @@ describe('S3 Streaming Upload Safety', () => {
     const req = new Request('http://test.com', {
       method: 'PUT',
       body: stream,
+      duplex: 'half',
       headers: { 'content-type': 'application/octet-stream' },
     });
 
@@ -44,8 +49,8 @@ describe('S3 Streaming Upload Safety', () => {
     // Since streamBodyToTemp is not exported, we test through handlePutObject
     // Instead, we directly create a temp file and verify streaming works
     const tempPath = `/tmp/test-stream-${nanoid()}`;
-    const writer = Bun.file(tempPath).writer();
-    const hasher = new Bun.CryptoHasher('sha256');
+    const writer = createFileSink(tempPath);
+    const hasher = createHash('sha256');
     const reader = req.body!.getReader();
     const chunks: Buffer[] = [];
 
@@ -58,23 +63,21 @@ describe('S3 Streaming Upload Safety', () => {
         hasher.update(chunk);
         writer.write(chunk);
       }
-      writer.end();
+      await writer.end();
     } finally {
       reader.releaseLock();
     }
 
     const fileHash = hasher.digest('hex');
     const assembled = Buffer.concat(chunks).toString();
-    const fileContent = await Bun.file(tempPath).text();
+    const fileContent = await readFile(tempPath, 'utf8');
 
     expect(assembled).toBe(content);
     expect(fileContent).toBe(content);
-    expect(fileHash).toBe(
-      new Bun.CryptoHasher('sha256').update(encoder.encode(content)).digest('hex'),
-    );
+    expect(fileHash).toBe(createHash('sha256').update(encoder.encode(content)).digest('hex'));
 
     // Cleanup
-    await Bun.write(tempPath, ''); // truncate
+    await writeFile(tempPath, ''); // truncate
   });
 
   /**
@@ -102,11 +105,12 @@ describe('S3 Streaming Upload Safety', () => {
     const req = new Request('http://test.com', {
       method: 'PUT',
       body: stream,
+      duplex: 'half',
     });
 
     // Read stream to temp and verify
     const tempPath = `/tmp/test-large-stream-${nanoid()}`;
-    const writer = Bun.file(tempPath).writer();
+    const writer = createFileSink(tempPath);
     const reader = req.body!.getReader();
     let totalBytes = 0;
 
@@ -118,25 +122,25 @@ describe('S3 Streaming Upload Safety', () => {
         totalBytes += buf.byteLength;
         writer.write(buf);
       }
-      writer.end();
+      await writer.end();
     } finally {
       reader.releaseLock();
     }
 
-    const fileSize = Bun.file(tempPath).size;
+    const fileSize = statSync(tempPath).size;
     expect(fileSize).toBe(totalBytes);
     expect(fileSize).toBe(contentSizeMB * 1024 * 1024);
     expect(fileSize).toBeGreaterThan(4 * 1024 * 1024); // at least 4MB
 
     // Verify content integrity
-    const readBack = Bun.file(tempPath);
-    const text = await readBack.text();
+    const readBack = await readFile(tempPath, 'utf8');
+    const text = readBack;
     expect(text.length).toBe(contentSizeMB * 1024 * 1024);
     expect(text[0]).toBe('A');
     expect(text[text.length - 1]).toBe('A');
 
     // Cleanup
-    await Bun.write(tempPath, '');
+    await writeFile(tempPath, '');
   });
 
   /**
@@ -146,7 +150,7 @@ describe('S3 Streaming Upload Safety', () => {
   it('uses streaming instead of req.arrayBuffer() for PUT body', async () => {
     // PUT handler lives in s3-object-write.ts since the Fase 1 split
     // (s3-controller.ts is now a thin facade re-exporting the router).
-    const source = await Bun.file('src/interfaces/http/controllers/s3/s3-object-write.ts').text();
+    const source = await readFile('src/interfaces/http/controllers/s3/s3-object-write.ts', 'utf8');
 
     const codeLines = source.split('\n').filter((l) => !l.trim().startsWith('*'));
     const codeText = codeLines.join('\n');
@@ -173,9 +177,10 @@ describe('S3 UploadPart Streaming', () => {
    */
   it('streams part body instead of req.arrayBuffer()', async () => {
     // UploadPart handler lives in s3-multipart-handlers.ts since the Fase 1 split.
-    const source = await Bun.file(
+    const source = await readFile(
       'src/interfaces/http/controllers/s3/s3-multipart-handlers.ts',
-    ).text();
+      'utf8',
+    );
 
     // Find the handleUploadPart function
     const uploadPartSection =
@@ -184,7 +189,7 @@ describe('S3 UploadPart Streaming', () => {
         ?.split('const handleCompleteMultipartUpload =')[0] || '';
     expect(uploadPartSection).not.toContain('arrayBuffer');
     expect(uploadPartSection).toContain('getReader');
-    expect(uploadPartSection).toContain('Bun.file(tempPath).writer()');
+    expect(uploadPartSection).toContain('createFileSink(tempPath)');
   });
 
   /**
@@ -193,9 +198,7 @@ describe('S3 UploadPart Streaming', () => {
   it('computes correct hash from streamed part body', async () => {
     const content = 'multipart-part-content-for-docker-layer';
     const encoder = new TextEncoder();
-    const expectedHash = new Bun.CryptoHasher('sha256')
-      .update(encoder.encode(content))
-      .digest('hex');
+    const expectedHash = createHash('sha256').update(encoder.encode(content)).digest('hex');
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -207,9 +210,9 @@ describe('S3 UploadPart Streaming', () => {
     });
 
     // Stream and hash
-    const hasher = new Bun.CryptoHasher('sha256');
+    const hasher = createHash('sha256');
     const tempPath = `/tmp/test-part-${nanoid()}`;
-    const writer = Bun.file(tempPath).writer();
+    const writer = createFileSink(tempPath);
     const reader = stream.getReader();
 
     try {
@@ -220,19 +223,19 @@ describe('S3 UploadPart Streaming', () => {
         hasher.update(chunk);
         writer.write(chunk);
       }
-      writer.end();
+      await writer.end();
     } finally {
       reader.releaseLock();
     }
 
     const computedHash = hasher.digest('hex');
-    const storedContent = await Bun.file(tempPath).text();
+    const storedContent = await readFile(tempPath, 'utf8');
 
     expect(computedHash).toBe(expectedHash);
     expect(storedContent).toBe(content);
 
     // Cleanup
-    await Bun.write(tempPath, '');
+    await writeFile(tempPath, '');
   });
 });
 
@@ -243,7 +246,7 @@ describe('S3 Object Stream Timeouts', () => {
    * Verifies that Telegram fetch calls have timeout signals attached.
    */
   it('adds timeout signal to Telegram CDN fetches', async () => {
-    const source = await Bun.file('src/interfaces/s3/object-stream.ts').text();
+    const source = await readFile('src/interfaces/s3/object-stream.ts', 'utf8');
 
     // Verify timeout constant exists
     expect(source).toContain('TELEGRAM_FETCH_TIMEOUT_MS');
@@ -267,7 +270,7 @@ describe('S3 Route Rate Limiting', () => {
    * This asserts that the S3 dispatch path bypasses the rate limiter.
    */
   it('dispatches S3 requests without rate-limiting (direct path)', async () => {
-    const source = await Bun.file('src/interfaces/http/routes/index.ts').text();
+    const source = await readFile('src/interfaces/http/routes/index.ts', 'utf8');
 
     // The S3 dispatcher intentionally bypasses the rate limiter.
     expect(source).toContain('handleS3Direct');
@@ -294,12 +297,12 @@ describe('S3 Edge Cases', () => {
       },
     });
 
-    const req = new Request('http://test.com', { method: 'PUT', body: stream });
+    const req = new Request('http://test.com', { method: 'PUT', body: stream, duplex: 'half' });
 
     const tempPath = `/tmp/test-empty-${nanoid()}`;
-    const writer = Bun.file(tempPath).writer();
+    const writer = createFileSink(tempPath);
     const reader = req.body!.getReader();
-    const hasher = new Bun.CryptoHasher('sha256');
+    const hasher = createHash('sha256');
     let totalBytes = 0;
 
     try {
@@ -309,17 +312,17 @@ describe('S3 Edge Cases', () => {
         totalBytes += Buffer.from(value).byteLength;
         hasher.update(value);
       }
-      writer.end();
+      await writer.end();
     } finally {
       reader.releaseLock();
     }
 
     expect(totalBytes).toBe(0);
-    const fileSize = Bun.file(tempPath).size;
+    const fileSize = statSync(tempPath).size;
     expect(fileSize).toBe(0);
-    expect(hasher.digest('hex')).toBe(new Bun.CryptoHasher('sha256').update('').digest('hex'));
+    expect(hasher.digest('hex')).toBe(createHash('sha256').update('').digest('hex'));
 
-    await Bun.write(tempPath, '');
+    await writeFile(tempPath, '');
   });
 });
 
@@ -352,11 +355,11 @@ describe('S3 Concurrent Operation Safety', () => {
     // Process all streams concurrently
     const results = await Promise.all(
       streams.map(async ({ content, stream }) => {
-        const req = new Request('http://test.com', { method: 'PUT', body: stream });
+        const req = new Request('http://test.com', { method: 'PUT', body: stream, duplex: 'half' });
         const tempPath = `/tmp/test-concurrent-${nanoid()}`;
-        const writer = Bun.file(tempPath).writer();
+        const writer = createFileSink(tempPath);
         const reader = req.body!.getReader();
-        const hasher = new Bun.CryptoHasher('sha256');
+        const hasher = createHash('sha256');
 
         try {
           while (true) {
@@ -366,18 +369,16 @@ describe('S3 Concurrent Operation Safety', () => {
             hasher.update(buf);
             writer.write(buf);
           }
-          writer.end();
+          await writer.end();
         } finally {
           reader.releaseLock();
         }
 
         const computedHash = hasher.digest('hex');
-        const expectedHash = new Bun.CryptoHasher('sha256')
-          .update(encoder.encode(content))
-          .digest('hex');
-        const size = Bun.file(tempPath).size;
+        const expectedHash = createHash('sha256').update(encoder.encode(content)).digest('hex');
+        const size = statSync(tempPath).size;
 
-        await Bun.write(tempPath, '');
+        await writeFile(tempPath, '');
 
         return { computedHash, expectedHash, size, contentLength: content.length };
       }),

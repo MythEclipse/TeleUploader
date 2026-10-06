@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
+import { describe, expect, it } from 'vitest';
 import { streamToTemp } from '../src/shared/utils/temp-stream';
 
 /**
@@ -29,7 +29,7 @@ describe('streamToTemp', () => {
       expect(r.sizeBytes).toBe(11);
       expect(await readFile(r.tempPath, 'utf8')).toBe('hello world');
     } finally {
-      await Bun.$`rm -f ${r.tempPath}`;
+      await rm(r.tempPath, { force: true });
     }
   });
 
@@ -39,7 +39,7 @@ describe('streamToTemp', () => {
       const expected = createHash('sha256').update('foobarbaz').digest('hex');
       expect(r.fileHash).toBe(expected);
     } finally {
-      await Bun.$`rm -f ${r.tempPath}`;
+      await rm(r.tempPath, { force: true });
     }
   });
 
@@ -52,7 +52,7 @@ describe('streamToTemp', () => {
       const expected = createHash('md5').update('abc').digest('base64');
       expect(withMd5.md5Hash).toBe(expected);
     } finally {
-      await Bun.$`rm -f ${withMd5.tempPath}`;
+      await rm(withMd5.tempPath, { force: true });
     }
   });
 
@@ -61,7 +61,7 @@ describe('streamToTemp', () => {
     try {
       expect(long.signatureBuffer.toString()).toBe('ABCDEFGHIJKLMNOP');
     } finally {
-      await Bun.$`rm -f ${long.tempPath}`;
+      await rm(long.tempPath, { force: true });
     }
 
     const short = await run(['ab']);
@@ -69,7 +69,7 @@ describe('streamToTemp', () => {
       expect(short.signatureBuffer.byteLength).toBe(2);
       expect(short.signatureBuffer.toString()).toBe('ab');
     } finally {
-      await Bun.$`rm -f ${short.tempPath}`;
+      await rm(short.tempPath, { force: true });
     }
   });
 
@@ -80,7 +80,7 @@ describe('streamToTemp', () => {
       expect(r.fileHash).toBe(createHash('sha256').update('').digest('hex'));
       expect(r.signatureBuffer.byteLength).toBe(0);
     } finally {
-      await Bun.$`rm -f ${r.tempPath}`;
+      await rm(r.tempPath, { force: true });
     }
   });
 
@@ -101,7 +101,7 @@ describe('streamToTemp', () => {
     try {
       expect(r.tempPath.startsWith('/tmp/tt-')).toBe(true);
     } finally {
-      await Bun.$`rm -f ${r.tempPath}`;
+      await rm(r.tempPath, { force: true });
     }
   });
 });

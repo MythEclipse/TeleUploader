@@ -1,23 +1,23 @@
-import { expect, test } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { expect, test } from 'vitest';
 
 const repoRoot = new URL('../', import.meta.url);
-const deployScript = Bun.file(new URL('../deploy.sh', import.meta.url));
+const deployScript = readFileSync(new URL('../deploy.sh', import.meta.url), 'utf8');
 
-test('deploy script is provider-neutral', async () => {
-  const text = await deployScript.text();
-
-  expect(text).not.toContain('GITLAB_PROJECT');
-  expect(text).not.toContain('fetch_ci_var');
-  expect(text).not.toContain('glab');
-  expect(text).not.toContain('GitLab CI');
-  expect(text).toContain('Gitea Actions secrets');
+test('deploy script is provider-neutral', () => {
+  expect(deployScript).not.toContain('GITLAB_PROJECT');
+  expect(deployScript).not.toContain('fetch_ci_var');
+  expect(deployScript).not.toContain('glab');
+  expect(deployScript).not.toContain('GitLab CI');
+  expect(deployScript).toContain('Gitea Actions secrets');
 });
 
 test('deploy check mode does not require an SSH key file', async () => {
-  const proc = Bun.spawn(['bash', 'deploy.sh', '--check'], {
+  const proc = spawn('bash', ['deploy.sh', '--check'], {
     cwd: repoRoot.pathname,
     env: {
-      ...Bun.env,
+      ...process.env,
       VPS_HOST: '203.0.113.10',
       VPS_USER: 'deploy',
       VPS_SSH_KEY: '/tmp/nonexistent-teleuploader-key',
@@ -25,9 +25,19 @@ test('deploy check mode does not require an SSH key file', async () => {
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
+    new Promise<string>((resolve, reject) => {
+      let out = '';
+      proc.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      proc.stdout.on('end', () => resolve(out));
+      proc.stdout.on('error', reject);
+    }),
+    new Promise<string>((resolve, reject) => {
+      let out = '';
+      proc.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      proc.stderr.on('end', () => resolve(out));
+      proc.stderr.on('error', reject);
+    }),
+    new Promise<number | null>((resolve) => proc.on('close', resolve)),
   ]);
 
   expect(exitCode).toBe(0);
@@ -38,18 +48,19 @@ test('deploy check mode does not require an SSH key file', async () => {
   expect(stderr).toBe('');
 });
 
-const workflowFile = Bun.file(new URL('../.github/workflows/deploy.yml', import.meta.url));
+const workflowFile = readFileSync(
+  new URL('../.github/workflows/deploy.yml', import.meta.url),
+  'utf8',
+);
 
-test('deploy workflow builds with nix and deploys to VPS on main', async () => {
-  const text = await workflowFile.text();
-
-  expect(text).toContain('branches: [main]');
-  expect(text).toContain('uses: actions/checkout@v7');
-  expect(text).toContain('uses: oven-sh/setup-bun@v2');
-  expect(text).toContain('bun install --frozen-lockfile');
-  expect(text).toContain('bunx biome check src test');
-  expect(text).toContain('VPS_HOST');
-  expect(text).toContain('VPS_USER');
-  expect(text).toContain('nix copy');
-  expect(text).toContain('systemctl restart teleuploader');
+test('deploy workflow builds with nix and deploys to VPS on main', () => {
+  expect(workflowFile).toContain('branches: [main]');
+  expect(workflowFile).toContain('uses: actions/checkout@v7');
+  expect(workflowFile).toContain('uses: oven-sh/setup-bun@v2');
+  expect(workflowFile).toContain('bun install --frozen-lockfile');
+  expect(workflowFile).toContain('bunx biome check src test');
+  expect(workflowFile).toContain('VPS_HOST');
+  expect(workflowFile).toContain('VPS_USER');
+  expect(workflowFile).toContain('nix copy');
+  expect(workflowFile).toContain('systemctl restart teleuploader');
 });

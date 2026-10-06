@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockBuckets = [
   {
@@ -12,7 +12,7 @@ const mockBuckets = [
 let mockObjects: Record<string, unknown>[] = [];
 let mockPrefixes: string[] = [];
 
-mock.module('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
+vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
   DrizzleBucketRepository: class {
     list = () => Promise.resolve(mockBuckets);
     findByName = (name: string) =>
@@ -23,7 +23,7 @@ mock.module('../src/infrastructure/persistence/repositories/bucket-repository', 
   },
 }));
 
-mock.module('../src/infrastructure/persistence/repositories/file-repository', () => ({
+vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({
   DrizzleFileRepository: class {
     findByBucketAndKey = () => Promise.resolve(null);
     listByPrefix = () => Promise.resolve({ objects: mockObjects, prefixes: mockPrefixes });
@@ -34,7 +34,7 @@ mock.module('../src/infrastructure/persistence/repositories/file-repository', ()
   },
 }));
 
-mock.module('../src/infrastructure/telegram/bot-pool', () => ({
+vi.mock('../src/infrastructure/telegram/bot-pool', () => ({
   botPool: {
     forwardToStorage: () =>
       Promise.resolve({
@@ -70,7 +70,7 @@ describe('Web API v1', () => {
   });
 
   afterAll(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it('should list buckets via GET /api/v1/buckets', async () => {

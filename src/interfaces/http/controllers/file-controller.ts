@@ -6,6 +6,7 @@ import { buildTelegramFileUrl } from '../../../infrastructure/telegram/file-url'
 import { sanitizeFilenameHeader } from '../../../shared/http/filename';
 import logger from '../../../shared/logger/index';
 import { cleanupTempFile, formatCreatedAt, getErrorMessage } from '../../../shared/utils/file';
+import { writeBodyToFile } from '../../../shared/utils/file-sink';
 import { locateZipEntry } from '../../../shared/utils/zip';
 
 /**
@@ -82,7 +83,7 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
       }
 
       const tempZipPath = `/tmp/filedrop-dl-${nanoid()}.zip`;
-      await Bun.write(tempZipPath, archiveResponse);
+      await writeBodyToFile(archiveResponse, tempZipPath);
 
       const loc = await locateZipEntry(tempZipPath, archiveEntryName);
       if (!loc) {

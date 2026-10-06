@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { handleSwaggerHtml, handleSwaggerJson } from '../src/interfaces/http/swagger';
 
 describe('Swagger Documentation Endpoints', () => {

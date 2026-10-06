@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test';
-import { unlink, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { describe, expect, it } from 'vitest';
 import {
   createZip,
   extractZipEntry,
@@ -30,7 +30,7 @@ describe('ZIP utilities', () => {
     ]);
 
     try {
-      const zipBuffer = Buffer.from(await Bun.file(zip.tempPath).arrayBuffer());
+      const zipBuffer = Buffer.from(await readFile(zip.tempPath));
       expect(zipBuffer.subarray(0, 2).toString()).toBe('PK');
       expect(zip.entries.map((entry) => entry.entryName)).toEqual([
         'greeting.txt',
@@ -71,7 +71,7 @@ describe('ZIP utilities', () => {
     await writeFile(p, 'data');
     const zip = await createZip([{ tempPath: p, fileName: 'data.txt' }]);
     try {
-      const buf = Buffer.from(await Bun.file(zip.tempPath).arrayBuffer());
+      const buf = Buffer.from(await readFile(zip.tempPath));
       expect(buf.subarray(0, 2).toString()).toBe('PK');
       expect(zip.entries[0].entryName).toBe('data.txt');
       expect(zip.sizeBytes).toBe(buf.byteLength);
@@ -85,7 +85,7 @@ describe('ZIP utilities', () => {
     await writeFile(p, 'payload');
     const zip = await createZip([{ tempPath: p, fileName: 'x.bin' }]);
     try {
-      const buf = Buffer.from(await Bun.file(zip.tempPath).arrayBuffer());
+      const buf = Buffer.from(await readFile(zip.tempPath));
       expect(Buffer.from((await extractZipEntry(buf, 'x.bin')) ?? Buffer.alloc(0)).toString()).toBe(
         'payload',
       );

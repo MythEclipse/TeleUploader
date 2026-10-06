@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { describe, expect, it } from 'vitest';
 import { config } from '../src/env';
 import { applyS3Headers, S3_CORS_HEADERS, s3Headers } from '../src/interfaces/s3/headers';
 import { extractS3BucketFromHost } from '../src/interfaces/s3/virtual-host';
@@ -30,7 +31,7 @@ describe('maybeCompressChunk (gzip compression heuristics)', () => {
     expect(compressionAlgorithm).toBe('gzip');
     expect(bytes.byteLength).toBeLessThan(chunk.byteLength);
     // gzip decompresses back to original
-    const back = Bun.gunzipSync(bytes);
+    const back = gunzipSync(bytes);
     expect(Buffer.from(back).toString('utf8')).toBe(data);
   });
 
@@ -39,7 +40,7 @@ describe('maybeCompressChunk (gzip compression heuristics)', () => {
     const chunk = Buffer.allocUnsafe(4096);
     for (let i = 0; i < chunk.length; i++) chunk[i] = (i * 2654435761 + i * i) & 0xff;
     // Sanity: make sure it doesn't accidentally gzip below input size
-    if (Bun.gzipSync(chunk).byteLength >= chunk.byteLength) {
+    if (gzipSync(chunk).byteLength >= chunk.byteLength) {
       const { bytes, compressionAlgorithm } = maybeCompressChunk(chunk, true, 1);
       expect(compressionAlgorithm).toBeNull();
       expect(bytes).toBe(chunk);

@@ -1,36 +1,34 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-
-type ServeOptions = {
-  port?: number;
-  routes?: Record<string, unknown>;
-};
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type MockServer = {
   port?: number;
   routes?: Record<string, unknown>;
-  stop: ReturnType<typeof mock>;
+  stop: ReturnType<typeof vi.fn>;
 };
 
-const mockServe = mock((options: ServeOptions): MockServer => {
-  return {
-    port: options.port,
-    routes: options.routes,
-    stop: mock(),
-  };
-});
+const mockServe = vi.fn(
+  (options: { port?: number; routes?: Record<string, unknown> }): MockServer => {
+    return {
+      port: options.port,
+      routes: options.routes,
+      stop: vi.fn(),
+    };
+  },
+);
 
-const originalServe = Bun.serve;
-Bun.serve = mockServe as unknown as typeof Bun.serve;
+vi.mock('../src/infrastructure/http/serve', () => ({
+  serve: mockServe,
+}));
 
 type RouteHandler = (req: Request) => Response | Promise<Response>;
 
-const mockStartBot = mock(() =>
+const mockStartBot = vi.fn(() =>
   Promise.resolve({
-    stop: mock(),
+    stop: vi.fn(),
   }),
 );
-const mockHandleUpload = mock((_req: Request) => Promise.resolve(Response.json({ ok: true })));
-const mockRequireAuth = mock(
+const mockHandleUpload = vi.fn((_req: Request) => Promise.resolve(Response.json({ ok: true })));
+const mockRequireAuth = vi.fn(
   (_handler: RouteHandler): RouteHandler =>
     async () =>
       Response.json({ error: 'Unauthorized' }, { status: 401 }),
@@ -38,48 +36,48 @@ const mockRequireAuth = mock(
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
-mock.module('../src/interfaces/bot/handler', () => ({
+vi.mock('../src/interfaces/bot/handler', () => ({
   startBot: mockStartBot,
 }));
 
-mock.module('../src/infrastructure/persistence/drizzle/migrate', () => ({
-  runMigration: mock(() => Promise.resolve()),
+vi.mock('../src/infrastructure/persistence/drizzle/migrate', () => ({
+  runMigration: vi.fn(() => Promise.resolve()),
 }));
 
-mock.module('../src/interfaces/http/controllers/upload-controller', () => ({
+vi.mock('../src/interfaces/http/controllers/upload-controller', () => ({
   handleUpload: mockHandleUpload,
 }));
-mock.module('../src/interfaces/http/controllers/file-controller', () => ({
-  handleFileRedirect: mock(),
-  handleFileInfo: mock(),
+vi.mock('../src/interfaces/http/controllers/file-controller', () => ({
+  handleFileRedirect: vi.fn(),
+  handleFileInfo: vi.fn(),
 }));
-mock.module('../src/interfaces/http/controllers/health-controller', () => ({
-  handleHealth: mock(),
+vi.mock('../src/interfaces/http/controllers/health-controller', () => ({
+  handleHealth: vi.fn(),
 }));
-mock.module('../src/interfaces/http/controllers/auth-controller', () => ({
-  handleLogin: mock(),
-  handleLogout: mock(),
-  handleMe: mock(),
+vi.mock('../src/interfaces/http/controllers/auth-controller', () => ({
+  handleLogin: vi.fn(),
+  handleLogout: vi.fn(),
+  handleMe: vi.fn(),
 }));
-mock.module('../src/interfaces/http/controllers/home-controller', () => ({
-  handleHome: mock(() => new Response('<html>home</html>')),
+vi.mock('../src/interfaces/http/controllers/home-controller', () => ({
+  handleHome: vi.fn(() => new Response('<html>home</html>')),
 }));
-mock.module('../src/interfaces/http/controllers/s3-controller', () => ({
-  handleS3Request: mock(() => new Response('Not Found', { status: 404 })),
+vi.mock('../src/interfaces/http/controllers/s3-controller', () => ({
+  handleS3Request: vi.fn(() => new Response('Not Found', { status: 404 })),
 }));
-mock.module('../src/interfaces/http/controllers/web-api-controller', () => ({
-  handleWebApiV1: mock(() => Response.json({ error: 'Not Found' }, { status: 404 })),
+vi.mock('../src/interfaces/http/controllers/web-api-controller', () => ({
+  handleWebApiV1: vi.fn(() => Response.json({ error: 'Not Found' }, { status: 404 })),
 }));
 
-mock.module('../src/interfaces/http/middleware/auth', () => ({
+vi.mock('../src/interfaces/http/middleware/auth', () => ({
   requireAuth: mockRequireAuth,
 }));
 
-mock.module('../src/interfaces/http/middleware/rate-limit', () => ({
-  cleanupRateLimitCache: mock(),
-  clearRateLimitCache: mock(),
-  checkRateLimit: mock(() => true),
-  getRateLimitStats: mock(() => ({})),
+vi.mock('../src/interfaces/http/middleware/rate-limit', () => ({
+  cleanupRateLimitCache: vi.fn(),
+  clearRateLimitCache: vi.fn(),
+  checkRateLimit: vi.fn(() => true),
+  getRateLimitStats: vi.fn(() => ({})),
   withRateLimit: <T extends Request>(
     handler: (req: T) => Promise<Response>,
   ): ((req: T) => Promise<Response>) => handler,
@@ -94,7 +92,7 @@ describe('Bootstrap Server', () => {
   });
 
   afterAll(() => {
-    Bun.serve = originalServe;
+    vi.restoreAllMocks();
   });
 
   it('should bootstrap the application successfully', async () => {

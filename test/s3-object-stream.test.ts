@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createGetObjectResponse, type ObjectPartSource } from '../src/interfaces/s3/object-stream';
 import type { RangeParseResult } from '../src/interfaces/s3/range';
 

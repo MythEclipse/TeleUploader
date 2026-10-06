@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { config } from '../../../env';
 import logger from '../../../shared/logger/index';
@@ -10,9 +13,9 @@ import { getErrorMessage } from '../../../shared/utils/file';
  * bun --hot, or direct script invocation.
  */
 export const runMigration = async (): Promise<void> => {
-  // In compiled dist: import.meta.dir = .../dist/infrastructure/persistence/drizzle/
-  // In source via bun --hot: import.meta.dir = .../src/infrastructure/persistence/drizzle/
-  const dir = import.meta.dir || '';
+  // In compiled dist: the module lives in dist/; in dev (tsx src/...) it lives
+  // at src/infrastructure/persistence/drizzle/. Both are found by walking up.
+  const dir = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     `${dir}/../../../../schema.sql`, // from dist/
     `${dir}/../../../schema.sql`, // from src/infrastructure/persistence/
@@ -23,11 +26,11 @@ export const runMigration = async (): Promise<void> => {
 
   let schemaSql: string | null = null;
   for (const p of candidates) {
-    const file = Bun.file(p);
-    const exists = await file.exists();
-    if (exists) {
-      schemaSql = await file.text();
+    try {
+      schemaSql = await readFile(p, 'utf8');
       break;
+    } catch {
+      // Not a candidate that exists — try the next path.
     }
   }
 
@@ -50,7 +53,10 @@ export const runMigration = async (): Promise<void> => {
   }
 };
 
-// When run directly: `bun src/infrastructure/persistence/drizzle/migrate.ts`
-if (import.meta.path === Bun.main) {
+// When run directly: `node dist/migrate.js` or `tsx src/.../migrate.ts`.
+// Node has no `Bun.main`, so compare this module's URL with the invoked entry.
+const invokedAsMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedAsMain) {
   await runMigration();
 }

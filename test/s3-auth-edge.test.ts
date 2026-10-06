@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { buildCanonicalQueryString, isS3Request, verifyBodyHash } from '../src/interfaces/s3/auth';
 
 /**

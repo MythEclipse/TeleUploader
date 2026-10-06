@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ITelegramService } from '../src/domain/ports/telegram-service';
 import { config } from '../src/env';
 import logger from '../src/shared/logger/index';
@@ -23,14 +23,14 @@ beforeAll(async () => {
 });
 
 // Mock Telegraf and fetch
-mock.module('telegraf', () => {
+vi.mock('telegraf', () => {
   return {
     Telegraf: class {
       constructor(token) {
         this.token = token;
         this.telegram = {
           token: token,
-          sendPhoto: mock(() =>
+          sendPhoto: vi.fn(() =>
             Promise.resolve({
               message_id: 12345,
               photo: [
@@ -39,7 +39,7 @@ mock.module('telegraf', () => {
               ],
             }),
           ),
-          sendDocument: mock(() =>
+          sendDocument: vi.fn(() =>
             Promise.resolve({
               message_id: 54321,
               document: {
@@ -48,7 +48,7 @@ mock.module('telegraf', () => {
               },
             }),
           ),
-          getFile: mock(() =>
+          getFile: vi.fn(() =>
             Promise.resolve({
               file_id: 'some_file_id',
               file_size: 98765,
@@ -62,8 +62,8 @@ mock.module('telegraf', () => {
   };
 });
 
-const infoSpy = spyOn(logger, 'info');
-const errorSpy = spyOn(logger, 'error');
+const infoSpy = vi.spyOn(logger, 'info');
+const errorSpy = vi.spyOn(logger, 'error');
 
 describe('Telegram API Utilities', () => {
   let botPool: ITelegramService;
@@ -71,7 +71,7 @@ describe('Telegram API Utilities', () => {
   beforeEach(async () => {
     infoSpy.mockClear();
     errorSpy.mockClear();
-    global.fetch = mock(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
+    global.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
 
     // Dynamic import AFTER mock.module so Telegraf mock is active
     const botPoolModule = await import('../src/infrastructure/telegram/bot-pool');

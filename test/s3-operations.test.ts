@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 
 describe('S3 XML Builders', () => {
   it('builds ListBuckets XML', async () => {

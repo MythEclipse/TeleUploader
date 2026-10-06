@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import logger from '../src/shared/logger/index';
 import type { TelegramMediaMessage } from '../src/shared/utils/file';
 
@@ -10,11 +10,11 @@ process.env.BASE_URL = process.env.BASE_URL || 'https://upload.asepharyana.my.id
 type BotTestContext = {
   message: TelegramMediaMessage;
   from: { id: number };
-  reply: ReturnType<typeof mock>;
+  reply: ReturnType<typeof vi.fn>;
 };
 
 type BotFileHandler = (ctx: BotTestContext) => Promise<unknown>;
-type StartHandler = (ctx: { reply: ReturnType<typeof mock> }) => Promise<unknown>;
+type StartHandler = (ctx: { reply: ReturnType<typeof vi.fn> }) => Promise<unknown>;
 
 const getStartHandler = (): StartHandler => {
   return mockCommand.mock.calls.find((call) => call[0] === 'start')?.[1] as StartHandler;
@@ -25,10 +25,10 @@ const getFileHandler = (): BotFileHandler => {
 };
 
 // Mock Telegraf
-const mockLaunch = mock(() => Promise.resolve());
-const mockCommand = mock();
-const mockOn = mock();
-const mockUse = mock();
+const mockLaunch = vi.fn(() => Promise.resolve());
+const mockCommand = vi.fn();
+const mockOn = vi.fn();
+const mockUse = vi.fn();
 
 class MockTelegraf {
   token: string;
@@ -42,16 +42,16 @@ class MockTelegraf {
   }
 }
 
-mock.module('telegraf', () => ({
+vi.mock('telegraf', () => ({
   Telegraf: MockTelegraf,
 }));
 
-const infoSpy = spyOn(logger, 'info');
-const errorSpy = spyOn(logger, 'error');
+const infoSpy = vi.spyOn(logger, 'info');
+const errorSpy = vi.spyOn(logger, 'error');
 
 describe('Telegram Bot Handler', () => {
-  let mockTelegramService: { forwardToStorage: ReturnType<typeof mock> };
-  let mockFileRepo: { findByUniqueId: ReturnType<typeof mock>; create: ReturnType<typeof mock> };
+  let mockTelegramService: { forwardToStorage: ReturnType<typeof vi.fn> };
+  let mockFileRepo: { findByUniqueId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockLaunch.mockClear();
@@ -62,7 +62,7 @@ describe('Telegram Bot Handler', () => {
     errorSpy.mockClear();
 
     mockTelegramService = {
-      forwardToStorage: mock(() =>
+      forwardToStorage: vi.fn(() =>
         Promise.resolve({
           telegramFileId: 'stored_file_id',
           telegramFileUniqueId: 'stored_unique_id',
@@ -72,8 +72,8 @@ describe('Telegram Bot Handler', () => {
     };
 
     mockFileRepo = {
-      findByUniqueId: mock((): Promise<unknown> => Promise.resolve(null)),
-      create: mock(() => Promise.resolve()),
+      findByUniqueId: vi.fn((): Promise<unknown> => Promise.resolve(null)),
+      create: vi.fn(() => Promise.resolve()),
     };
   });
 
@@ -102,7 +102,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const startHandler = getStartHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
     const ctx = {
       reply: replyMock,
     };
@@ -119,7 +119,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const fileHandler = getFileHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
     const ctx = {
       message: {
         message_id: 42,
@@ -158,7 +158,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const fileHandler = getFileHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
     const ctx = {
       message: {
         message_id: 42,
@@ -190,7 +190,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const fileHandler = getFileHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
 
     mockFileRepo.findByUniqueId.mockResolvedValueOnce({
       publicId: 'already_exists_abc',
@@ -232,7 +232,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const fileHandler = getFileHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
     const ctx = {
       message: {
         message_id: 43,
@@ -269,7 +269,7 @@ describe('Telegram Bot Handler', () => {
     });
 
     const fileHandler = getFileHandler();
-    const replyMock = mock(() => Promise.resolve());
+    const replyMock = vi.fn(() => Promise.resolve());
     const ctx = {
       message: {
         message_id: 44,
@@ -299,6 +299,6 @@ describe('Telegram Bot Handler', () => {
   });
 
   afterAll(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 });

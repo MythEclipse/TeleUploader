@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 process.env.NODE_ENV = 'test';
 process.env.BOT_TOKEN = '123456:ABC-DEF';
@@ -16,7 +16,7 @@ const bucket = {
   updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
-mock.module('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
+vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
   DrizzleBucketRepository: class {
     create = () => Promise.resolve(bucket);
     findByName = (name: string) => Promise.resolve(name === bucket.name ? bucket : null);
@@ -25,7 +25,7 @@ mock.module('../src/infrastructure/persistence/repositories/bucket-repository', 
   },
 }));
 
-mock.module('../src/infrastructure/persistence/repositories/file-repository', () => ({
+vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({
   DrizzleFileRepository: class {
     countByBucket = () => Promise.resolve(0);
     findByBucketAndKey = () => Promise.resolve(null);
@@ -34,7 +34,7 @@ mock.module('../src/infrastructure/persistence/repositories/file-repository', ()
   },
 }));
 
-mock.module('../src/infrastructure/persistence/repositories/multipart-repository', () => ({
+vi.mock('../src/infrastructure/persistence/repositories/multipart-repository', () => ({
   DrizzleMultipartRepository: class {
     abort = () => Promise.resolve();
     complete = () => Promise.resolve();
@@ -46,21 +46,21 @@ mock.module('../src/infrastructure/persistence/repositories/multipart-repository
   },
 }));
 
-mock.module('../src/infrastructure/telegram/chunked-storage', () => ({
+vi.mock('../src/infrastructure/telegram/chunked-storage', () => ({
   ChunkedStorage: class {
     createChunkedObjectResponse = () => Promise.resolve(new Response(''));
     storeFileInTelegramChunks = () => Promise.resolve({ fileHash: 'hash' });
   },
 }));
 
-mock.module('../src/interfaces/s3/auth', () => ({
+vi.mock('../src/interfaces/s3/auth', () => ({
   verifyPresignedUrl: () => Promise.resolve({ isValid: true }),
   verifySignature: () => Promise.resolve({ isValid: true }),
   verifyBodyHash: () => null,
   isS3Request: () => true,
 }));
 
-mock.module('../src/infrastructure/telegram/bot-pool', () => ({
+vi.mock('../src/infrastructure/telegram/bot-pool', () => ({
   botPool: {
     forwardToStorage: () =>
       Promise.resolve({
@@ -86,7 +86,7 @@ describe('S3 bucket configuration compatibility', () => {
   });
 
   afterAll(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it('returns VersioningConfiguration for path-style GetBucketVersioning', async () => {

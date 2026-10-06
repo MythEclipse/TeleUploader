@@ -8,8 +8,10 @@
  * web-api-controller) into a single, reusable function.
  */
 
+import { createHash } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
 import { nanoid } from 'nanoid';
+import { createFileSink } from './file-sink';
 
 /** Options for the {@link streamToTemp} function. */
 export interface StreamToTempOptions {
@@ -56,9 +58,9 @@ export const streamToTemp = async (
   const maxSizeBytes = options?.maxSizeBytes;
 
   const tempPath = `${prefix}${nanoid()}`;
-  const writer = Bun.file(tempPath).writer();
-  const sha256 = new Bun.CryptoHasher('sha256');
-  const md5 = computeMd5 ? new Bun.CryptoHasher('md5') : null;
+  const writer = createFileSink(tempPath);
+  const sha256 = createHash('sha256');
+  const md5 = computeMd5 ? createHash('md5') : null;
 
   const SIGNATURE_BYTES = 16;
   const signatureChunks: Buffer[] = [];
@@ -90,11 +92,10 @@ export const streamToTemp = async (
       }
     }
 
-    try {
-      writer.end();
-    } catch {
-      // Writer may have already errored — ignore on success path
-    }
+    // A rejected `end()` means the bytes never reached disk — propagate it so
+    // the catch below unlinks the partial temp file instead of handing a
+    // truncated path to the caller.
+    await writer.end();
 
     const result: StreamToTempResult = {
       tempPath,
@@ -110,7 +111,7 @@ export const streamToTemp = async (
     return result;
   } catch (error) {
     try {
-      writer.end();
+      await writer.end();
     } catch {
       // ignore writer end failure during error path
     }

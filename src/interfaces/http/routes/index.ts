@@ -64,9 +64,10 @@ const handleCatchAllOptions = (req: Request): Promise<Response> => {
  *
  * Each route maps a URL pattern to its corresponding handler function(s),
  * with middleware such as rate limiting and authentication applied where needed.
- * This table is designed to be passed as the `routes` option to `Bun.serve()`.
+ * This table is designed to be passed as the `routes` option to `serve()` in
+ * `src/infrastructure/http/serve.ts` (the `node:http` stand-in for Bun's router).
  *
- * Route patterns follow Bun's routing syntax:
+ * Route patterns keep the syntax Bun used:
  * - Static paths: `/health`
  * - Parameterized paths: `/f/:public_id`
  * - Wildcard paths: `/api/v1/*`

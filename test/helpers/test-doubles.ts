@@ -1,4 +1,4 @@
-import { mock } from 'bun:test';
+import { vi } from 'vitest';
 import type { ITelegramService } from '../../src/domain/ports/telegram-service';
 
 /**
@@ -76,7 +76,7 @@ export const mockTelegrafModule = (overrides?: {
 };
 
 /**
- * Creates a minimal {@link ITelegramService} stub backed by `bun:test` mocks.
+ * Creates a minimal {@link ITelegramService} stub backed by vitest mocks.
  *
  * Mirrors the hand-rolled stub in `chunked-storage.test.ts` (real
  * `ChunkedStorage` + stub telegram service + no-op repos).
@@ -87,10 +87,10 @@ export const mockTelegrafModule = (overrides?: {
 export const makeTelegramServiceStub = (
   overrides?: Partial<ITelegramService>,
 ): ITelegramService & {
-  forwardToStorage: ReturnType<typeof mock>;
-  getFileInfo: ReturnType<typeof mock>;
+  forwardToStorage: ReturnType<typeof vi.fn>;
+  getFileInfo: ReturnType<typeof vi.fn>;
 } => {
-  const forwardToStorage = mock(
+  const forwardToStorage = vi.fn(
     overrides?.forwardToStorage ??
       (async (_bytes: unknown, fileName: string) => ({
         telegramFileId: `tg-${fileName}`,
@@ -98,7 +98,7 @@ export const makeTelegramServiceStub = (
         storageMessageId: 1,
       })),
   );
-  const getFileInfo = mock(
+  const getFileInfo = vi.fn(
     overrides?.getFileInfo ??
       (async (telegramFileId: string) => ({
         file_size: 100,
@@ -126,7 +126,7 @@ export const makeTelegramServiceStub = (
 export const mockNanoidModule = (prefix = 'test-id') => {
   let counter = 0;
   return {
-    nanoid: mock(() => `${prefix}-${++counter}`),
+    nanoid: vi.fn(() => `${prefix}-${++counter}`),
   };
 };
 

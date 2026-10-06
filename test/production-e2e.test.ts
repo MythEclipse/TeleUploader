@@ -11,16 +11,18 @@
  *   - ADMIN_API_TOKEN  (required for Web API tests)
  *
  * Usage:
- *   S3_SECRET_KEY=xxx ADMIN_API_TOKEN=xxx bun test test/production-e2e.test.ts
+ *   S3_SECRET_KEY=xxx ADMIN_API_TOKEN=xxx pnpm exec vitest run --config vitest.quarantine.config.ts test/production-e2e.test.ts
  *
  * Large-file tests (1 GB) are opt-in — they download a 1 GB fixture and
  * upload it to the live deployment:
- *   RUN_LARGE_E2E=1 S3_SECRET_KEY=xxx ADMIN_API_TOKEN=xxx bun test test/production-e2e.test.ts
+ *   RUN_LARGE_E2E=1 S3_SECRET_KEY=xxx ADMIN_API_TOKEN=xxx pnpm exec vitest run --config vitest.quarantine.config.ts test/production-e2e.test.ts
  *   (downloads https://ash-speed.hetzner.com/1GB.bin into /tmp/kilo/1GB.bin)
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { createHash, createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { stat, writeFile } from 'node:fs/promises';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL = process.env.BASE_URL || 'https://upload.asepharyana.my.id';
@@ -42,7 +44,7 @@ const LARGE_DOWNLOAD_TIMEOUT = 120_000; // 2 minutes
 // ── SigV4 helpers — works in Bun with CryptoHasher ───────────────────────────
 
 function sha256hex(data: string | Uint8Array): string {
-  const h = new Bun.CryptoHasher('sha256');
+  const h = createHash('sha256');
   h.update(data);
   return Array.from(h.digest())
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -50,7 +52,7 @@ function sha256hex(data: string | Uint8Array): string {
 }
 
 function hmacSha256(key: Uint8Array, msg: string): Uint8Array {
-  const h = new Bun.CryptoHasher('sha256', key);
+  const h = createHmac('sha256', key);
   h.update(msg);
   return h.digest();
 }
@@ -153,8 +155,8 @@ async function apiUploadFormData(path: string, fd: FormData): Promise<Response> 
 // ── Ensure large test file exists ────────────────────────────────────────────
 async function ensureLargeFile(): Promise<boolean> {
   if (existsSync(LARGE_FILE_PATH)) {
-    const stat = await Bun.file(LARGE_FILE_PATH).stat();
-    if (stat.size >= 1_000_000_000) return true;
+    const st = await stat(LARGE_FILE_PATH);
+    if (st.size >= 1_000_000_000) return true;
   }
   return false;
 }
@@ -456,50 +458,48 @@ describe('S3 API (production, SigV4)', () => {
       expect(xml).toContain('InvalidRange');
     });
 
-    it(
-      'Multipart GetObject — returns complete concatenated body',
-      async () => {
-        const create = await s3Request('POST', `/${bucketName}/multipart-full.txt`, {
-          query: { uploads: '' },
-        });
-        expect(create.status).toBe(200);
-        const createXml = await create.text();
-        const uploadId = createXml.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1];
-        expect(uploadId).toBeTruthy();
+    it('Multipart GetObject — returns complete concatenated body', {
+      timeout: 30_000,
+    }, async () => {
+      const create = await s3Request('POST', `/${bucketName}/multipart-full.txt`, {
+        query: { uploads: '' },
+      });
+      expect(create.status).toBe(200);
+      const createXml = await create.text();
+      const uploadId = createXml.match(/<UploadId>([^<]+)<\/UploadId>/)?.[1];
+      expect(uploadId).toBeTruthy();
 
-        const part1 = new TextEncoder().encode('hello ');
-        const part2 = new TextEncoder().encode('multipart');
-        const p1 = await s3Request('PUT', `/${bucketName}/multipart-full.txt`, {
-          query: { partNumber: '1', uploadId: uploadId! },
-          body: part1,
-        });
-        const p2 = await s3Request('PUT', `/${bucketName}/multipart-full.txt`, {
-          query: { partNumber: '2', uploadId: uploadId! },
-          body: part2,
-        });
-        expect(p1.status).toBe(200);
-        expect(p2.status).toBe(200);
+      const part1 = new TextEncoder().encode('hello ');
+      const part2 = new TextEncoder().encode('multipart');
+      const p1 = await s3Request('PUT', `/${bucketName}/multipart-full.txt`, {
+        query: { partNumber: '1', uploadId: uploadId! },
+        body: part1,
+      });
+      const p2 = await s3Request('PUT', `/${bucketName}/multipart-full.txt`, {
+        query: { partNumber: '2', uploadId: uploadId! },
+        body: part2,
+      });
+      expect(p1.status).toBe(200);
+      expect(p2.status).toBe(200);
 
-        const completeBody = `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${p1.headers.get('etag')}</ETag></Part><Part><PartNumber>2</PartNumber><ETag>${p2.headers.get('etag')}</ETag></Part></CompleteMultipartUpload>`;
-        const complete = await s3Request('POST', `/${bucketName}/multipart-full.txt`, {
-          query: { uploadId: uploadId! },
-          body: new TextEncoder().encode(completeBody),
-        });
-        expect(complete.status).toBe(200);
+      const completeBody = `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${p1.headers.get('etag')}</ETag></Part><Part><PartNumber>2</PartNumber><ETag>${p2.headers.get('etag')}</ETag></Part></CompleteMultipartUpload>`;
+      const complete = await s3Request('POST', `/${bucketName}/multipart-full.txt`, {
+        query: { uploadId: uploadId! },
+        body: new TextEncoder().encode(completeBody),
+      });
+      expect(complete.status).toBe(200);
 
-        const full = await s3Request('GET', `/${bucketName}/multipart-full.txt`);
-        expect(full.status).toBe(200);
-        expect(await full.text()).toBe('hello multipart');
+      const full = await s3Request('GET', `/${bucketName}/multipart-full.txt`);
+      expect(full.status).toBe(200);
+      expect(await full.text()).toBe('hello multipart');
 
-        const partial = await s3Request('GET', `/${bucketName}/multipart-full.txt`, {
-          headers: { range: 'bytes=3-9' },
-        });
-        expect(partial.status).toBe(206);
-        expect(partial.headers.get('content-range')).toBe('bytes 3-9/15');
-        expect(await partial.text()).toBe('lo mult');
-      },
-      { timeout: 30_000 },
-    );
+      const partial = await s3Request('GET', `/${bucketName}/multipart-full.txt`, {
+        headers: { range: 'bytes=3-9' },
+      });
+      expect(partial.status).toBe(206);
+      expect(partial.headers.get('content-range')).toBe('bytes 3-9/15');
+      expect(await partial.text()).toBe('lo mult');
+    });
 
     it('Delete bucket — must be empty first', async () => {
       // Clean up remaining objects
@@ -565,12 +565,12 @@ describe('1 GB large-file upload', () => {
       console.info('ℹ️  1GB.bin not found locally — downloading from Hetzner');
       const dl = await fetch(LARGE_FILE_URL);
       if (!dl.ok || !dl.body) throw new Error(`Failed to download ${LARGE_FILE_URL}: ${dl.status}`);
-      await Bun.write(LARGE_FILE_PATH, dl);
-      const stat = await Bun.file(LARGE_FILE_PATH).stat();
-      console.info(`   Downloaded ${(stat.size / 1_000_000_000).toFixed(1)} GB`);
+      await writeFile(LARGE_FILE_PATH, Buffer.from(await dl.arrayBuffer()));
+      const st = await stat(LARGE_FILE_PATH);
+      console.info(`   Downloaded ${(st.size / 1_000_000_000).toFixed(1)} GB`);
     } else {
-      const stat = await Bun.file(LARGE_FILE_PATH).stat();
-      console.info(`   Using existing file: ${(stat.size / 1_000_000_000).toFixed(1)} GB`);
+      const st = await stat(LARGE_FILE_PATH);
+      console.info(`   Using existing file: ${(st.size / 1_000_000_000).toFixed(1)} GB`);
     }
 
     // Create a dedicated bucket via S3 API
@@ -604,7 +604,7 @@ describe('1 GB large-file upload', () => {
   it(
     'S3 PutObject — upload 1 GB file as a single PUT (in-memory)',
     async () => {
-      const file = Bun.file(LARGE_FILE_PATH);
+      const file = new Blob([await (await import('node:fs/promises')).readFile(LARGE_FILE_PATH)]);
       const fileBuffer = await file.bytes();
       const r = await s3Request('PUT', `/${largeBucket}/1GB-single.bin`, {
         body: fileBuffer as unknown as Uint8Array,
@@ -670,7 +670,7 @@ describe('1 GB large-file upload', () => {
 
       // 2. Upload parts (40 MB each — well under telegramChunkSizeBytes)
       const PART_SIZE = 40 * 1024 * 1024; // 40 MB
-      const file = Bun.file(LARGE_FILE_PATH);
+      const file = new Blob([await (await import('node:fs/promises')).readFile(LARGE_FILE_PATH)]);
       const fileSize = file.size;
       const parts: { partNumber: number; etag: string }[] = [];
       let offset = 0;
@@ -742,7 +742,9 @@ describe('1 GB large-file upload', () => {
   it(
     'POST /api/upload — 1 GB (expected 413 behind Cloudflare free plan)',
     async () => {
-      const fileBlob = Bun.file(LARGE_FILE_PATH);
+      const fileBlob = new Blob([
+        await (await import('node:fs/promises')).readFile(LARGE_FILE_PATH),
+      ]);
       const fd = new FormData();
       fd.append('file', fileBlob, '1GB-test.bin');
 

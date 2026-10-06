@@ -1,6 +1,6 @@
-import { serve } from 'bun';
 import { config } from './env';
 import { fileInfoCache } from './infrastructure/cache/index';
+import { serve } from './infrastructure/http/serve';
 import { startBot } from './interfaces/bot/handler';
 import { handleS3Request } from './interfaces/http/controllers/s3-controller';
 import { cleanupRateLimitCache } from './interfaces/http/middleware/rate-limit';

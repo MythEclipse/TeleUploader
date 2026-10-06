@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { open, stat, unlink } from 'node:fs/promises';
@@ -193,7 +194,7 @@ const calculateFileCrc32 = async (tempPath: string): Promise<number> => {
 export const createZip = async (files: ZipInputFile[]): Promise<CreatedZip> => {
   const tempPath = `/tmp/filedrop-${nanoid()}.zip`;
   const writer = createWriteStream(tempPath);
-  const hasher = new Bun.CryptoHasher('sha256');
+  const hasher = createHash('sha256');
   const entries: ZipEntry[] = [];
   const usedNames = new Set<string>();
   let offset = 0;
