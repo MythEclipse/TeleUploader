@@ -1,23 +1,21 @@
 {
-  "name": "filedrop",
+  "name": "teleuploader-workspace",
   "version": "1.2.9",
-  "description": "Telegram file uploader backend",
+  "private": true,
+  "description": "Workspace root for TeleUploader (kana migration). The app package lives in apps/api.",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js",
-    "start": "NODE_ENV=production node dist/index.js",
-    "db:migrate": "node dist/migrate.js",
-    "test": "pnpm run test:unit",
-    "test:unit": "vitest run --config vitest.config.ts test/rateLimit.test.ts test/file.test.ts test/files.test.ts test/health.test.ts test/db.test.ts test/bot-pool.test.ts test/bot.test.ts test/bootstrap.test.ts test/swagger.test.ts test/auth.test.ts test/auth-routes.test.ts test/validation.test.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/chunked-storage.test.ts test/temp-stream.test.ts test/zip.test.ts test/web-api.test.ts test/env.test.ts test/home.test.ts test/deploy-config.test.ts test/public-readonly-routes.test.ts",
-    "test:quarantine": "vitest run --config vitest.quarantine.config.ts test/telegram.test.ts test/upload.test.ts test/s3-docker-registry.test.ts test/s3-sdk.test.ts test/production-e2e.test.ts",
-    "test:s3-auth": "vitest run --config vitest.config.ts test/s3-auth.test.ts",
-    "test:s3-ops": "vitest run --config vitest.config.ts test/s3-operations.test.ts",
-    "test:web-api": "vitest run --config vitest.config.ts test/web-api.test.ts",
-    "test:s3": "vitest run --config vitest.config.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/web-api.test.ts",
-    "lint": "biome check src test",
-    "format": "biome format --write src test",
+    "dev": "moon run filedrop:dev",
+    "build": "moon run filedrop:build",
+    "test": "moon run filedrop:test",
+    "test:unit": "moon run filedrop:test",
+    "test:quarantine": "pnpm --filter filedrop run test:quarantine",
+    "lint": "moon run filedrop:lint",
+    "format": "pnpm --filter filedrop run format",
+    "db:migrate": "moon run filedrop:db-migrate",
+    "typecheck": "pnpm --filter filedrop run typecheck",
+    "smoke": "bash scripts/smoke.sh",
     "prepare": "husky"
   },
   "pnpm": {
@@ -25,26 +23,7 @@
       "esbuild"
     ]
   },
-  "dependencies": {
-    "@prisma/engines": "^7.8.0",
-    "drizzle-orm": "^0.45.2",
-    "nanoid": "^6.0.1",
-    "p-queue": "^9.3.0",
-    "pg": "^8.11.0",
-    "postgres": "^3.4.9",
-    "telegraf": "^4.15.0",
-    "winston": "^3.11.0",
-    "zod": "^4.6.5"
-  },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3.1079.0",
-    "@biomejs/biome": "^2.4.15",
-    "@types/node": "^26.2.0",
-    "drizzle-kit": "^0.31.10",
-    "esbuild": "^0.28.2",
-    "husky": "^9.1.7",
-    "tsx": "^4.20.3",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "husky": "^9.1.7"
   }
 }

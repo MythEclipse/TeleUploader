@@ -1,0 +1,113 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+process.env.NODE_ENV = 'test';
+process.env.BOT_TOKEN = '123456:ABC-DEF';
+process.env.STORAGE_CHANNEL_ID = '-1001234567890';
+process.env.BASE_URL = 'http://localhost:4000';
+process.env.DATABASE_URL = 'postgresql://asephs:***@100.121.180.82:6432/test';
+process.env.PORT = '4000';
+process.env.S3_ACCESS_KEY = 'filedrop-admin';
+process.env.S3_SECRET_KEY = 'unit-test-secret';
+
+const bucket = {
+  id: 'bucket-uuid',
+  name: 'gitea',
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
+};
+
+vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
+  DrizzleBucketRepository: class {
+    create = () => Promise.resolve(bucket);
+    findByName = (name: string) => Promise.resolve(name === bucket.name ? bucket : null);
+    list = () => Promise.resolve([bucket]);
+    delete = () => Promise.resolve(true);
+  },
+}));
+
+vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({
+  DrizzleFileRepository: class {
+    countByBucket = () => Promise.resolve(0);
+    findByBucketAndKey = () => Promise.resolve(null);
+    listByPrefix = () => Promise.resolve({ objects: [], prefixes: [] });
+    softDelete = () => Promise.resolve(true);
+  },
+}));
+
+vi.mock('../src/infrastructure/persistence/repositories/multipart-repository', () => ({
+  DrizzleMultipartRepository: class {
+    abort = () => Promise.resolve();
+    complete = () => Promise.resolve();
+    create = () => Promise.resolve('upload-id');
+    findById = () => Promise.resolve(null);
+    insertPart = () => Promise.resolve();
+    listParts = () => Promise.resolve([]);
+    listByBucket = () => Promise.resolve({ uploads: [], isTruncated: false, nextKeyMarker: null });
+  },
+}));
+
+vi.mock('../src/infrastructure/telegram/chunked-storage', () => ({
+  ChunkedStorage: class {
+    createChunkedObjectResponse = () => Promise.resolve(new Response(''));
+    storeFileInTelegramChunks = () => Promise.resolve({ fileHash: 'hash' });
+  },
+}));
+
+vi.mock('../src/presentation/s3/auth', () => ({
+  verifyPresignedUrl: () => Promise.resolve({ isValid: true }),
+  verifySignature: () => Promise.resolve({ isValid: true }),
+  verifyBodyHash: () => null,
+  isS3Request: () => true,
+}));
+
+vi.mock('../src/infrastructure/telegram/bot-pool', () => ({
+  botPool: {
+    forwardToStorage: () =>
+      Promise.resolve({
+        telegramFileId: 'mock-tg-id',
+        telegramFileUniqueId: 'mock-tg-unique',
+        storageMessageId: 12345,
+      }),
+    getFileInfo: () =>
+      Promise.resolve({
+        bot_token: '123456:ABC-DEF',
+        file_path: 'documents/file.txt',
+        file_size: 100,
+        mime_type: 'text/plain',
+      }),
+  },
+}));
+
+describe('S3 bucket configuration compatibility', () => {
+  let handleS3Request: typeof import('../src/presentation/http/controllers/s3-controller').handleS3Request;
+
+  beforeAll(async () => {
+    ({ handleS3Request } = await import('../src/presentation/http/controllers/s3-controller'));
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns VersioningConfiguration for path-style GetBucketVersioning', async () => {
+    const res = await handleS3Request(new Request('http://localhost:4000/gitea?versioning'));
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/xml');
+    expect(body).toContain('<VersioningConfiguration');
+    expect(body).not.toContain('<ListBucketResult');
+  });
+
+  it('returns VersioningConfiguration for virtual-hosted GetBucketVersioning', async () => {
+    const res = await handleS3Request(
+      new Request('http://gitea.localhost:4000/?versioning'),
+      'gitea',
+    );
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain('<VersioningConfiguration');
+    expect(body).not.toContain('<ListBucketResult');
+  });
+});

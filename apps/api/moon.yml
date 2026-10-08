@@ -1,0 +1,42 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# P1b — the app package moved from the repo root into apps/api.
+id: 'filedrop'
+
+# Tasks shell out to the package's own scripts so `pnpm run <task>` and moon stay
+# interchangeable — CI and deploy.sh call the former, humans call the latter.
+tasks:
+  build:
+    command: 'pnpm run build'
+    inputs:
+      - 'src/**/*'
+      - 'schema.sql'
+      - 'scripts/esbuild-banner.js'
+
+  test:
+    command: 'pnpm run test:unit'
+    inputs:
+      - 'src/**/*'
+      - 'test/**/*'
+
+  typecheck:
+    command: 'pnpm run typecheck'
+    inputs:
+      - 'src/**/*'
+      - 'test/**/*'
+      - 'tsconfig.json'
+
+  lint:
+    command: 'pnpm run lint'
+    inputs:
+      - 'src/**/*'
+      - 'test/**/*'
+
+  dev:
+    command: 'pnpm run dev'
+    options:
+      # In moon v2 `local` was removed; `persistent` implies it.
+      persistent: true
+
+  db-migrate:
+    command: 'pnpm run db:migrate'
