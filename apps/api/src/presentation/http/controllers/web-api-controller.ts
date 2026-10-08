@@ -14,7 +14,10 @@ import { getErrorMessage } from '../../../infrastructure/file';
 import logger from '../../../infrastructure/observability/logger';
 import { buildTelegramFileUrl } from '../../../infrastructure/telegram/file-url';
 import { sanitizeFilenameHeader } from '../filename';
-import { resolveAdminOrganizationId } from './organization-resolver';
+import {
+  MissingOrganizationMembershipError,
+  resolveAdminOrganizationId,
+} from './organization-resolver';
 
 /** Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
@@ -398,11 +401,24 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
   const method = req.method;
 
   // P3: every route below is scoped to this one organization. Resolved once,
-  // before any bucket is touched. A missing membership is NOT treated as
-  // global access — it is denied, or the surface would be unscoped by default.
-  const organizationId = await resolveAdminOrganizationId();
-  if (!organizationId) {
-    return jsonError('No organization for the authenticated session', 403);
+  // before any bucket is touched, and it THROWS if the bootstrap admin has no
+  // membership — a missing membership is a misconfiguration that stops the
+  // service at boot, not a per-request 403. It is never treated as global
+  // access either: the surface stays scoped or it is down.
+  //
+  // The catch keeps an embedded/test process that never booted src/index.ts from
+  // turning into an opaque 500 with an empty body. 503 + a stable error name
+  // says "this deployment has no tenant scope", which is not the same as the
+  // 403 this code used to return — that 403 was indistinguishable from a real
+  // authorization denial, and was the reason this defect shipped green.
+  let organizationId: string;
+  try {
+    organizationId = await resolveAdminOrganizationId();
+  } catch (error: unknown) {
+    if (error instanceof MissingOrganizationMembershipError) {
+      return jsonError('Tenant scope unavailable (missing_organization_membership)', 503);
+    }
+    throw error;
   }
 
   try {

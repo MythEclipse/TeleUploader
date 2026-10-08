@@ -33,8 +33,11 @@ const BOOTSTRAP_SLUG = 'default';
 const bootstrapIdentity = (): { name: string; userId: string } => ({
   name: 'TeleUploader',
   // better-auth user ids are text. The admin is seeded here and claimed by P3's
-  // auth work; kept in one place so the seeder and the auth flow cannot disagree.
-  userId: process.env.BOOTSTRAP_ADMIN_ID ?? 'bootstrap-admin',
+  // auth work. Read from config, the SAME value organization-resolver.ts uses,
+  // so the seeder and the request path cannot disagree about who the admin is —
+  // a second `process.env` read here is exactly the kind of declaration that
+  // gets trusted downstream instead of re-checked.
+  userId: config.bootstrapAdminId,
 });
 
 export const runSeed = async (): Promise<void> => {

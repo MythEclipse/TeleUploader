@@ -23,6 +23,13 @@ process.env.PORT = process.env.PORT ?? '4311';
 // writes straight through and /auth/me answers 404. Those are pre-existing
 // behaviours, and pinning them here proves the Hono swap preserved them. Set
 // ADMIN_API_TOKEN to probe the authenticated path instead.
+//
+// NOTE (P3b fix): this file was ALSO hiding a real outage. With auth disabled it
+// reported PASS for `GET /api/v1/buckets`, while a production deploy WITH auth
+// enabled denied every dashboard request because the bootstrap admin had no
+// membership — 403 on that public GET, 401 on every oRPC procedure. The probe
+// was structurally unable to see it. The misconfiguration probe at the bottom of
+// this file now covers that case directly.
 delete process.env.ADMIN_API_TOKEN;
 
 const { serve } = await import('@hono/node-server');
@@ -119,7 +126,7 @@ console.log('\n  oRPC (/rpc):');
   const ok = res.status === 200 && Array.isArray(payload?.buckets) && payload.buckets.length > 0;
   if (!ok) failures += 1;
   console.log(
-    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc bucket/listBuckets (real data)'.padEnd(34)} -> ${res.status} body=${JSON.stringify(body).slice(0, 90)}`,
+    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc bucket/listBuckets (real data)'.padEnd(34)} -> ${res.status} body=${JSON.stringify(body ?? null).slice(0, 90)}`,
   );
 }
 
@@ -152,6 +159,68 @@ console.log('\n  oRPC (/rpc):');
   console.log(
     `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc unmatched path falls through'.padEnd(34)} -> ${res.status}`,
   );
+}
+
+// ── Dashboard tenant scope (P3b fix) ────────────────────────────────────────
+//
+// The two probes above CANNOT see this failure, and that is why the original
+// defect survived: with ADMIN_API_TOKEN unset, `GET /api/v1/buckets` answered
+// 200 here while a deploy with auth enabled answered 403 on that same
+// route, because the bootstrap admin had no `members` row. BOOTSTRAP_ADMIN_ID
+// is set by nothing in the repo, so it defaulted to 'bootstrap-admin' — a row
+// only `pnpm db:seed` creates, and deploy.sh runs neither migrate nor seed.
+//
+// So assert both branches directly, each in its OWN child process. A separate
+// process is required, not stylistic: env.ts captures `config` at module load,
+// so a bad BOOTSTRAP_ADMIN_ID set inside this already-loaded process would not
+// be re-read and the probe would pass for the wrong reason.
+console.log('\n  dashboard tenant scope:');
+
+{
+  const { spawnSync } = await import('node:child_process');
+  const probe = (bootstrapAdminId: string) => {
+    const result = spawnSync('npx', ['tsx', 'test/tenant-scope-boot-probe.ts'], {
+      env: {
+        ...process.env,
+        BOOTSTRAP_ADMIN_ID: bootstrapAdminId,
+      },
+      encoding: 'utf8',
+    });
+    return { code: result.status, stdout: result.stdout ?? '' };
+  };
+
+  // A user id that cannot exist is what a deploy that never ran db:seed looks
+  // like. It MUST fail loudly and early — not resolve, and above all not 403.
+  {
+    const { code, stdout } = probe('probe-definitely-not-a-member');
+    let reported = false;
+    try {
+      reported =
+        (JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as { ok?: boolean }).ok === false;
+    } catch {
+      reported = false;
+    }
+    const ok = code === 1 && reported;
+    if (!ok) failures += 1;
+    console.log(
+      `  ${ok ? 'PASS' : 'FAIL'}  ${'missing membership fails at boot'.padEnd(34)} -> exit ${code} (expected 1)`,
+    );
+  }
+
+  // The positive control: the probe must be capable of PASSING, or the check
+  // above proves nothing — a probe that always exits 1 would satisfy it too.
+  if (process.env.DATABASE_URL) {
+    const { code } = probe(process.env.BOOTSTRAP_ADMIN_ID ?? 'bootstrap-admin');
+    const ok = code === 0;
+    if (!ok) failures += 1;
+    console.log(
+      `  ${ok ? 'PASS' : 'FAIL'}  ${'configured membership resolves'.padEnd(34)} -> exit ${code} (expected 0)`,
+    );
+  } else {
+    console.log(
+      `  SKIP  ${'configured membership resolves'.padEnd(34)}         -> no DATABASE_URL`,
+    );
+  }
 }
 
 server.close();

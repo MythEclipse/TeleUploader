@@ -3,6 +3,19 @@ import type { IBucketRepository } from '../src/domain/ports/bucket-repository';
 
 const MOCK_ORG = 'org-a';
 
+/**
+ * Which user ids have a membership, and to which org.
+ *
+ * Keyed by user id on purpose. The resolver asks for `config.bootstrapAdminId`,
+ * so the default below resolves that id to MOCK_ORG and the suite behaves as
+ * before — but a test can now remove the entry (or point it elsewhere) to drive
+ * the missing-membership path, which the previous `userId ? 'org-a' : null`
+ * stub made impossible to reach.
+ */
+const MOCK_MEMBERSHIPS: Record<string, string> = {
+  [process.env.BOOTSTRAP_ADMIN_ID || 'bootstrap-admin']: MOCK_ORG,
+};
+
 const mockBuckets = [
   {
     id: 'uuid-1',
@@ -48,7 +61,13 @@ vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () =
 
 vi.mock('../src/infrastructure/persistence/repositories/organization-repository', () => ({
   DrizzleOrganizationRepository: class {
-    findOrganizationIdByUserId = (userId: string) => Promise.resolve(userId ? 'org-a' : null);
+    // Resolves through MOCK_MEMBERSHIPS instead of answering 'org-a' for every
+    // truthy user id. The old stub made the missing-membership branch
+    // UNREACHABLE — which is how a deploy that 403'd every dashboard request
+    // shipped behind a green suite. A test sets MOCK_MEMBERSHIPS = {} to
+    // exercise the misconfiguration honestly.
+    findOrganizationIdByUserId = (userId: string) =>
+      Promise.resolve(MOCK_MEMBERSHIPS[userId] ?? null);
   },
 }));
 vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({

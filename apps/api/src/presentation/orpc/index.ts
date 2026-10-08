@@ -1,7 +1,10 @@
 import { RPCHandler } from '@orpc/server/fetch';
 import type { Context as HonoContext } from 'hono';
 import { config } from '../../env';
-import { resolveAdminOrganizationId } from '../http/controllers/organization-resolver';
+import {
+  MissingOrganizationMembershipError,
+  resolveAdminOrganizationId,
+} from '../http/controllers/organization-resolver';
 import {
   handleCopyObjectV1,
   handleCreateBucketV1,
@@ -69,10 +72,29 @@ export const handleRpc = async (c: HonoContext) => {
   const request = c.req.raw;
 
   // P3: resolve the session's organization BEFORE any procedure runs, so an
-  // unauthenticated or unmapped caller cannot reach a bucket at all.
-  const organizationId = await resolveAdminOrganizationId();
-  if (!organizationId) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  // unauthenticated or unmapped caller cannot reach a bucket at all. A missing
+  // bootstrap membership THROWS rather than returning a 401 — that is a
+  // misconfiguration, and it is refused at boot instead. Unauthenticated
+  // callers are already rejected by `rpcAuthenticated` above; answering 401
+  // here as well conflated the two failures.
+  //
+  // The catch exists because src/index.ts resolves the scope at boot, but this
+  // handler still runs in processes that do not boot it (tests, embedders). An
+  // uncaught throw here becomes an opaque 500 with an empty body, which reads
+  // like a crash rather than "this deployment has no tenant scope". 503 + a
+  // stable error name says which it is. It is NOT a 401: the caller's
+  // credentials were fine.
+  let organizationId: string;
+  try {
+    organizationId = await resolveAdminOrganizationId();
+  } catch (error: unknown) {
+    if (error instanceof MissingOrganizationMembershipError) {
+      return Response.json(
+        { error: 'Tenant scope unavailable', detail: 'missing_organization_membership' },
+        { status: 503 },
+      );
+    }
+    throw error;
   }
   const rpcPath = request.url.replace(RPC_PREFIX, '');
   const result = await orpcHandler.handle(

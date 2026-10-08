@@ -30,6 +30,7 @@ interface AppConfig {
   adminApiToken: string;
   sessionCookieName: string;
   sessionMaxAgeMs: number;
+  bootstrapAdminId: string;
   s3AccessKey: string;
   s3SecretKey: string;
   s3DefaultRegion: string;
@@ -211,6 +212,7 @@ export const config: AppConfig = {
   adminApiToken: process.env.ADMIN_API_TOKEN || '',
   sessionCookieName: process.env.SESSION_COOKIE_NAME || 'tu_session',
   sessionMaxAgeMs: parseNumber(process.env.SESSION_COOKIE_MAX_AGE_SECONDS, 86400) * 1000,
+  bootstrapAdminId: process.env.BOOTSTRAP_ADMIN_ID || 'bootstrap-admin',
   s3AccessKey: process.env.S3_ACCESS_KEY || 'filedrop-admin',
   s3SecretKey: process.env.S3_SECRET_KEY || '',
   s3DefaultRegion: process.env.S3_DEFAULT_REGION || 'us-east-1',

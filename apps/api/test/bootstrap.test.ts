@@ -94,6 +94,17 @@ vi.mock('../src/presentation/http/middleware/rate-limit', () => ({
   ): ((req: T) => Promise<Response>) => handler,
 }));
 
+// src/index.ts resolves the dashboard tenant scope at boot and refuses to start
+// when the bootstrap admin has no membership (it used to 403 every request
+// instead). This test drives the REAL src/index.ts, so it must declare a
+// membership — otherwise the boot check reaches the database, fails, and calls
+// process.exit(1), which fails the suite for a reason unrelated to bootstrapping.
+vi.mock('../src/infrastructure/persistence/repositories/organization-repository', () => ({
+  DrizzleOrganizationRepository: class {
+    findOrganizationIdByUserId = (userId: string) => Promise.resolve(userId ? 'org-a' : null);
+  },
+}));
+
 describe('Bootstrap Server', () => {
   beforeEach(() => {
     mockServe.mockClear();

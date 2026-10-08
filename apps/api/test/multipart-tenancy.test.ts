@@ -26,6 +26,15 @@ process.env.NODE_ENV = 'test';
 const ORG_A = 'org-a-0000-0000-00000000000a';
 const ORG_B = 'org-b-0000-0000-00000000000b';
 
+/**
+ * Which user ids have a membership. Keyed by user id so the missing-membership
+ * branch is reachable — the old stub returned ORG_A unconditionally, so a deploy
+ * that denied every dashboard request still showed a fully green suite here.
+ */
+const MOCK_MEMBERSHIPS: Record<string, string> = {
+  [process.env.BOOTSTRAP_ADMIN_ID || 'bootstrap-admin']: ORG_A,
+};
+
 /** An upload that belongs to org A's bucket — the thing org B must not touch. */
 const UPLOAD_ID = 'upload-owned-by-org-a';
 const BUCKET_A_ID = 'bucket-a-0000-0000-0000000000a';
@@ -147,7 +156,10 @@ vi.mock('../src/infrastructure/persistence/repositories/s3-credential-repository
 
 vi.mock('../src/infrastructure/persistence/repositories/organization-repository', () => ({
   DrizzleOrganizationRepository: class {
-    findOrganizationIdByUserId = () => Promise.resolve(ORG_A);
+    // Keyed by user id, not an unconditional ORG_A. Returning an org for every
+    // caller made the missing-membership branch unreachable in this file too.
+    findOrganizationIdByUserId = (userId: string) =>
+      Promise.resolve(MOCK_MEMBERSHIPS[userId] ?? null);
   },
 }));
 

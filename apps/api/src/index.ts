@@ -4,6 +4,7 @@ import { fileInfoCache } from './infrastructure/cache/index';
 import { logger } from './infrastructure/observability/logger';
 import { metricsCollector } from './infrastructure/observability/metrics';
 import { createApp } from './presentation/http/app';
+import { resolveAdminOrganizationId } from './presentation/http/controllers/organization-resolver';
 import { cleanupRateLimitCache } from './presentation/http/middleware/rate-limit';
 import { startBot } from './presentation/telegram/handler';
 
@@ -17,6 +18,30 @@ import { startBot } from './presentation/telegram/handler';
 // NOT YET WIRED INTO DEPLOY. As of P3b, deploy.sh still does not invoke
 // migrate.js, so a deploy does NOT apply migrations — this comment previously
 // claimed it did, which is how the P5 gap stayed hidden. Fixing that is P5.
+
+// ─── Tenant scoping is verified BEFORE anything starts serving ─────────────
+//
+// The dashboard REST and oRPC surfaces are scoped to the bootstrap admin's
+// organization membership. Previously that lookup ran per request and returned
+// null when the membership was missing, so a deploy that never ran `db:seed`
+// answered 403 on every dashboard route — including the PUBLIC
+// GET /api/v1/buckets — and 401 on every oRPC procedure, with nothing but a
+// denial to show for it. `BOOTSTRAP_ADMIN_ID` is not set by deploy.sh,
+// docker-compose.yml or CI, so that was the DEFAULT state, not an edge case.
+//
+// Resolve it once, here. On success it is cached and costs nothing further; on
+// failure the process refuses to start and says exactly what to run. An
+// operator sees this in the first second instead of debugging a dashboard that
+// 403s everything.
+try {
+  const organizationId = await resolveAdminOrganizationId();
+  logger.info('Tenant scope resolved for dashboard surfaces', { organizationId });
+} catch (error: unknown) {
+  logger.error('Startup aborted: dashboard tenant scope could not be resolved', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  process.exit(1);
+}
 
 const app = createApp();
 

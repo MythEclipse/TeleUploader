@@ -22,6 +22,15 @@ const MOCK_CREDENTIAL = {
   service: 's3',
 };
 
+/**
+ * Which user ids have a membership. Keyed by user id so a test can drive the
+ * missing-membership path — the previous `userId ? 'org-a' : null` stub returned
+ * an org for every truthy input, making that branch unreachable.
+ */
+const MOCK_MEMBERSHIPS: Record<string, string> = {
+  [process.env.BOOTSTRAP_ADMIN_ID || 'bootstrap-admin']: 'org-a',
+};
+
 const bucket = {
   id: 'bucket-uuid',
   name: 'gitea',
@@ -67,7 +76,10 @@ vi.mock('../src/infrastructure/persistence/repositories/s3-credential-repository
 
 vi.mock('../src/infrastructure/persistence/repositories/organization-repository', () => ({
   DrizzleOrganizationRepository: class {
-    findOrganizationIdByUserId = (userId: string) => Promise.resolve(userId ? 'org-a' : null);
+    // Keyed by user id rather than answering 'org-a' for any truthy input, so
+    // the missing-membership branch is reachable from a test.
+    findOrganizationIdByUserId = (userId: string) =>
+      Promise.resolve(MOCK_MEMBERSHIPS[userId] ?? null);
   },
 }));
 vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({
