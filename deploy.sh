@@ -15,15 +15,34 @@
 # So a deploy is only: build dist, ship it, install it under
 # /opt/teleuploader/dist, apply pending database migrations, `systemctl restart
 # teleuploader`, then prove that /health answers on the port the service's own PID is
-# listening on — with an automatic rollback to the previous dist if it does not.
+# listening on.
+#
+# ROLLBACK SEMANTICS — there are two windows, and the boundary matters.
+#
+#   BEFORE migrations:  a failure reverts the whole bundle to the previous release.
+#                      Safe, because the database was never touched, so the old binary
+#                      provably still matches the old schema.
+#
+#   AFTER  migrations:  a failure HARD STOPS. The bundle is NOT reverted.
+#
+# Migrations are not reversible. 0002 sets buckets.organization_id NOT NULL with no
+# default and drops the global buckets_name_key, so a pre-P3a binary's
+# `INSERT INTO buckets (id, name)` fails outright (reproduced against a real
+# database). Reverting the binary onto a migrated schema would not restore service —
+# it would replace a loud deploy failure with a service that cannot serve a request.
+# A `pg_dump`-based schema rollback was considered and rejected: it would silently
+# discard data the moment a future migration turns destructive. The deploy stops and
+# a human decides instead.
 #
 # Migrations (P5). The drizzle migrations folder is data, not code, so it is shipped
 # alongside the bundle; `dist/migrate.js` is then run AFTER the install and BEFORE the
-# restart, still inside the rollback window. That ordering is load-bearing and is
-# asserted in apps/api/test/deploy-config.test.ts. Before P5 nothing applied migrations
-# at all — not at boot (removed in P2a) and not during deploy (never existed) — so a
-# build carrying 0001-0003 would have left production on the pre-P3a schema.
-# `scripts/verify-migrations.ts` reproduces the whole path against a scratch database.
+# restart. That ordering is load-bearing and is asserted in
+# apps/api/test/deploy-config.test.ts. Before P5 nothing applied migrations at all —
+# not at boot (removed in P2a) and not during deploy (never existed) — so a build
+# carrying 0001-0003 would have left production on the pre-P3a schema.
+# `pnpm run verify:migrations` (scripts/verify-migrations.ts) reproduces the whole
+# path against a scratch database and is wired into CI as its own job against a real
+# PostgreSQL service.
 #
 # Prerequisites:
 #   - SSH access to the VPS
@@ -113,7 +132,9 @@ if $DO_CHECK; then
   echo ""
   echo "=== Migration ==="
   echo "Migrations app: $MIGRATION_APP (bws-exec supplies DATABASE_URL et al)"
-  echo "Runs: after install, before systemctl restart; rolled back with the binary"
+  echo "Runs: after install, before systemctl restart"
+  echo "Rollback: automatic BEFORE migrations; HARD STOP after (migrations are not"
+  echo "         reversible — a pre-P3a binary cannot read the P3a schema)"
   exit 0
 fi
 
@@ -236,6 +257,10 @@ if [ -d "$DIST_DIR" ]; then
 fi
 
 RESTORE=0
+# Set the moment migrations are ATTEMPTED — before the call, not after it. A migration
+# that fails halfway has still changed the schema, so "it did not succeed" is not a
+# reason to believe the old binary can still run.
+MIGRATED=0
 restore() {
   [ -d "$PREV" ] || return 0
   say "restoring previous dist"
@@ -245,15 +270,26 @@ restore() {
     base="$(basename "$f")"
     as_root cp -a "$f" "$DIST_DIR/$base.new" && as_root mv -f "$DIST_DIR/$base.new" "$DIST_DIR/$base"
   done
-  # The migrations folder must roll back with the binary. Restoring only *.js would
-  # leave the NEW drizzle/ beside the OLD bundle: the old migrate.js would then read
-  # a journal containing entries whose SQL files it never shipped, and any future
-  # migrate run would resolve against the wrong release's schema.
+  # The migrations folder must roll back with the binary, and the revert must be
+  # UNCONDITIONAL. Guarding it on `[ -d "$PREV/drizzle" ]` was wrong on the very first
+  # deploy that ships drizzle/: release N-1 has no such folder, so the branch was
+  # skipped and nothing removed $DIST_DIR/drizzle — the OLD bundle was restored while
+  # keeping the NEW migrations folder. That is the exact schema/binary skew this
+  # deploy is supposed to prevent, introduced by the rollback itself.
+  #
+  # Both branches now run: restore the previous folder when there was one, otherwise
+  # REMOVE the new one. The removal is the case that matters — it is what makes the
+  # first P5 deploy leave the previous release exactly as it was.
   if [ -d "$PREV/drizzle" ]; then
     as_root rm -rf "$DIST_DIR/drizzle"
     as_root cp -a "$PREV/drizzle" "$DIST_DIR/drizzle.restore"
     as_root mv -f "$DIST_DIR/drizzle.restore" "$DIST_DIR/drizzle"
     say "restored previous drizzle/ migrations"
+  else
+    # The previous release shipped no migrations folder. Leaving the new one behind
+    # would pair an old migrate.js with a journal of migrations it never shipped.
+    as_root rm -rf "$DIST_DIR/drizzle"
+    say "removed drizzle/ (previous release shipped no migrations folder)"
   fi
   as_root systemctl restart "$UNIT" || true
 }
@@ -268,7 +304,33 @@ report() {
 on_error() {
   local rc="$1" line="$2"
   echo "[deploy] ERROR: step failed at line $line (exit $rc)" >&2
-  if [ "$RESTORE" = "1" ]; then restore; fi
+  if [ "$RESTORE" = "1" ]; then
+    if [ "$MIGRATED" = "1" ]; then
+      # Past the point of no return. Rolling the binary back here would revert it
+      # onto a schema it cannot read, so we deliberately leave the NEW bundle and
+      # the possibly-migrated database in place and hand the decision to a human.
+      # See the "POINT OF NO RETURN" block above for the reproduction.
+      echo "" >&2
+      echo "[deploy] ============================================================" >&2
+      echo "[deploy] HARD STOP: migrations were attempted and the deploy then" >&2
+      echo "[deploy] failed at line $line. The schema may already be migrated." >&2
+      echo "[deploy]" >&2
+      echo "[deploy] NOT rolling the binary back: these migrations are not" >&2
+      echo "[deploy] reversible, so the previous binary cannot read the current" >&2
+      echo "[deploy] schema (e.g. buckets.organization_id is NOT NULL with no" >&2
+      echo "[deploy] default). The new bundle is left installed." >&2
+      echo "[deploy]" >&2
+      echo "[deploy] Decide explicitly, from the logs below:" >&2
+      echo "[deploy]   1. If the new binary is healthy enough to serve, fix forward." >&2
+      echo "[deploy]   2. If not, re-run this deploy once the fault is understood." >&2
+      echo "[deploy]   3. To go back, you need a verified pre-migration dump —" >&2
+      echo "[deploy]      this script does not take one, deliberately." >&2
+      echo "[deploy] ============================================================" >&2
+      echo "" >&2
+    else
+      restore
+    fi
+  fi
   report
   exit "$rc"
 }
@@ -312,10 +374,33 @@ fi
 #   BEFORE systemctl restart — the P3b binary selects on columns introduced by
 #          0001-0003 (buckets.organization_id, organizations, members,
 #          s3_credentials). A restart without them crash-loops the unit.
-#   WHILE RESTORE=1 — so a migration failure rolls the binary AND its migrations
-#          folder back together, instead of leaving the previous binary running
-#          against a half-migrated schema. RESTORE is cleared only after the
-#          health probe passes.
+#
+# THIS IS THE POINT OF NO RETURN (P5 fix for the schema/binary skew).
+#
+# Until this line, a failure rolls the whole bundle back to the previous release and
+# the database was never touched — that is a genuinely safe rollback, because the old
+# binary provably matches the old schema.
+#
+# From here on the database may have changed, and these migrations are NOT
+# reversible. 0002 alone ends with:
+#     ALTER TABLE buckets ALTER COLUMN organization_id SET NOT NULL;
+#     ALTER TABLE buckets DROP CONSTRAINT buckets_name_key;
+# A pre-P3a binary inserts `INSERT INTO buckets (id, name) VALUES (...)`, which now
+# fails with "null value in column organization_id violates not-null constraint"
+# (reproduced against a real database), and the dropped global unique index is a
+# multi-tenancy invariant that restoring the old schema would silently undo.
+#
+# So restoring the previous binary here is not a recovery — it produces a service
+# that cannot serve a single request, while looking like a successful rollback. We
+# deliberately do NOT do it: the deploy HARD STOPS and leaves the new binary in place
+# for a human to decide. That is the honest failure mode, because the alternative
+# silently converts a loud deploy failure into a silent data-model regression.
+#
+# A `pg_dump` before migrating was considered and rejected: today's migrations happen
+# to be non-destructive, but that is a property of the files as written, not a
+# guarantee for the next person to add a DROP COLUMN. Restoring a dump would then
+# discard real user data during a routine deploy failure, which is strictly worse
+# than the loud stop this script now takes.
 #
 # `node`, never `bun`/Docker: the unit runs `/usr/bin/node dist/index.js`, and
 # drizzle-kit migrate is unusable in prod (PgBouncer transaction pooling drops the
@@ -327,6 +412,7 @@ fi
 # Wrapping the invocation in the same bws-exec the unit uses is what makes the
 # secret available, and it keeps the deploy path and the runtime path identical.
 say "applying database migrations"
+MIGRATED=1
 as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/migrate.js"
 
 say "restarting $UNIT"

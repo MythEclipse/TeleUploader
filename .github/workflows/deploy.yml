@@ -85,13 +85,22 @@ jobs:
       # /nix/var/nix/profiles/default/bin/nix-store left to talk to. deploy.sh
       # ships dist/index.js plus apps/api/drizzle/ into /opt/teleuploader/dist,
       # applies pending migrations with `node dist/migrate.js`, runs
-      # `systemctl restart teleuploader`, waits for `active`, probes /health on the
-      # port the running PID listens on, and restores the previous dist (including its
-      # migrations folder) if that probe fails.
+      # `systemctl restart teleuploader`, waits for `active`, and probes /health on
+      # the port the running PID listens on.
+      #
+      # ROLLBACK SEMANTICS — two windows, and a failure between them is deliberately
+      # fatal rather than automatic:
+      #   before migrations — the whole bundle reverts to the previous release. Safe:
+      #     the database was never touched, so the old binary still matches it.
+      #   after  migrations — HARD STOP, nothing is reverted. The migrations are NOT
+      #     reversible: 0002 makes buckets.organization_id NOT NULL with no default and
+      #     drops the global buckets_name_key, so the previous release's binary cannot
+      #     read the new schema. Rolling back would trade a loud failure for a service
+      #     that cannot serve a request. A human decides instead.
       #
       # The migration runs inside deploy.sh, not as a separate CI step: it needs the
       # app's env, which only exists on the VPS via bws-exec, and it must be ordered
-      # against the install and the restart inside the same rollback window. Running
-      # it from CI would split that transaction in two.
+      # against the install and the restart. Running it from CI would split that
+      # transaction in two.
       - name: Deploy teleuploader to VPS (systemd)
         run: VPS_SSH_KEY="$HOME/.ssh/deploy_key" ./deploy.sh --no-build

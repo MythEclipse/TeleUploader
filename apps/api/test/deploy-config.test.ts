@@ -1,5 +1,15 @@
-import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test } from 'vitest';
 
 const repoRoot = new URL('../../../', import.meta.url);
@@ -109,6 +119,14 @@ test('deploy applies migrations (P5) — the invocation exists at all', () => {
   expect(deployScript).toMatch(/migrate\.js/);
   expect(deployScript).toContain('say "applying database migrations"');
 
+  // The invocation as an EXECUTABLE shell command, anchored to a line start so a
+  // mention in a comment cannot satisfy it. This is stronger than the log-string
+  // ordering assertions below, which pass with no migration invoked at all — the
+  // reviewer finding that motivated these rewrites.
+  expect(deployScript).toMatch(
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/migrate\.js"\s*$/m,
+  );
+
   // Under `node`, never bun or Docker — the unit runs /usr/bin/node, and the drizzle
   // CLI is unusable in prod (PgBouncer transaction pooling drops the session-scoped
   // advisory lock mid-migration). `node` is also required by the existing
@@ -122,14 +140,116 @@ test('deploy applies migrations (P5) — the invocation exists at all', () => {
   expect(deployScript).not.toMatch(/^\s*(?:as_root\s+)?bunx\s+drizzle-kit\b/m);
 });
 
-test('migrations run AFTER the bundle is installed and BEFORE the restart', () => {
-  const migrateAt = deployScript.indexOf('say "applying database migrations"');
-  const installAt = deployScript.indexOf('say "installed drizzle/ migrations"');
-  const restartAt = deployScript.indexOf('say "restarting $UNIT"');
+/**
+ * Extract one shell function VERBATIM from deploy.sh.
+ *
+ * Anchored on `^name() {` .. the first `^}` at column 0, which is that function's
+ * closing brace. Deliberately not a looser range: `RESTORE=0` appears twice in
+ * deploy.sh, and a naive range silently captures the entire deploy body instead.
+ */
+const extractFunction = (script: string, name: string): string => {
+  const lines = script.split('\n');
+  const start = lines.indexOf(`${name}() {`);
+  if (start === -1) {
+    throw new Error(`could not find ${name}() in deploy.sh — the function was renamed?`);
+  }
+  // The closing brace is the first `}` at column 0 AFTER the opening one, so the
+  // search is offset rather than indexOf('}'), which would match an inner brace.
+  const end = lines.indexOf('}', start);
+  if (end === -1) {
+    throw new Error(`could not find the closing brace of ${name}() in deploy.sh`);
+  }
+  return lines.slice(start, end + 1).join('\n');
+};
 
-  expect(migrateAt).toBeGreaterThan(-1);
-  expect(installAt).toBeGreaterThan(-1);
-  expect(restartAt).toBeGreaterThan(-1);
+/**
+ * Materialise a shell script in `dir` that runs the requested deploy.sh functions
+ * against a stubbed environment, and execute it synchronously.
+ *
+ * The stubs stand in for the VPS: `as_root` drops privileges, `systemctl` prints
+ * instead of restarting a unit, and `say`/`boom` reproduce deploy.sh's own log lines.
+ * The function bodies themselves are deploy.sh's, copied textually — so these tests
+ * exercise the shipped script rather than a reimplementation of it.
+ *
+ * ORDER MATTERS: `setup` runs before the function definitions (it sets MIGRATED and
+ * friends) and `trailer` after them (it invokes them). Bash would fail with
+ * "command not found" on an invocation placed before its definition.
+ */
+const runDeployFunctions = (
+  dir: string,
+  fnNames: string[],
+  setup: string[] = [],
+  trailer: string[] = [],
+): { stdout: string; stderr: string; code: number } => {
+  const runner = join(dir, 'run.sh');
+  writeFileSync(
+    runner,
+    [
+      'set -Eeuo pipefail',
+      'say()  { echo "[deploy] $*"; }',
+      'boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }',
+      'as_root() { "$@"; }',
+      'systemctl() { echo "[stub] systemctl $*"; }',
+      `DIST_DIR="${dir}/dist"`,
+      `PREV="${dir}/dist.previous"`,
+      'UNIT=teleuploader',
+      ...setup,
+      ...fnNames.map((n) => extractFunction(deployScript, n)),
+      ...trailer,
+    ].join('\n'),
+  );
+  chmodSync(runner, 0o755);
+  const proc = spawnSync('bash', [runner], { cwd: dir, env: { ...process.env } });
+  return {
+    stdout: proc.stdout?.toString() ?? '',
+    stderr: proc.stderr?.toString() ?? '',
+    code: proc.status ?? 0,
+  };
+};
+
+/** Create a previous-release dist/ tree. `withDrizzle` is the first-P5-deploy case. */
+const seedPreviousRelease = (dir: string, withDrizzle: boolean): void => {
+  mkdirSync(join(dir, 'dist.previous'), { recursive: true });
+  writeFileSync(join(dir, 'dist.previous', 'index.js'), 'OLD index');
+  writeFileSync(join(dir, 'dist.previous', 'migrate.js'), 'OLD migrate');
+  if (withDrizzle) {
+    mkdirSync(join(dir, 'dist.previous', 'drizzle', 'meta'), { recursive: true });
+    writeFileSync(join(dir, 'dist.previous', 'drizzle', 'meta', '_journal.json'), '{"old":true}');
+  }
+};
+
+/** Create the current dist/ tree: the newly installed release, journal included. */
+const seedCurrentRelease = (dir: string, withDrizzle = true): void => {
+  mkdirSync(join(dir, 'dist'), { recursive: true });
+  writeFileSync(join(dir, 'dist', 'index.js'), 'NEW index');
+  writeFileSync(join(dir, 'dist', 'migrate.js'), 'NEW migrate');
+  if (withDrizzle) {
+    mkdirSync(join(dir, 'dist', 'drizzle', 'meta'), { recursive: true });
+    writeFileSync(join(dir, 'dist', 'drizzle', 'meta', '_journal.json'), '{"new":true}');
+  }
+};
+
+test('migrations run AFTER the bundle is installed and BEFORE the restart', () => {
+  // Ordering is asserted against the COMMANDS, not log strings. Each pattern below is
+  // anchored to a line start, so it matches the command that actually runs; a `say`
+  // line containing the same words could not satisfy it. A test that compares
+  // indexOf() of two log strings passes even if both `say` calls remain but the
+  // install, migration and restart commands are deleted outright.
+  const installJs = /^\s*as_root mv -f "\$DIST_DIR\/\$base\.new" "\$DIST_DIR\/\$base"\s*$/m;
+  const installDrizzle = /^\s*as_root mv -f "\$DIST_DIR\/drizzle\.new" "\$DIST_DIR\/drizzle"\s*$/m;
+  const migrate =
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/migrate\.js"\s*$/m;
+  const restart = /^\s*as_root systemctl restart "\$UNIT"\s*$/m;
+
+  for (const [label, re] of Object.entries({
+    installJs,
+    installDrizzle,
+    migrate,
+    restart,
+  })) {
+    const at = deployScript.search(re);
+    expect(at, `deploy.sh has no executable command matching: ${label}`).toBeGreaterThan(-1);
+  }
 
   // ORDER IS LOAD-BEARING, in both directions:
   //   install → migrate: the migrator resolves its journal relative to the installed
@@ -137,28 +257,131 @@ test('migrations run AFTER the bundle is installed and BEFORE the restart', () =
   //   migrate → restart: the P3b binary selects on columns introduced by 0001-0003
   //                   (buckets.organization_id, organizations, members,
   //                   s3_credentials). A restart without them crash-loops the unit.
-  expect(installAt).toBeLessThan(migrateAt);
-  expect(migrateAt).toBeLessThan(restartAt);
+  expect(deployScript.search(installJs)).toBeLessThan(deployScript.search(migrate));
+  expect(deployScript.search(installDrizzle)).toBeLessThan(deployScript.search(migrate));
+  expect(deployScript.search(migrate)).toBeLessThan(deployScript.search(restart));
 });
 
-test('migrations run while rollback is still armed', () => {
-  // RESTORE=1 is set before the install loop and cleared after the health probe. The
-  // migration must land INSIDE that window so a migration failure rolls the binary
-  // AND its drizzle/ folder back together, instead of leaving the previous binary
-  // running against a half-migrated schema.
-  const armedAt = deployScript.indexOf('RESTORE=1');
-  const migrateAt = deployScript.indexOf('say "applying database migrations"');
-  // Disarm by SEARCHING FORWARD from the migration. A bare indexOf('RESTORE=0') would
-  // match the `RESTORE=0` initialiser near the top of the script and compare against
-  // the wrong line entirely — which is exactly the kind of check that passes while
-  // asserting nothing.
-  const clearedAt = deployScript.indexOf('RESTORE=0', migrateAt);
+test('a post-migration failure HARD STOPS instead of reverting the binary', () => {
+  // DEFECT B. Rolling the binary back after the migration has run lands the previous
+  // release on a schema it cannot read: 0002 sets buckets.organization_id NOT NULL with
+  // no default, so the pre-P3a `INSERT INTO buckets (id, name)` fails with
+  // "null value in column organization_id violates not-null constraint"
+  // (reproduced against a real database), and 0002 also drops the global
+  // buckets_name_key — a multi-tenancy invariant no dump-free revert can restore.
+  //
+  // This test EXECUTES the real on_error() with MIGRATED=1 and asserts it does not
+  // touch dist/. A toContain assertion could not tell a reverting handler from one
+  // that merely mentions the words.
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-hardstop-'));
+  try {
+    seedPreviousRelease(dir, true);
+    seedCurrentRelease(dir, true);
 
-  expect(armedAt).toBeGreaterThan(-1);
-  expect(migrateAt).toBeGreaterThan(armedAt);
-  expect(clearedAt).toBeGreaterThan(migrateAt);
-  // And the disarm must still be inside the armed window (i.e. RESTORE=1 came first).
-  expect(armedAt).toBeLessThan(clearedAt);
+    const { stdout, stderr } = runDeployFunctions(
+      dir,
+      ['on_error'],
+      [
+        'MIGRATED=1',
+        'RESTORE=1',
+        // restore() must never be reached on this path. If on_error calls it anyway the
+        // sentinel fires and the assertion on stdout fails.
+        'restore() { echo "VIOLATION: restore() called after migrations"; }',
+      ],
+      ['on_error 1 999'],
+    );
+
+    // The failure is announced loudly and specifically, not swallowed.
+    expect(stderr).toContain('HARD STOP');
+    expect(stderr).toMatch(/migrations were attempted/i);
+    // ...and the handler explains WHY it refused to roll back.
+    expect(stderr).toMatch(/NOT rolling the binary back/);
+    expect(stdout).not.toContain('VIOLATION');
+
+    // The binary genuinely was left alone — this is the whole defect.
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('NEW index');
+    expect(readFileSync(join(dir, 'dist', 'migrate.js'), 'utf8')).toBe('NEW migrate');
+    // The new migrations folder stays put, matching the installed binary.
+    expect(existsSync(join(dir, 'dist', 'drizzle', 'meta', '_journal.json'))).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a PRE-migration failure still reverts the bundle automatically', () => {
+  // The counterpart to the hard stop above: the revert must survive where it is safe.
+  // With MIGRATED=0 nothing has touched the database, so the previous release provably
+  // matches the previous schema and restoring it is a genuine recovery.
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-prerestore-'));
+  try {
+    seedPreviousRelease(dir, true);
+    seedCurrentRelease(dir, true);
+
+    const { stdout, stderr } = runDeployFunctions(
+      dir,
+      ['restore', 'on_error'],
+      ['MIGRATED=0', 'RESTORE=1'],
+      ['on_error 1 999'],
+    );
+
+    expect(stdout).toContain('restoring previous dist');
+    expect(stderr).not.toContain('HARD STOP');
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('OLD index');
+    expect(readFileSync(join(dir, 'dist', 'migrate.js'), 'utf8')).toBe('OLD migrate');
+    expect(readFileSync(join(dir, 'dist', 'drizzle', 'meta', '_journal.json'), 'utf8')).toBe(
+      '{"old":true}',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('restore() removes a stale drizzle/ the previous release never had (DEFECT A)', () => {
+  // DEFECT A, verified by EXECUTION. restore() used to guard the revert on
+  // `[ -d "$PREV/drizzle" ]`. On the FIRST deploy that ships drizzle/, release N-1 has
+  // no such folder, so the branch was skipped, nothing removed $DIST_DIR/drizzle, and
+  // the old binary was restored while KEEPING the new migrations folder — the exact
+  // schema/binary skew P5 exists to close, introduced by the rollback itself.
+  //
+  // A string assertion cannot distinguish "removes it" from "does nothing"; this runs
+  // the real restore() against a simulated first-P5-deploy filesystem.
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-defecta-'));
+  try {
+    seedPreviousRelease(dir, false); // no drizzle/ — release N-1, before P5
+    seedCurrentRelease(dir, true); // the new release, journal installed
+
+    const { stdout } = runDeployFunctions(dir, ['restore'], [], ['restore']);
+
+    // The binaries revert...
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('OLD index');
+    expect(readFileSync(join(dir, 'dist', 'migrate.js'), 'utf8')).toBe('OLD migrate');
+    // ...and the migrations folder the previous release never had is GONE.
+    expect(existsSync(join(dir, 'dist', 'drizzle'))).toBe(false);
+    expect(stdout).toContain('removed drizzle/');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('restore() still reverts drizzle/ when the previous release HAD one', () => {
+  // The mirror image of DEFECT A, so the fix cannot regress the ordinary case: a
+  // release-to-release rollback must restore the previous migrations folder.
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-hasprev-'));
+  try {
+    seedPreviousRelease(dir, true);
+    seedCurrentRelease(dir, true);
+
+    const { stdout } = runDeployFunctions(dir, ['restore'], [], ['restore']);
+
+    expect(stdout).toContain('restored previous drizzle/');
+    expect(stdout).not.toContain('removed drizzle/');
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('OLD index');
+    expect(readFileSync(join(dir, 'dist', 'drizzle', 'meta', '_journal.json'), 'utf8')).toBe(
+      '{"old":true}',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the drizzle migrations folder is shipped, installed and rolled back', () => {
@@ -172,12 +395,40 @@ test('the drizzle migrations folder is shipped, installed and rolled back', () =
   // drizzle/ was skipped on install AND not reverted on rollback — leaving the new
   // binary paired with the previous release's migrations. Both loops must handle it.
   expect(deployScript).toContain('say "installed drizzle/ migrations"');
+  // BOTH restore outcomes must be reachable: revert a previous folder, or remove one
+  // the previous release never had. The second branch is DEFECT A — its absence is
+  // what left the new journal beside the old binary on the first P5 deploy.
   expect(deployScript).toContain('say "restored previous drizzle/ migrations"');
+  expect(deployScript).toContain(
+    'removed drizzle/ (previous release shipped no migrations folder)',
+  );
 
   // Both the *-check list and the remote preflight must cover the journal, so a
   // missing folder fails BEFORE the new bundle is on disk rather than after.
   expect(deployScript).toContain('apps/api/drizzle/meta/_journal.json');
   expect(deployScript).toContain('staged drizzle/meta/_journal.json not found');
+});
+
+test('MIGRATED is set BEFORE the migration runs, not after it succeeds', () => {
+  // The flag that separates the two rollback windows has to flip at the attempt, not
+  // at the success: a migration that fails halfway HAS changed the schema, which is
+  // exactly when reverting the binary is most dangerous and least safe.
+  //
+  // Asserted as an ordering between two real statements, so deleting the assignment
+  // (leaving on_error permanently in the hard-stop branch, or permanently rolling back)
+  // breaks this test.
+  const markAt = deployScript.search(/^\s*MIGRATED=1\s*$/m);
+  const migrateAt = deployScript.search(
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/migrate\.js"\s*$/m,
+  );
+  expect(markAt, 'deploy.sh never sets MIGRATED=1').toBeGreaterThan(-1);
+  expect(migrateAt).toBeGreaterThan(-1);
+  expect(markAt).toBeLessThan(migrateAt);
+
+  // It must be initialised to 0 near the top, or `set -u` would abort on first read.
+  expect(deployScript).toMatch(/^MIGRATED=0$/m);
+  // And on_error must consult it — otherwise the flag is dead code.
+  expect(extractFunction(deployScript, 'on_error')).toMatch(/MIGRATED/);
 });
 
 test('the migration gets its environment (migrate.js imports env.ts)', () => {
@@ -210,7 +461,7 @@ test('--check asserts only files deploy.sh really ships', () => {
   expect(checkBlock).toContain('apps/api/drizzle/meta/_journal.json');
 });
 
-test('the migration verification harness exists and refuses to write by default', () => {
+test('the migration verification harness is WIRED, not just present', () => {
   const harness = readFileSync(
     new URL('../../../scripts/verify-migrations.ts', import.meta.url),
     'utf8',
@@ -223,4 +474,30 @@ test('the migration verification harness exists and refuses to write by default'
   // It must exercise the runner that actually ships, not a reimplementation.
   expect(harness).toContain('dist');
   expect(harness).toContain('migrate.js');
+
+  // This test previously stopped here — and that was the whole problem. Asserting the
+  // file contains certain strings proves the file exists; it does not prove anything
+  // ever RUNS it. scripts/verify-migrations.ts was referenced by nothing except this
+  // test, so a harness that had silently rotted (broken psql path, wrong cwd, a
+  // migration that no longer applies) would still show green forever.
+  //
+  // So assert the wiring itself: a package.json script that invokes the file, and a CI
+  // job that runs that script against a real PostgreSQL.
+  const apiPackageJson = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { scripts: Record<string, string> };
+  expect(apiPackageJson.scripts['verify:migrations']).toContain('verify-migrations.ts');
+
+  const ciFile = readFileSync(
+    new URL('../../../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  expect(ciFile).toContain('verify:migrations');
+  // A real database, or the harness cannot apply DDL at all.
+  expect(ciFile).toMatch(/image:\s*postgres:/);
+  expect(ciFile).toContain('--allow-writes');
+  // And the build must precede it: the harness executes apps/api/dist/migrate.js.
+  expect(ciFile.indexOf('pnpm run build')).toBeLessThan(
+    ciFile.indexOf('verify:migrations --allow-writes'),
+  );
 });

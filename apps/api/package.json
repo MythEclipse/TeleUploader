@@ -9,6 +9,7 @@
     "build": "esbuild src/index.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js",
     "start": "NODE_ENV=production node dist/index.js",
     "db:migrate": "node dist/migrate.js",
+    "verify:migrations": "tsx ../../scripts/verify-migrations.ts",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:quarantine": "vitest run --config vitest.quarantine.config.ts",

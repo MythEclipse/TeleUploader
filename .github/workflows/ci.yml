@@ -137,3 +137,63 @@ jobs:
         env:
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+
+  # scripts/verify-migrations.ts was previously referenced by NOTHING except a
+  # toContain() string in deploy-config.test.ts — a test asserting a file exists, which
+  # says nothing about whether it runs. It is the only check that applies the real
+  # migration path (schema.sql → dist/migrate.js → seed.ts) and asserts the schema a
+  # deploy depends on: buckets.organization_id NOT NULL, zero orphaned rows, preserved
+  # row counts, and a journal whose tags all have .sql files.
+  #
+  # It needs a live PostgreSQL because it exercises real DDL, hence the service block.
+  # The database name is deliberately scratch-shaped (probe_*) because the harness
+  # REFUSES to write to anything else without --allow-non-scratch — that guard is the
+  # only thing standing between this job and a production URL typo.
+  verify-migrations:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: kana
+          POSTGRES_PASSWORD: kanaprobe
+          POSTGRES_DB: probe_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # The harness executes apps/api/dist/migrate.js — the exact binary deploy.sh
+      # ships — so it needs a build first.
+      - name: Build dist
+        run: pnpm run build
+
+      - name: Verify the migration path (real DDL against a scratch database)
+        run: pnpm --filter filedrop run verify:migrations --allow-writes
+        env:
+          DATABASE_URL: postgresql://kana:kanaprobe@127.0.0.1:5432/probe_ci
+          BOT_TOKENS: 1:test
+          STORAGE_CHANNEL_ID: "-1001234"
+          BASE_URL: http://127.0.0.1:4311
+          PORT: "4311"
