@@ -83,9 +83,15 @@ jobs:
       # or directory), which is why the old store copy died with
       # `error: cannot connect` on every run — there is no
       # /nix/var/nix/profiles/default/bin/nix-store left to talk to. deploy.sh
-      # ships dist/index.js into
-      # /opt/teleuploader/dist, runs `systemctl restart teleuploader`, waits for
-      # `active`, probes /health on the port the running PID listens on, and
-      # restores the previous dist if that probe fails.
+      # ships dist/index.js plus apps/api/drizzle/ into /opt/teleuploader/dist,
+      # applies pending migrations with `node dist/migrate.js`, runs
+      # `systemctl restart teleuploader`, waits for `active`, probes /health on the
+      # port the running PID listens on, and restores the previous dist (including its
+      # migrations folder) if that probe fails.
+      #
+      # The migration runs inside deploy.sh, not as a separate CI step: it needs the
+      # app's env, which only exists on the VPS via bws-exec, and it must be ordered
+      # against the install and the restart inside the same rollback window. Running
+      # it from CI would split that transaction in two.
       - name: Deploy teleuploader to VPS (systemd)
         run: VPS_SSH_KEY="$HOME/.ssh/deploy_key" ./deploy.sh --no-build

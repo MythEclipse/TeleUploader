@@ -13,9 +13,17 @@
 #       → exec /usr/bin/node /opt/teleuploader/dist/index.js
 #
 # So a deploy is only: build dist, ship it, install it under
-# /opt/teleuploader/dist, `systemctl restart teleuploader`, then prove that
-# /health answers on the port the service's own PID is listening on — with an
-# automatic rollback to the previous dist if it does not.
+# /opt/teleuploader/dist, apply pending database migrations, `systemctl restart
+# teleuploader`, then prove that /health answers on the port the service's own PID is
+# listening on — with an automatic rollback to the previous dist if it does not.
+#
+# Migrations (P5). The drizzle migrations folder is data, not code, so it is shipped
+# alongside the bundle; `dist/migrate.js` is then run AFTER the install and BEFORE the
+# restart, still inside the rollback window. That ordering is load-bearing and is
+# asserted in apps/api/test/deploy-config.test.ts. Before P5 nothing applied migrations
+# at all — not at boot (removed in P2a) and not during deploy (never existed) — so a
+# build carrying 0001-0003 would have left production on the pre-P3a schema.
+# `scripts/verify-migrations.ts` reproduces the whole path against a scratch database.
 #
 # Prerequisites:
 #   - SSH access to the VPS
@@ -41,6 +49,9 @@
 #   DEPLOY_DIR            — app dir on VPS (default: /opt/teleuploader)
 #   UNIT                  — systemd unit to restart (default: teleuploader)
 #   HEALTH_PATH           — HTTP path to probe (default: /health)
+#   MIGRATION_APP         — Bitwarden Secrets app supplying the migration's env
+#                            (default: teleuploader, same as the unit's ExecStart)
+#   NODE_BIN              — node binary used for the migration (default: /usr/bin/node)
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -eu
@@ -50,6 +61,12 @@ APP_NAME="teleuploader"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/${APP_NAME}}"
 UNIT="${UNIT:-${APP_NAME}}"
 HEALTH_PATH="${HEALTH_PATH:-/health}"
+# Bitwarden Secrets app whose entries supply DATABASE_URL/BOT_TOKENS/... to the
+# migration run. Must match the `teleuploader` app in the unit's ExecStart, since
+# migrate.js imports env.ts and refuses to start without those variables.
+MIGRATION_APP="${MIGRATION_APP:-${APP_NAME}}"
+# Node binary, matching the unit's `exec /usr/bin/node .../index.js`.
+NODE_BIN="${NODE_BIN:-/usr/bin/node}"
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 DO_BUILD=true
@@ -86,9 +103,17 @@ if $DO_CHECK; then
   echo "VPS_SSH_KEY:  ${VPS_SSH_KEY:+<set (${#VPS_SSH_KEY} chars)>}"
   echo ""
   echo "=== Files to deploy ==="
-  for f in package.json pnpm-lock.yaml apps/api/schema.sql apps/api/dist/index.js apps/api/dist/migrate.js; do
+  # schema.sql was listed here but never shipped and has not run at boot since P2a
+  # (the boot-time auto-migration was removed in the same commit that introduced
+  # drizzle), so the entry asserted a deployment step that did not exist. The
+  # migrations now travel as apps/api/drizzle/, which migrate.js actually reads.
+  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/drizzle/meta/_journal.json; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
+  echo ""
+  echo "=== Migration ==="
+  echo "Migrations app: $MIGRATION_APP (bws-exec supplies DATABASE_URL et al)"
+  echo "Runs: after install, before systemctl restart; rolled back with the binary"
   exit 0
 fi
 
@@ -155,22 +180,40 @@ vps "rm -rf '${STAGE_REMOTE}' && mkdir -p '${STAGE_REMOTE}'"
 
 log "Shipping dist to VPS..."
 scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
-ok "Build shipped"
+
+# The drizzle migrations folder is DATA, not code: esbuild bundles only the JS, so
+# `node dist/migrate.js` cannot find it unless the folder is shipped next to the
+# bundle. All six candidates in resolveMigrationsFolder() (migrate.ts:33-47) miss in
+# the deployed layout unless drizzle/ sits beside migrate.js — verified: running the
+# real dist/migrate.js from a directory containing only itself exits 1 with
+# "drizzle migrations folder not found". Ship it, and ship it as a directory so the
+# remote install/rollback loops below can treat it as one atomic unit.
+scp -r $SSH_OPTS apps/api/drizzle "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp of drizzle/ failed"
+ok "Build + drizzle/ migrations shipped"
 
 # ── 4. Install + restart + verify (runs on the VPS) ───────────────────────────
 # Fed through stdin so the whole remote transaction — atomic install, restart,
 # health probe, rollback — happens in one session with no quoting traps.
 log "Installing under ${DIST_REMOTE} and restarting ${UNIT}..."
-if ! vps bash -s -- "${STAGE_REMOTE}" "${DIST_REMOTE}" "${UNIT}" "${HEALTH_PATH}" <<'REMOTE'
+if ! vps bash -s -- "${STAGE_REMOTE}" "${DIST_REMOTE}" "${UNIT}" "${HEALTH_PATH}" "${MIGRATION_APP}" "${NODE_BIN}" <<'REMOTE'
 set -Eeuo pipefail
-STAGE="$1"; DIST_DIR="$2"; UNIT="$3"; HEALTH_PATH="$4"
+STAGE="$1"; DIST_DIR="$2"; UNIT="$3"; HEALTH_PATH="$4"; MIGRATION_APP="$5"; NODE_BIN="$6"
 
 say()  { echo "[deploy] $*"; }
 boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }
 
 [ -f "$STAGE/index.js" ] || boom "staged index.js not found in $STAGE"
+[ -f "$STAGE/migrate.js" ] || boom "staged migrate.js not found in $STAGE"
+# Fail loudly HERE rather than half-way through the install: the migrator cannot find
+# its journal without meta/_journal.json, and otherwise this is discovered only after
+# the new bundle is already on disk.
+[ -f "$STAGE/drizzle/meta/_journal.json" ] || boom "staged drizzle/meta/_journal.json not found in $STAGE — migrations would be a no-op"
 command -v systemctl > /dev/null 2>&1 || boom "systemctl not found"
 command -v curl > /dev/null 2>&1 || boom "curl not found"
+# The migration runs under bws-exec because migrate.js imports env.ts, which throws
+# without DATABASE_URL/BOT_TOKENS/STORAGE_CHANNEL_ID/BASE_URL/PORT — and systemd
+# injects those at run time, not into this SSH shell.
+command -v bws-exec > /dev/null 2>&1 || boom "bws-exec not found — cannot supply the migration's environment"
 
 # Prefer sudo: on this box the deploy user can write /opt/<app> (so a plain
 # write test would pick the no-privilege branch) but restarting a unit, reading
@@ -202,6 +245,16 @@ restore() {
     base="$(basename "$f")"
     as_root cp -a "$f" "$DIST_DIR/$base.new" && as_root mv -f "$DIST_DIR/$base.new" "$DIST_DIR/$base"
   done
+  # The migrations folder must roll back with the binary. Restoring only *.js would
+  # leave the NEW drizzle/ beside the OLD bundle: the old migrate.js would then read
+  # a journal containing entries whose SQL files it never shipped, and any future
+  # migrate run would resolve against the wrong release's schema.
+  if [ -d "$PREV/drizzle" ]; then
+    as_root rm -rf "$DIST_DIR/drizzle"
+    as_root cp -a "$PREV/drizzle" "$DIST_DIR/drizzle.restore"
+    as_root mv -f "$DIST_DIR/drizzle.restore" "$DIST_DIR/drizzle"
+    say "restored previous drizzle/ migrations"
+  fi
   as_root systemctl restart "$UNIT" || true
 }
 
@@ -223,6 +276,12 @@ trap 'on_error $? $LINENO' ERR
 
 # Per-file rename on the same filesystem: the running process keeps its old
 # inode until the restart, so nothing half-written is ever executed.
+#
+# `*.js` AND the drizzle/ folder are installed. The migrations folder used to be
+# dropped here: the loop globbed only *.js, so a staged drizzle/ was skipped on
+# install AND not reverted by restore(), leaving the new binary paired with the
+# previous release's migrations — a silent schema/binary skew. Both loops below
+# handle it.
 RESTORE=1
 for f in "$STAGE"/*.js; do
   base="$(basename "$f")"
@@ -230,7 +289,45 @@ for f in "$STAGE"/*.js; do
   as_root mv -f "$DIST_DIR/$base.new" "$DIST_DIR/$base"
   say "installed $base"
 done
-RESTORE=0
+
+# The migrations folder is swapped in as a whole directory for the same reason the
+# JS files are renamed per-file: a half-copied journal would make the migrator read
+# a truncated _journal.json. `mv` on a directory is atomic within a filesystem.
+if [ -d "$STAGE/drizzle" ]; then
+  as_root rm -rf "$DIST_DIR/drizzle.old"
+  if [ -d "$DIST_DIR/drizzle" ]; then
+    as_root mv -f "$DIST_DIR/drizzle" "$DIST_DIR/drizzle.old"
+  fi
+  as_root cp -a "$STAGE/drizzle" "$DIST_DIR/drizzle.new"
+  as_root mv -f "$DIST_DIR/drizzle.new" "$DIST_DIR/drizzle"
+  as_root rm -rf "$DIST_DIR/drizzle.old"
+  say "installed drizzle/ migrations"
+fi
+
+# ── Apply migrations (P5) ───────────────────────────────────────────────────
+# ORDERING IS LOAD-BEARING. Migrations must run:
+#   AFTER  the new bundle + its drizzle/ folder are installed — the migrator
+#          resolves the journal relative to dist/migrate.js, so the folder must
+#          already be in place or it exits 1.
+#   BEFORE systemctl restart — the P3b binary selects on columns introduced by
+#          0001-0003 (buckets.organization_id, organizations, members,
+#          s3_credentials). A restart without them crash-loops the unit.
+#   WHILE RESTORE=1 — so a migration failure rolls the binary AND its migrations
+#          folder back together, instead of leaving the previous binary running
+#          against a half-migrated schema. RESTORE is cleared only after the
+#          health probe passes.
+#
+# `node`, never `bun`/Docker: the unit runs `/usr/bin/node dist/index.js`, and
+# drizzle-kit migrate is unusable in prod (PgBouncer transaction pooling drops the
+# session-scoped advisory lock mid-migration — see migrate.ts:105-108).
+#
+# The env is NOT in this shell: systemd injects it at run time via bws-exec
+# (ExecStart=/usr/local/bin/bws-exec teleuploader ...), so a bare `node
+# migrate.js` over SSH dies in env.ts before it reaches the database — verified.
+# Wrapping the invocation in the same bws-exec the unit uses is what makes the
+# secret available, and it keeps the deploy path and the runtime path identical.
+say "applying database migrations"
+as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/migrate.js"
 
 say "restarting $UNIT"
 as_root systemctl restart "$UNIT"
@@ -257,6 +354,12 @@ else
   # systemd already says active, but name the miss loudly instead of passing silently.
   say "WARNING: no listening socket found for pid $pid — $HEALTH_PATH not probed"
 fi
+
+# Rollback stays armed across the install, the migration AND the restart, and is
+# disarmed only now that the health probe has passed. Leaving it armed past this
+# point would mean a later failure (or the exit trap) reverts a deploy that in fact
+# succeeded.
+RESTORE=0
 
 say "deploy of $UNIT complete (active: $(as_root systemctl is-active "$UNIT"))"
 rm -rf "$STAGE"
