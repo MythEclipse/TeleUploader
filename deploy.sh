@@ -86,7 +86,7 @@ if $DO_CHECK; then
   echo "VPS_SSH_KEY:  ${VPS_SSH_KEY:+<set (${#VPS_SSH_KEY} chars)>}"
   echo ""
   echo "=== Files to deploy ==="
-  for f in package.json pnpm-lock.yaml schema.sql dist/index.js dist/migrate.js; do
+  for f in package.json pnpm-lock.yaml apps/api/schema.sql apps/api/dist/index.js apps/api/dist/migrate.js; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
   exit 0
@@ -131,12 +131,22 @@ if $DO_BUILD; then
   log "Building dist..."
   pnpm run build 2>&1 | tail -5 || die "Build failed"
 
-  [ -f dist/index.js ] || die "dist/index.js not found after build"
-  [ -f dist/migrate.js ] || die "dist/migrate.js not found after build"
-  ok "Build complete (dist/index.js: $(wc -c < dist/index.js | numfmt --to=iec) — dist/migrate.js: $(wc -c < dist/migrate.js | numfmt --to=iec))"
+  [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js not found after build"
+  [ -f apps/api/dist/migrate.js ] || die "apps/api/dist/migrate.js not found after build"
+  ok "Build complete (index.js: $(wc -c < apps/api/dist/index.js | numfmt --to=iec) — migrate.js: $(wc -c < apps/api/dist/migrate.js | numfmt --to=iec))"
 else
   log "Skipping build (--no-build)"
-  [ -f dist/index.js ] || die "dist/index.js missing — run without --no-build first"
+  [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js missing — run without --no-build first"
+
+  # --no-build ships whatever is on disk, so refuse to ship a stale bundle.
+  # P1 moved the build output to apps/api/dist while this script still read the
+  # repo-root dist/, leaving two directories: the root one was a pre-move leftover,
+  # gitignored, and a deploy would have shipped it in total silence.
+  NEWEST_SRC=$(find apps/api/src apps/api/drizzle -type f -newer apps/api/dist/index.js 2>/dev/null | head -1)
+  if [ -n "$NEWEST_SRC" ]; then
+    die "apps/api/dist/index.js is older than $NEWEST_SRC — refusing to ship a stale build. Re-run without --no-build."
+  fi
+  ok "Bundle is newer than every source file"
 fi
 
 # ── 3. Stage on the VPS ───────────────────────────────────────────────────────
@@ -144,7 +154,7 @@ log "Staging build at ${STAGE_REMOTE}..."
 vps "rm -rf '${STAGE_REMOTE}' && mkdir -p '${STAGE_REMOTE}'"
 
 log "Shipping dist to VPS..."
-scp $SSH_OPTS dist/index.js dist/migrate.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
+scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
 ok "Build shipped"
 
 # ── 4. Install + restart + verify (runs on the VPS) ───────────────────────────
