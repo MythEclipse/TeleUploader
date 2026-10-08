@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { File, NewFile } from '../../../domain/entities/file';
 import type { IFileRepository, S3FileRecord } from '../../../domain/ports/file-repository';
 import { db, files as fileSchema } from '../drizzle/index';
+import type { FileRow } from '../drizzle/schema';
 
 /** Safely converts a raw value to a number, defaulting to 0. */
 const toNumber = (value: unknown): number => Number(value ?? 0);
@@ -11,6 +12,26 @@ const toNumber = (value: unknown): number => Number(value ?? 0);
  * a user-supplied prefix can be safely used in a LIKE expression.
  */
 const escapeLike = (s: string): string => s.replace(/[%_\\]/g, '\\$&');
+
+/**
+ * Maps a typed drizzle row (camelCase keys) to a {@link File} domain entity.
+ *
+ * P2a: the `db.select().from(files)` queries were returning raw drizzle rows
+ * directly as domain entities. That happened to typecheck only while the schema
+ * lied about nullability — `created_at`/`updated_at` are nullable in the database
+ * (DEFAULT but no NOT NULL), so drizzle correctly infers `Date | null` while the
+ * entity declares `Date`.
+ *
+ * The domain type is left strict on purpose: the column defaults to
+ * CURRENT_TIMESTAMP on insert, so a null timestamp means a row that predates that
+ * default, and no caller reads it. Loosening `File` to `Date | null` would push
+ * that concern into every consumer instead of handling it once, here.
+ */
+const mapFileRow = (row: FileRow): File => ({
+  ...row,
+  createdAt: row.createdAt ?? new Date(0),
+  updatedAt: row.updatedAt ?? new Date(0),
+});
 
 /**
  * Maps a raw database row (snake_case keys) to an {@link S3FileRecord}
@@ -60,7 +81,7 @@ export class DrizzleFileRepository implements IFileRepository {
    */
   async findByHash(hash: string): Promise<File | null> {
     const result = await db.select().from(fileSchema).where(eq(fileSchema.fileHash, hash)).limit(1);
-    return result[0] || null;
+    return result[0] ? mapFileRow(result[0]) : null;
   }
 
   /**
@@ -72,7 +93,7 @@ export class DrizzleFileRepository implements IFileRepository {
       .from(fileSchema)
       .where(eq(fileSchema.publicId, publicId))
       .limit(1);
-    return result[0] || null;
+    return result[0] ? mapFileRow(result[0]) : null;
   }
 
   /**
@@ -84,7 +105,7 @@ export class DrizzleFileRepository implements IFileRepository {
       .from(fileSchema)
       .where(eq(fileSchema.telegramFileUniqueId, telegramFileUniqueId))
       .limit(1);
-    return result[0] || null;
+    return result[0] ? mapFileRow(result[0]) : null;
   }
 
   /**
@@ -102,7 +123,7 @@ export class DrizzleFileRepository implements IFileRepository {
         ),
       )
       .limit(1);
-    return result[0] || null;
+    return result[0] ? mapFileRow(result[0]) : null;
   }
 
   /**
@@ -110,7 +131,7 @@ export class DrizzleFileRepository implements IFileRepository {
    */
   async create(file: NewFile): Promise<File> {
     const result = await db.insert(fileSchema).values(file).returning();
-    return result[0]!;
+    return mapFileRow(result[0]!);
   }
 
   /**
@@ -201,10 +222,11 @@ export class DrizzleFileRepository implements IFileRepository {
    * {@inheritDoc IFileRepository.findOrphansByBucket}
    */
   async findOrphansByBucket(bucketId: string): Promise<File[]> {
-    return await db
+    const rows = await db
       .select()
       .from(fileSchema)
       .where(and(eq(fileSchema.bucketId, bucketId), eq(fileSchema.isDeleted, true)))
       .limit(100);
+    return rows.map(mapFileRow);
   }
 }

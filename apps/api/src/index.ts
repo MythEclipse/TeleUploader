@@ -9,13 +9,13 @@ import { routes } from './presentation/http/routes/index';
 import { getS3RouteBucket, shouldHandleS3 } from './presentation/http/s3-detection';
 import { startBot } from './presentation/telegram/handler';
 
-// ─── Auto-run migration at startup ──────────────────────────────────────────
-try {
-  const { runMigration } = await import('./infrastructure/persistence/drizzle/migrate');
-  await runMigration();
-} catch {
-  logger.warn('Auto-migration skipped (non-fatal)');
-}
+// ─── Migrations no longer run at boot (P2a) ─────────────────────────────────
+// This used to execute schema.sql inside a try/catch that downgraded any failure
+// to a warning. That made the schema unreproducible: the DDL was not
+// version-controlled, a failed migration was invisible at startup, and this file
+// plus schema.sql were two sources of truth. `pnpm db:migrate` (migrate.ts, using
+// drizzle's migrator) is now the only migration path, and deploy.sh runs it over
+// SSH before restarting the unit.
 
 const server = serve({
   port: config.port,

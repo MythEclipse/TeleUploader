@@ -1,0 +1,41 @@
+-- Baseline marker — contains NO DDL on purpose. Do not add statements here.
+--
+-- WHY THIS FILE IS EMPTY
+--
+-- Production predates drizzle: its five tables were created by executing
+-- apps/api/schema.sql at boot. A plain `drizzle-kit generate` against that state
+-- emits a CREATE TABLE for every table, which fails immediately. Verified rather
+-- than assumed — applying that generated SQL to a database already built from
+-- schema.sql produced:
+--
+--   ERROR: relation "buckets" already exists            (x5 tables)
+--   ERROR: relation "file_parts_file_id_part_number_key" already exists
+--
+-- So this file is committed with its DDL removed. What remains load-bearing is
+-- OUTSIDE this file:
+--
+--   1. meta/0000_snapshot.json — the schema snapshot for idx 0. It carries all
+--      five tables, so `drizzle-kit generate` diffs future changes against the real
+--      schema instead of re-emitting every CREATE TABLE. A `--custom` migration
+--      produces an EMPTY snapshot, which silently defeats this — generate with the
+--      normal (non-custom) command and then strip the DDL from this file.
+--
+--   2. meta/_journal.json — `entries[0]` with the real generation timestamp.
+--
+-- How the baseline is recorded as applied (see runBaseline() in
+-- src/infrastructure/persistence/drizzle/migrate.ts): migrate.ts seeds
+-- drizzle.__drizzle_migrations with this entry's own sha256 (of this file) and
+-- timestamp before calling drizzle's migrate(). Because this file has no DDL,
+-- the baseline is a genuine no-op on any database.
+--
+-- DO NOT future-date `when` in the journal. An earlier revision did exactly that
+-- (year 2099) to force the skip. It worked for the baseline and then silently
+-- blocked every real migration, because drizzle compares each migration against
+-- the NEWEST journal row:
+--
+--   apply(m) iff !lastRow || Number(lastRow.created_at) < m.folderMillis
+--
+-- A future-dated baseline makes that inequality false forever. This was caught by
+-- simulating the P3 tenancy migration: it reported success and created nothing.
+--
+-- Do not renumber or delete this file.
