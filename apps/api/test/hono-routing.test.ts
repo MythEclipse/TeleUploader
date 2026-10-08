@@ -44,6 +44,13 @@ vi.mock('../src/presentation/http/controllers/file-controller', () => ({
 }));
 vi.mock('../src/presentation/http/controllers/web-api-controller', () => ({
   handleWebApiV1: handlers.webApi,
+  handleListBucketsV1: handlers.webApi,
+  handleCreateBucketV1: handlers.webApi,
+  handleDeleteBucketV1: handlers.webApi,
+  handleListObjectsV1: handlers.webApi,
+  handleCopyObjectV1: handlers.webApi,
+  handleDeleteObjectV1: handlers.webApi,
+  handleDownloadObjectV1: handlers.webApi,
 }));
 vi.mock('../src/presentation/http/controllers/auth-controller', () => ({
   handleLogin: handlers.login,

@@ -85,6 +85,62 @@ console.log(
   `  ${s3ReachedController ? 'PASS' : 'FAIL'}  ${'SigV4 root reaches S3, not home'.padEnd(34)} GET / -> ${s3Res.status} ct=${s3ContentType}`,
 );
 
+// ── oRPC surface (P2c) ─────────────────────────────────────────────────────
+// Exercised over real HTTP so the contract, the Zod inputs, the handler binding
+// and the RPCHandler wiring are all covered together.
+const rpc = async (procedure: string, input?: unknown) => {
+  const res = await fetch(`http://127.0.0.1:${PORT}/rpc/${procedure}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input ?? {}),
+  });
+  return { res, body: await res.json().catch(() => undefined) };
+};
+
+console.log('\n  oRPC (/rpc):');
+
+{
+  // oRPC wraps the handler's return in `{ json: ... }`.
+  const { res, body } = await rpc('bucket/listBuckets');
+  const payload = (body as { json?: { buckets?: unknown[] } })?.json;
+  const ok = res.status === 200 && Array.isArray(payload?.buckets);
+  if (!ok) failures += 1;
+  console.log(
+    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc bucket/listBuckets'.padEnd(34)} -> ${res.status} body=${JSON.stringify(body).slice(0, 80)}`,
+  );
+}
+
+{
+  // Zod rejects before the controller: an uppercase name is not a valid bucket.
+  const { res } = await rpc('bucket/createBucket', { name: 'NOT_VALID' });
+  const ok = res.status >= 400;
+  if (!ok) failures += 1;
+  console.log(
+    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc rejects invalid bucket name'.padEnd(34)} -> ${res.status}`,
+  );
+}
+
+{
+  const { res } = await rpc('bucket/doesNotExist');
+  const ok = res.status >= 400;
+  if (!ok) failures += 1;
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${'rpc unknown procedure'.padEnd(34)} -> ${res.status}`);
+}
+
+{
+  // An unclaimed path under /rpc must NOT be answered by the RPC handler.
+  const res = await fetch(`http://127.0.0.1:${PORT}/rpc/not-a-procedure/at/all`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  const ok = res.status === 404;
+  if (!ok) failures += 1;
+  console.log(
+    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc unmatched path falls through'.padEnd(34)} -> ${res.status}`,
+  );
+}
+
 server.close();
 
 console.log(failures === 0 ? '\nLIVE PROBE PASSED' : `\nLIVE PROBE FAILED (${failures})`);

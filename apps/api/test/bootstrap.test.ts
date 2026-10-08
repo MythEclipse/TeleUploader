@@ -65,9 +65,20 @@ vi.mock('../src/presentation/http/controllers/home-controller', () => ({
 vi.mock('../src/presentation/http/controllers/s3-controller', () => ({
   handleS3Request: vi.fn(() => new Response('Not Found', { status: 404 })),
 }));
-vi.mock('../src/presentation/http/controllers/web-api-controller', () => ({
-  handleWebApiV1: vi.fn(() => Response.json({ error: 'Not Found' }, { status: 404 })),
-}));
+vi.mock('../src/presentation/http/controllers/web-api-controller', () => {
+  const stub = () => Response.json({ error: 'Not Found' }, { status: 404 });
+  return {
+    handleWebApiV1: vi.fn(stub),
+    // P2c: the oRPC composition root imports these individually.
+    handleListBucketsV1: vi.fn(stub),
+    handleCreateBucketV1: vi.fn(stub),
+    handleDeleteBucketV1: vi.fn(stub),
+    handleListObjectsV1: vi.fn(stub),
+    handleCopyObjectV1: vi.fn(stub),
+    handleDeleteObjectV1: vi.fn(stub),
+    handleDownloadObjectV1: vi.fn(stub),
+  };
+});
 
 vi.mock('../src/presentation/http/middleware/auth', () => ({
   requireAuth: mockRequireAuth,

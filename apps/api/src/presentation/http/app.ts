@@ -1,5 +1,6 @@
 import type { Context, Handler } from 'hono';
 import { Hono } from 'hono';
+import { handleRpc } from '../orpc';
 import { handleLogin, handleLogout, handleMe } from './controllers/auth-controller';
 import { handleFileInfo, handleFileRedirect } from './controllers/file-controller';
 import { handleHealth } from './controllers/health-controller';
@@ -108,6 +109,13 @@ export const createApp = (): Hono => {
   app.post('/api/upload', limited(handleUpload));
   app.get('/f/:public_id', adapt(handleFileRedirect));
   app.get('/file/:public_id/info', adapt(handleFileInfo));
+
+  // ── oRPC management surface, mounted BEFORE the REST routes (P2c) ───────
+  // `/rpc` is a distinct prefix, so there is no overlap with `/api/v1/*`; the
+  // position here is simply ahead of the wildcard routes. It serves the same
+  // controllers, so both surfaces behave identically until P4 retires the REST
+  // one along with home.html.
+  app.all('/rpc/*', handleRpc);
 
   // ── Dashboard JSON API. GET public; writes require admin auth. ──────────
   app.get('/api/v1/*', adapt(handleWebApiV1));
