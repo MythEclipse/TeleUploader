@@ -30,7 +30,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { liveDatabaseRequested, probeLiveDatabase } from './helpers/live-db';
 
 process.env.BOT_TOKENS ||= '1:test';
 process.env.STORAGE_CHANNEL_ID ||= '-1001234';
@@ -48,21 +49,30 @@ const repo = new DrizzleOrganizationRepository();
 /** Memberships created here, removed afterwards. */
 const createdMemberships: { organizationId: string; userId: string }[] = [];
 
-const databaseReachable = async (): Promise<boolean> => {
-  try {
-    await db.execute(sql`SELECT 1`);
-    return true;
-  } catch {
-    return false;
-  }
-};
+/**
+ * Whether a real database is configured.
+ *
+ * `describe.skipIf(!process.env.DATABASE_URL)` is NOT enough: test/helpers/setup-env.ts
+ * seeds a placeholder DSN via `||=`, so the key is always present and that guard
+ * never fired — the database-backed tests below ran and FAILED against a dead host
+ * instead of skipping. `liveDatabaseRequested()` judges the VALUE, and treats
+ * setup-env's redacted placeholder as "not configured".
+ *
+ * A configured-but-unreachable database is deliberately NOT a skip. `probeLiveDatabase`
+ * throws in that case, so a broken environment fails loudly rather than turning into a
+ * green run that asserts nothing.
+ */
+// The probe callback must resolve to void: `probeLiveDatabase` only cares whether
+// the round trip succeeds, and db.execute's result rows are not used here.
+const status = await probeLiveDatabase(async () => {
+  await db.execute(sql`SELECT 1`);
+});
+const live = status.state === 'live';
+if (!live) {
+  process.stdout.write(`[tenant-scope-misconfiguration] ${status.reason}\n`);
+}
 
-let live = false;
-
-beforeAll(async () => {
-  live = await databaseReachable();
-  if (!live) return;
-
+if (live) {
   // Provision a REAL org + membership, using a unique id so this never collides
   // with rows left by earlier runs (p3b-test-org-1/2 and the 'default' org).
   const organizationId = randomUUID();
@@ -74,7 +84,7 @@ beforeAll(async () => {
     sql`INSERT INTO members (organization_id, user_id, role) VALUES (${organizationId}, ${userId}, 'owner')`,
   );
   createdMemberships.push({ organizationId, userId });
-});
+}
 
 afterAll(async () => {
   if (!live) return;
@@ -95,9 +105,8 @@ beforeEach(() => {
   resolver.resetOrganizationResolutionCache?.();
 });
 
-describe.skipIf(!process.env.DATABASE_URL)('bootstrap membership lookup (real database)', () => {
+describe.skipIf(!liveDatabaseRequested())('bootstrap membership lookup (real database)', () => {
   it('resolves the organization for a user that HAS a membership', async () => {
-    if (!live) return;
     const [membership] = createdMemberships;
     expect(membership).toBeDefined();
 
@@ -106,13 +115,37 @@ describe.skipIf(!process.env.DATABASE_URL)('bootstrap membership lookup (real da
   });
 
   it('returns null for a user with NO membership — the state that bricked the dashboard', async () => {
-    if (!live) return;
     const organizationId = await repo.findOrganizationIdByUserId(`probe-absent-${randomUUID()}`);
     expect(organizationId).toBeNull();
   });
 });
 
 describe('resolver contract', () => {
+  it('error message names the remedy, not just the failure', () => {
+    // Pure construction — no database, no config, no module reset. This is the
+    // one assertion in the file that must run in EVERY environment, because it
+    // is the only one that can prove the operator-facing message survived an edit.
+    const error = new resolver.MissingOrganizationMembershipError('bootstrap-admin');
+    expect(error.message).toContain('bootstrap-admin');
+    expect(error.message).toContain('db:seed');
+    expect(error.name).toBe('MissingOrganizationMembershipError');
+  });
+});
+
+/**
+ * These two need a real database: the resolver reads through
+ * organizationRepository, so both the throwing path and the success path are
+ * decided by what the members table actually contains.
+ *
+ * They live in their own `skipIf` block rather than sharing `resolver contract`
+ * because they were previously registered unconditionally — so with no
+ * DATABASE_URL the throwing test FAILED (its repository call hit a dead DSN)
+ * while its sibling returned early and counted as PASSED. One suite, two
+ * different verdicts for the same missing precondition. That asymmetry is the
+ * bug this split removes: an environment without a database now skips both,
+ * visibly, instead of failing one and silently passing the other.
+ */
+describe.skipIf(!liveDatabaseRequested())('resolver contract (real database)', () => {
   it('throws MissingOrganizationMembershipError rather than resolving to null', async () => {
     // Point BOOTSTRAP_ADMIN_ID at a user id that cannot exist — exactly what a
     // deploy that never ran db:seed looks like.
@@ -143,7 +176,6 @@ describe('resolver contract', () => {
 
   it('resolves successfully for a user that DOES have a membership', async () => {
     // The positive case, against the real database and the real config path.
-    if (!live) return;
     const [membership] = createdMemberships;
     const original = process.env.BOOTSTRAP_ADMIN_ID;
     process.env.BOOTSTRAP_ADMIN_ID = membership.userId;
@@ -161,12 +193,5 @@ describe('resolver contract', () => {
       vi.resetModules();
       resolver.resetOrganizationResolutionCache?.();
     }
-  });
-
-  it('error message names the remedy, not just the failure', () => {
-    const error = new resolver.MissingOrganizationMembershipError('bootstrap-admin');
-    expect(error.message).toContain('bootstrap-admin');
-    expect(error.message).toContain('db:seed');
-    expect(error.name).toBe('MissingOrganizationMembershipError');
   });
 });
