@@ -63,25 +63,17 @@ const encodeKey = (key: string): string => key.split('/').map(encodeURIComponent
 /** Contract: routes, inputs, and OpenAPI metadata, with no implementation. */
 const bucketNamespace = {
   // ── Buckets ──────────────────────────────────────────────────────────────
-  listBuckets: os
-    .meta({ method: 'GET', path: '/api/v1/buckets', summary: 'List all buckets' })
-    .handler(() => ({
-      buckets: [] as { id: string; name: string; createdAt: string; objectCount: number }[],
-    })),
+  listBuckets: os.meta({ method: 'GET', path: '/api/v1/buckets', summary: 'List all buckets' }),
 
   createBucket: os
     .input(z.object({ name: bucketName }))
-    .meta({ method: 'POST', path: '/api/v1/buckets', summary: 'Create a bucket' })
-    .handler(() => ({ id: '', name: '' })),
+    .meta({ method: 'POST', path: '/api/v1/buckets', summary: 'Create a bucket' }),
 
-  deleteBucket: os
-    .input(z.object({ bucket: bucketName }))
-    .meta({
-      method: 'DELETE',
-      path: '/api/v1/buckets/{bucket}',
-      summary: 'Delete a bucket and its contents',
-    })
-    .handler(() => ({ success: true })),
+  deleteBucket: os.input(z.object({ bucket: bucketName })).meta({
+    method: 'DELETE',
+    path: '/api/v1/buckets/{bucket}',
+    summary: 'Delete a bucket and its contents',
+  }),
 
   // ── Objects ──────────────────────────────────────────────────────────────
   listObjects: os
@@ -97,8 +89,7 @@ const bucketNamespace = {
       method: 'GET',
       path: '/api/v1/buckets/{bucket}/objects',
       summary: 'List objects in a bucket',
-    })
-    .handler(() => ({ objects: [] as Record<string, unknown>[], prefixes: [] as string[] })),
+    }),
 
   copyObject: os
     .input(
@@ -113,26 +104,19 @@ const bucketNamespace = {
       method: 'POST',
       path: '/api/v1/buckets/{bucket}/copy',
       summary: 'Copy an object within or across buckets',
-    })
-    .handler(() => ({ sourceKey: '', destKey: '', destBucket: '' })),
+    }),
 
-  deleteObject: os
-    .input(z.object({ bucket: bucketName, key: objectPath }))
-    .meta({
-      method: 'DELETE',
-      path: '/api/v1/buckets/{bucket}/{key}',
-      summary: 'Delete an object (soft delete)',
-    })
-    .handler(() => ({ success: true })),
+  deleteObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
+    method: 'DELETE',
+    path: '/api/v1/buckets/{bucket}/{key}',
+    summary: 'Delete an object (soft delete)',
+  }),
 
-  downloadObject: os
-    .input(z.object({ bucket: bucketName, key: objectPath }))
-    .meta({
-      method: 'GET',
-      path: '/api/v1/buckets/{bucket}/download/{key}',
-      summary: 'Download an object',
-    })
-    .handler(() => ({ key: '', size: 0, etag: null as string | null, downloadUrl: '' })),
+  downloadObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
+    method: 'GET',
+    path: '/api/v1/buckets/{bucket}/download/{key}',
+    summary: 'Download an object',
+  }),
 };
 
 /**

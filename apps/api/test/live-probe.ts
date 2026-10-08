@@ -111,10 +111,15 @@ console.log('\n  oRPC (/rpc):');
   // oRPC wraps the handler's return in `{ json: ... }`.
   const { res, body } = await rpc('bucket/listBuckets');
   const payload = (body as { json?: { buckets?: unknown[] } })?.json;
-  const ok = res.status === 200 && Array.isArray(payload?.buckets);
+  // Assert the ARRAY IS NON-EMPTY and matches the REST surface. The previous
+  // assertion was `Array.isArray(payload?.buckets)`, which the CONTRACT PLACEHOLDER
+  // satisfied with `[]` — so it passed while every oRPC procedure silently returned
+  // placeholder data instead of calling the controllers. Found by adversarial
+  // review, not by this suite.
+  const ok = res.status === 200 && Array.isArray(payload?.buckets) && payload.buckets.length > 0;
   if (!ok) failures += 1;
   console.log(
-    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc bucket/listBuckets'.padEnd(34)} -> ${res.status} body=${JSON.stringify(body).slice(0, 80)}`,
+    `  ${ok ? 'PASS' : 'FAIL'}  ${'rpc bucket/listBuckets (real data)'.padEnd(34)} -> ${res.status} body=${JSON.stringify(body).slice(0, 90)}`,
   );
 }
 
