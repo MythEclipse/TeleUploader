@@ -1,0 +1,71 @@
+name: CI
+
+# Added in P0 of the kana migration. This repo previously had NO pull_request CI:
+# the only gate was `deploy.yml`, which fired on push to main and shipped straight to
+# production. That combination made a big-bang migration unreviewable, so this
+# workflow runs the same lint + unit checks on every PR that gate the deploy.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (biome)
+        run: pnpm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests (vitest, 29 files)
+        run: pnpm run test:unit
+
+      # The 5 quarantined suites hit the live production endpoint and create/destroy
+      # real buckets, so they stay opt-in via workflow_dispatch rather than running
+      # on every PR.
+      - name: Quarantined suites (live network — opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: pnpm run test:quarantine
+        env:
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}

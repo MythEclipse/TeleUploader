@@ -1,4 +1,6 @@
+import { nanoid } from 'nanoid';
 import { createUploadFileUseCase } from '../../../application/use-cases/upload-file';
+import { buildNewFile } from '../../../domain/entities/file-factory';
 import { config } from '../../../env';
 import {
   bucketRepository,

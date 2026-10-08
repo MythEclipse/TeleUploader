@@ -1,8 +1,8 @@
 name: Build & Deploy
 
+# MIGRATION FREEZE: the `push: branches: [main]` trigger is disabled during the kana
+# migration so each phase merge does not deploy straight to production. Restore in P5c.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -38,6 +38,12 @@ jobs:
 
       - name: Lint (biome)
         run: pnpm run lint
+
+      # Added in P0: this job already gates `build-and-deploy` via `needs: lint`, so
+      # running the unit suite here makes it a hard precondition of every deploy at
+      # zero extra cost. Before this, a red test suite could still reach production.
+      - name: Unit tests (vitest)
+        run: pnpm run test:unit
 
   build-and-deploy:
     needs: lint

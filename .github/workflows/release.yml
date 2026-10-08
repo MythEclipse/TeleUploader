@@ -1,8 +1,8 @@
 name: Semantic Release
 
+# MIGRATION FREEZE: the `push: branches: [main]` trigger is disabled during the kana
+# migration so each phase merge does not publish a release. Restore in P5c.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -54,7 +54,12 @@ const workflowFile = readFileSync(
 );
 
 test('deploy workflow builds with pnpm and ships over systemd (no Nix)', () => {
-  expect(workflowFile).toContain('branches: [main]');
+  // MIGRATION FREEZE (P0–P5b): the push trigger is removed so no phase merge can
+  // deploy straight to production. `workflow_dispatch` must remain the only trigger —
+  // without it .semrel/dispatch.mjs has nothing to dispatch and the deploy path is
+  // unreachable. Restore the push trigger in P5c.
+  expect(workflowFile).not.toMatch(/^\s{2}push:\s*$/m);
+  expect(workflowFile).toContain('workflow_dispatch');
   expect(workflowFile).toContain('uses: actions/checkout@v7');
   expect(workflowFile).toContain('uses: pnpm/action-setup@v4');
   expect(workflowFile).toContain('pnpm install --frozen-lockfile');
