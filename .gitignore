@@ -74,3 +74,9 @@ AGENTS.md
 
 # Planning files (per-repo)
 .planning/
+
+# Claude Code / moon tool state — .claude/settings.json IS tracked; the
+# per-run worktrees and cached rollout data are not.
+.claude/worktrees/
+.claude/history.jsonl
+.claude/*.db
