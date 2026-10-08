@@ -11,12 +11,44 @@ export interface SigV4Result {
   errorCode?: string;
 }
 
+/**
+ * The credential scope parsed out of a SigV4 request.
+ *
+ * Both the header (`Authorization: ...Credential=<scope>`) and the presigned
+ * (`X-Amz-Credential=<scope>`) paths reduce to this identical five-part shape,
+ * so both funnel through one parser.
+ */
+export interface CredentialScope {
+  accessKey: string;
+  date: string;
+  region: string;
+  service: string;
+  termination: string;
+}
+
+/**
+ * Resolves the secret bytes for an access key.
+ *
+ * P3: the secret used to come straight from the environment pair. It now comes
+ * from whichever store owns the key — the caller's choice. This ONLY decides
+ * WHICH secret is handed in: the secret reaches exactly one function,
+ * `getSigningKey`, and never participates in canonicalisation. Swapping the
+ * source therefore cannot change a signed byte.
+ *
+ * This also REPLACED the two `timingSafeCompare(accessKey, s3AccessKey)` calls
+ * that used to gate verification — an unknown key is now `resolveSecret`
+ * returning null, checked before any signature work. Every other
+ * `timingSafeCompare` (signature, region, date) is deliberately unchanged.
+ *
+ * @returns The secret, or `null` when the access key is unknown.
+ */
+export type CredentialResolver = (accessKey: string) => Promise<string | null>;
+
 export interface VerifyPresignedUrlInput {
   url: string;
   method: string;
   headers: Record<string, string>;
-  s3AccessKey: string;
-  s3SecretKey: string;
+  resolveSecret: CredentialResolver;
   region: string;
   now?: Date;
 }
@@ -73,6 +105,24 @@ const hmacHex = async (key: Uint8Array, message: string): Promise<string> => {
     .join('');
 };
 
+/**
+ * Splits a SigV4 credential scope string into its five parts.
+ *
+ * The scope is `<accessKey>/<date>/<region>/<service>/<termination>` on BOTH
+ * transports. This is the single place that split lived twice before — once in
+ * the `Authorization` header parser and once inline in the presigned path.
+ *
+ * @param scope - The raw credential scope, e.g. `key/20260707/us-east-1/s3/aws4_request`.
+ * @returns The parsed scope, or `null` when it does not have exactly five parts.
+ */
+export const parseCredentialScope = (scope: string): CredentialScope | null => {
+  const parts = scope.split('/');
+  if (parts.length !== 5) return null;
+  const [accessKey, date, region, service, termination] = parts;
+  if (!accessKey || !date || !region || !service || !termination) return null;
+  return { accessKey, date, region, service, termination };
+};
+
 const parseAuthorizationHeader = (authHeader: string) => {
   const credentialMatch = authHeader.match(/Credential=([^,]+)/);
   const signedHeadersMatch = authHeader.match(/SignedHeaders=([^,]+)/);
@@ -80,15 +130,15 @@ const parseAuthorizationHeader = (authHeader: string) => {
 
   if (!credentialMatch || !signedHeadersMatch || !signatureMatch) return null;
 
-  const credentialParts = credentialMatch[1].split('/');
-  if (credentialParts.length !== 5) return null;
+  const scope = parseCredentialScope(credentialMatch[1]);
+  if (!scope) return null;
 
   return {
-    accessKey: credentialParts[0],
-    date: credentialParts[1],
-    region: credentialParts[2],
-    service: credentialParts[3],
-    termination: credentialParts[4],
+    accessKey: scope.accessKey,
+    date: scope.date,
+    region: scope.region,
+    service: scope.service,
+    termination: scope.termination,
     signedHeaders: signedHeadersMatch[1],
     signature: signatureMatch[1],
   };
@@ -216,8 +266,7 @@ export const verifySignature = async (
   url: string,
   headers: Record<string, string>,
   body: string | null,
-  s3AccessKey: string,
-  s3SecretKey: string,
+  resolveSecret: CredentialResolver,
   region: string,
 ): Promise<SigV4Result> => {
   const authHeader = headers.authorization;
@@ -230,7 +279,10 @@ export const verifySignature = async (
     return { isValid: false, credential: null, errorCode: 'AccessDenied' };
   }
 
-  if (!timingSafeCompare(parsed.accessKey, s3AccessKey)) {
+  // Unknown access key → rejected here, before any signature work. The secret
+  // is fetched once and reused only by getSigningKey below.
+  const secretKey = await resolveSecret(parsed.accessKey);
+  if (secretKey === null) {
     return { isValid: false, credential: null, errorCode: 'SignatureDoesNotMatch' };
   }
 
@@ -303,7 +355,7 @@ export const verifySignature = async (
 
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${hashedCanonicalRequest}`;
 
-  const signingKey = await getSigningKey(s3SecretKey, dateStamp, region);
+  const signingKey = await getSigningKey(secretKey, dateStamp, region);
   const expectedSignature = await hmacHex(signingKey, stringToSign);
 
   if (!timingSafeCompare(expectedSignature, parsed.signature)) {
@@ -325,8 +377,7 @@ export const verifyPresignedUrl = async ({
   url,
   method,
   headers,
-  s3AccessKey,
-  s3SecretKey,
+  resolveSecret,
   region,
   now = new Date(),
 }: VerifyPresignedUrlInput): Promise<SigV4Result> => {
@@ -365,13 +416,16 @@ export const verifyPresignedUrl = async ({
     return { isValid: false, credential: null, errorCode: 'AccessDenied' };
   }
 
-  const credParts = credential.split('/');
-  if (credParts.length !== 5) {
+  const scope = parseCredentialScope(credential);
+  if (!scope) {
     return { isValid: false, credential: null, errorCode: 'AccessDenied' };
   }
-  const [accessKey, dateStamp, credentialRegion, service, termination] = credParts;
+  const { accessKey, date: dateStamp, region: credentialRegion, service, termination } = scope;
+
+  // Unknown access key → rejected here, before any signature work.
+  const secretKey = await resolveSecret(accessKey);
   if (
-    !timingSafeCompare(accessKey, s3AccessKey) ||
+    secretKey === null ||
     !timingSafeCompare(credentialRegion, region) ||
     service !== SERVICE ||
     termination !== TERMINATION
@@ -398,7 +452,7 @@ export const verifyPresignedUrl = async ({
   const credentialScope = `${dateStamp}/${region}/${SERVICE}/${TERMINATION}`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${hashedCanonicalRequest}`;
   const expectedSignature = await hmacHex(
-    await getSigningKey(s3SecretKey, dateStamp, region),
+    await getSigningKey(secretKey, dateStamp, region),
     stringToSign,
   );
 

@@ -126,11 +126,13 @@ export const handleGetObject = async (
   key: string,
   _searchParams: URLSearchParams,
   headers: Record<string, string>,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const bucketRecord = await resolveBucketOr404(
     bucketRepository,
     bucket,
+    organizationId,
     `/${bucket}/${key}`,
     reqId,
   );
@@ -319,11 +321,13 @@ export const handleHeadObject = async (
   bucket: string,
   key: string,
   headers: Record<string, string>,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const bucketRecord = await resolveBucketOr404(
     bucketRepository,
     bucket,
+    organizationId,
     `/${bucket}/${key}`,
     reqId,
   );

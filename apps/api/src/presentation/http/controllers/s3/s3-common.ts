@@ -49,13 +49,20 @@ export const s3Response = (
 };
 
 /**
- * Resolves a bucket by name, returning a `NoSuchBucket` S3 error when missing.
+ * Resolves a bucket by name WITHIN the caller's organization, returning a
+ * `NoSuchBucket` S3 error when missing.
  *
  * Replaces the ~10 identical `findByName` + `NoSuchBucket` blocks previously
  * inlined in every bucket/object/listing/multipart handler.
  *
+ * TENANT INVARIANT: a bucket owned by another organization must be
+ * indistinguishable from one that does not exist. Both return the same 404
+ * `NoSuchBucket` body — never 403, which would confirm the name is taken
+ * somewhere in the system and leak the existence of another tenant's data.
+ *
  * @param bucketRepo - The bucket repository to look up.
  * @param bucket - The bucket name from the request path.
+ * @param organizationId - The authenticated caller's organization (UUID).
  * @param path - The request path for the S3 error resource.
  * @param reqId - The request identifier for S3 headers.
  * @returns The bucket record, or an S3 error Response when not found.
@@ -63,10 +70,11 @@ export const s3Response = (
 export const resolveBucketOr404 = async (
   bucketRepo: IBucketRepository,
   bucket: string,
+  organizationId: string,
   path: string,
   reqId: string,
 ): Promise<Bucket | Response> => {
-  const bucketRecord = await bucketRepo.findByName(bucket);
+  const bucketRecord = await bucketRepo.findByName(bucket, organizationId);
   if (!bucketRecord) {
     return s3ErrorResponse(
       'NoSuchBucket',
@@ -80,16 +88,20 @@ export const resolveBucketOr404 = async (
 };
 
 /**
- * Resolves an in-progress multipart upload, returning a `NoSuchUpload` S3
- * error when missing.
+ * Resolves an in-progress multipart upload that belongs to the caller's bucket,
+ * returning a `NoSuchUpload` S3 error when missing.
  *
- * Replaces the 5 identical `findById` + `NoSuchUpload` blocks previously
- * inlined in the multipart handlers. Pass `key` for the H5 key-match check
- * (UploadPart / CompleteMultipartUpload); omit it for Abort / ListParts,
- * which historically only checked existence.
+ * The `bucketId` predicate is what makes this tenant-safe: an upload in another
+ * organization's bucket has a different `bucketId`, so it is rejected here
+ * before any handler acts on it. Callers must pass the bucket they resolved
+ * with {@link resolveBucketOr404} — that is what supplies `bucketId`.
+ *
+ * Pass `key` for the H5 key-match check (UploadPart / CompleteMultipartUpload);
+ * omit it for Abort / ListParts, which historically only checked existence.
  *
  * @param multipartRepo - The multipart repository to look up.
  * @param uploadId - The upload identifier from `?uploadId=`.
+ * @param bucketId - The UUID of the bucket the caller resolved in their own org.
  * @param path - The request path for the S3 error resource.
  * @param reqId - The request identifier for S3 headers.
  * @param key - Optional object key the upload must belong to.
@@ -98,12 +110,17 @@ export const resolveBucketOr404 = async (
 export const requireUploadOr404 = async (
   multipartRepo: IMultipartRepository,
   uploadId: string,
+  bucketId: string,
   path: string,
   reqId: string,
   key?: string,
 ): Promise<MultipartUpload | Response> => {
   const multipart = await multipartRepo.findById(uploadId);
-  if (!multipart || (key !== undefined && multipart.s3Key !== key)) {
+  if (
+    !multipart ||
+    multipart.bucketId !== bucketId ||
+    (key !== undefined && multipart.s3Key !== key)
+  ) {
     return s3ErrorResponse(
       'NoSuchUpload',
       'The specified upload does not exist.',

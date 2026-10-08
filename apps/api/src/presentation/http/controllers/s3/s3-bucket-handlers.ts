@@ -8,11 +8,15 @@ import { resolveBucketOr404, s3Response } from './s3-common';
 /**
  * Handles GET / — lists all buckets as an S3 ListAllMyBuckets XML response.
  *
+ * @param organizationId - The authenticated caller's organization (UUID).
  * @param reqId - The request identifier for S3 headers.
  * @returns An S3 XML response with the bucket list.
  */
-export const handleListBuckets = async (reqId: string): Promise<Response> => {
-  const buckets = await bucketRepository.list();
+export const handleListBuckets = async (
+  organizationId: string,
+  reqId: string,
+): Promise<Response> => {
+  const buckets = await bucketRepository.list(organizationId);
   const xml = listBucketsXml(buckets, reqId);
   return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
 };
@@ -28,7 +32,11 @@ export const handleListBuckets = async (reqId: string): Promise<Response> => {
  * @param reqId - The request identifier for S3 headers.
  * @returns An S3 XML response indicating success or failure.
  */
-export const handleCreateBucket = async (bucketName: string, reqId: string): Promise<Response> => {
+export const handleCreateBucket = async (
+  bucketName: string,
+  organizationId: string,
+  reqId: string,
+): Promise<Response> => {
   if (parseOrNull(BucketNameSchema, bucketName) === null) {
     return s3ErrorResponse(
       'InvalidBucketName',
@@ -38,7 +46,7 @@ export const handleCreateBucket = async (bucketName: string, reqId: string): Pro
       reqId,
     );
   }
-  const existing = await bucketRepository.findByName(bucketName);
+  const existing = await bucketRepository.findByName(bucketName, organizationId);
   if (existing) {
     return s3ErrorResponse(
       'BucketAlreadyExists',
@@ -48,7 +56,7 @@ export const handleCreateBucket = async (bucketName: string, reqId: string): Pro
       reqId,
     );
   }
-  await bucketRepository.create(bucketName);
+  await bucketRepository.create(bucketName, organizationId);
   return s3Response(null, 200, reqId);
 };
 
@@ -59,8 +67,18 @@ export const handleCreateBucket = async (bucketName: string, reqId: string): Pro
  * @param reqId - The request identifier for S3 headers.
  * @returns A 200 response when the bucket exists, or an S3 XML error.
  */
-export const handleHeadBucket = async (bucketName: string, reqId: string): Promise<Response> => {
-  const bucket = await resolveBucketOr404(bucketRepository, bucketName, `/${bucketName}`, reqId);
+export const handleHeadBucket = async (
+  bucketName: string,
+  organizationId: string,
+  reqId: string,
+): Promise<Response> => {
+  const bucket = await resolveBucketOr404(
+    bucketRepository,
+    bucketName,
+    organizationId,
+    `/${bucketName}`,
+    reqId,
+  );
   if (bucket instanceof Response) return bucket;
   return s3Response(null, 200, reqId);
 };
@@ -74,8 +92,18 @@ export const handleHeadBucket = async (bucketName: string, reqId: string): Promi
  * @param reqId - The request identifier for S3 headers.
  * @returns A 204 response on success, or an S3 XML error.
  */
-export const handleDeleteBucket = async (bucketName: string, reqId: string): Promise<Response> => {
-  const bucket = await resolveBucketOr404(bucketRepository, bucketName, `/${bucketName}`, reqId);
+export const handleDeleteBucket = async (
+  bucketName: string,
+  organizationId: string,
+  reqId: string,
+): Promise<Response> => {
+  const bucket = await resolveBucketOr404(
+    bucketRepository,
+    bucketName,
+    organizationId,
+    `/${bucketName}`,
+    reqId,
+  );
   if (bucket instanceof Response) return bucket;
   const objCount = await fileRepository.countByBucket(bucket.id);
   if (objCount > 0) {
@@ -87,7 +115,7 @@ export const handleDeleteBucket = async (bucketName: string, reqId: string): Pro
       reqId,
     );
   }
-  await bucketRepository.delete(bucketName);
+  await bucketRepository.delete(bucketName, organizationId);
   return s3Response(null, 204, reqId);
 };
 
@@ -101,9 +129,16 @@ export const handleDeleteBucket = async (bucketName: string, reqId: string): Pro
  */
 export const handleGetBucketVersioning = async (
   bucketName: string,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
-  const bucket = await resolveBucketOr404(bucketRepository, bucketName, `/${bucketName}`, reqId);
+  const bucket = await resolveBucketOr404(
+    bucketRepository,
+    bucketName,
+    organizationId,
+    `/${bucketName}`,
+    reqId,
+  );
   if (bucket instanceof Response) return bucket;
   return s3Response(bucketVersioningConfigurationXml(), 200, reqId, {
     'content-type': 'application/xml',

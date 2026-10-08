@@ -1,6 +1,7 @@
 import { RPCHandler } from '@orpc/server/fetch';
 import type { Context as HonoContext } from 'hono';
 import { config } from '../../env';
+import { resolveAdminOrganizationId } from '../http/controllers/organization-resolver';
 import {
   handleCopyObjectV1,
   handleCreateBucketV1,
@@ -28,13 +29,16 @@ import type { BucketHandlers } from './routers/bucket';
 const router = buildRouter({
   listBuckets: handleListBucketsV1,
   createBucket: handleCreateBucketV1,
-  deleteBucket: (req: Request, bucket: string) => handleDeleteBucketV1(req, { bucket }),
-  listObjects: (req: Request, bucket: string) => handleListObjectsV1(req, { bucket }),
-  copyObject: (req: Request, bucket: string) => handleCopyObjectV1(req, { bucket }),
-  deleteObject: (req: Request, bucket: string, key: string) =>
-    handleDeleteObjectV1(req, { bucket, key }),
-  downloadObject: (req: Request, bucket: string, key: string) =>
-    handleDownloadObjectV1(req, { bucket, key }),
+  deleteBucket: (req: Request, bucket: string, organizationId: string) =>
+    handleDeleteBucketV1(req, { bucket }, organizationId),
+  listObjects: (req: Request, bucket: string, organizationId: string) =>
+    handleListObjectsV1(req, { bucket }, organizationId),
+  copyObject: (req: Request, bucket: string, organizationId: string) =>
+    handleCopyObjectV1(req, { bucket }, organizationId),
+  deleteObject: (req: Request, bucket: string, key: string, organizationId: string) =>
+    handleDeleteObjectV1(req, { bucket, key }, organizationId),
+  downloadObject: (req: Request, bucket: string, key: string, organizationId: string) =>
+    handleDownloadObjectV1(req, { bucket, key }, organizationId),
 } satisfies BucketHandlers);
 
 /**
@@ -63,6 +67,13 @@ export const orpcHandler = new RPCHandler(router);
  */
 export const handleRpc = async (c: HonoContext) => {
   const request = c.req.raw;
+
+  // P3: resolve the session's organization BEFORE any procedure runs, so an
+  // unauthenticated or unmapped caller cannot reach a bucket at all.
+  const organizationId = await resolveAdminOrganizationId();
+  if (!organizationId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const rpcPath = request.url.replace(RPC_PREFIX, '');
   const result = await orpcHandler.handle(
     new Request(new URL(rpcPath, request.url).href, {
@@ -72,7 +83,7 @@ export const handleRpc = async (c: HonoContext) => {
       // A streamed body on a Web Request requires this.
       duplex: 'half',
     } as RequestInit),
-    { context: buildOrpcContext(c) },
+    { context: buildOrpcContext(c, organizationId) },
   );
   if (result.matched && result.response) return result.response;
   return c.notFound();
@@ -81,11 +92,17 @@ export const handleRpc = async (c: HonoContext) => {
 /**
  * Per-request context.
  *
- * `organizationId` and `role` are omitted on purpose — they arrive with P3's
- * tenancy work. A procedure reading one before then gets `undefined` and fails,
- * rather than silently acting on a global scope P3 would have to unwind.
+ * P3: `organizationId` is now required. It is resolved by the caller from the
+ * authenticated admin session's membership and threaded into every procedure,
+ * which is what scopes the bucket reads and writes the procedures delegate to
+ * in `web-api-controller.ts`. `role` still arrives with the two-layer role
+ * system.
+ *
+ * @param c - The Hono request context.
+ * @param organizationId - The authenticated caller's organization (UUID).
  */
-export const buildOrpcContext = (c: HonoContext): AppRouterContext => ({
+export const buildOrpcContext = (c: HonoContext, organizationId: string): AppRouterContext => ({
   headers: c.req.raw.headers,
   baseUrl: config.baseUrl,
+  organizationId,
 });

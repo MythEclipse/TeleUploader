@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IBucketRepository } from '../src/domain/ports/bucket-repository';
+
+const MOCK_ORG = 'org-a';
 
 const mockBuckets = [
   {
     id: 'uuid-1',
     name: 'test-bucket',
+    organizationId: MOCK_ORG,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
   },
@@ -13,16 +17,40 @@ let mockObjects: Record<string, unknown>[] = [];
 let mockPrefixes: string[] = [];
 
 vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
-  DrizzleBucketRepository: class {
-    list = () => Promise.resolve(mockBuckets);
-    findByName = (name: string) =>
-      Promise.resolve(mockBuckets.find((b) => b.name === name) || null);
-    create = (name: string) =>
-      Promise.resolve({ id: 'new-uuid', name, createdAt: new Date(), updatedAt: new Date() });
-    delete = () => Promise.resolve(true);
+  DrizzleBucketRepository: class implements IBucketRepository {
+    // `implements IBucketRepository` is deliberate: an untyped one-arg mock
+    // drops the organization argument in JavaScript and answers for every
+    // tenant, keeping the suite green while the real repository is broken.
+    list = (organizationId: string) =>
+      Promise.resolve(mockBuckets.filter((b) => b.organizationId === organizationId));
+    findByName = (name: string, organizationId: string) =>
+      Promise.resolve(
+        mockBuckets.find((b) => b.name === name && b.organizationId === organizationId) || null,
+      );
+    create = (name: string, organizationId: string) =>
+      Promise.resolve({
+        id: 'new-uuid',
+        name,
+        organizationId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    delete = (name: string, organizationId: string) =>
+      Promise.resolve(
+        mockBuckets.some((b) => b.name === name && b.organizationId === organizationId),
+      );
+    exists = (name: string, organizationId: string) =>
+      Promise.resolve(
+        mockBuckets.some((b) => b.name === name && b.organizationId === organizationId),
+      );
   },
 }));
 
+vi.mock('../src/infrastructure/persistence/repositories/organization-repository', () => ({
+  DrizzleOrganizationRepository: class {
+    findOrganizationIdByUserId = (userId: string) => Promise.resolve(userId ? 'org-a' : null);
+  },
+}));
 vi.mock('../src/infrastructure/persistence/repositories/file-repository', () => ({
   DrizzleFileRepository: class {
     findByBucketAndKey = () => Promise.resolve(null);

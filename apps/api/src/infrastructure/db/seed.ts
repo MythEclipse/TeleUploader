@@ -102,7 +102,9 @@ export const runSeed = async (): Promise<void> => {
     }
   } else {
     logger.warn(
-      'Seed: S3_ACCESS_KEY/S3_SECRET_KEY not both set — no credential seeded. Clients keep using the environment pair through the fallback path.',
+      'Seed: S3_ACCESS_KEY/S3_SECRET_KEY not both set — no credential seeded. ' +
+        'The S3 surface has NO environment fallback: it authenticates against s3_credentials only, ' +
+        'so until a credential is seeded no S3 client can authenticate.',
     );
   }
 };

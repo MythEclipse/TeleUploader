@@ -65,6 +65,22 @@ const authenticated = (handler: RawHandler): Handler =>
   adapt(requireAuth(handler as (req: Request) => Promise<Response>));
 
 /**
+ * `/rpc/*` behind the same admin auth as the REST writes.
+ *
+ * `handleRpc` takes a Hono context (oRPC needs the raw Request through it), so
+ * it cannot go through `authenticated`, which adapts to a raw handler. This
+ * applies the identical `requireAuth` check — unauthenticated callers get the
+ * same 401 body from the same middleware, rather than a bespoke second check
+ * that could drift from it.
+ */
+const rpcAuthenticated: Handler = async (c: Context) => {
+  const req = c.req.raw as Request & { params?: Record<string, string> };
+  req.params = { ...req.params, ...c.req.param() };
+  const guarded = requireAuth(async () => handleRpc(c));
+  return guarded(req);
+};
+
+/**
  * Generic CORS preflight for non-S3 API requests. S3 preflights are answered by
  * the S3 controller with its own XML CORS headers.
  */
@@ -79,7 +95,13 @@ const apiOptionsResponse = (): Response =>
     },
   });
 
-/** Dispatch an S3 request, bypassing rate limiting (Docker registry pushes). */
+/**
+ * Dispatch an S3 request, bypassing rate limiting (Docker registry pushes).
+ *
+ * `handleS3Request` resolves the caller's organization from the SigV4 access
+ * key itself, so nothing threads a tenant in from here — the key the request
+ * authenticated with IS the scope.
+ */
 const handleS3Direct = (req: Request): Promise<Response> =>
   handleS3Request(req, getS3RouteBucket(req));
 
@@ -115,7 +137,13 @@ export const createApp = (): Hono => {
   // position here is simply ahead of the wildcard routes. It serves the same
   // controllers, so both surfaces behave identically until P4 retires the REST
   // one along with home.html.
-  app.all('/rpc/*', handleRpc);
+  //
+  // P3: `/rpc/*` now sits behind the same admin auth as the REST writes. It
+  // previously had NO auth wrapper at all, so an unauthenticated caller could
+  // create and DELETE buckets through this prefix even though `POST`/`DELETE`
+  // `/api/v1/*` were protected. Scoping it to an organization without wrapping
+  // it would have replaced "anyone" with "any tenant" — still not a boundary.
+  app.all('/rpc/*', rpcAuthenticated);
 
   // ── Dashboard JSON API. GET public; writes require admin auth. ──────────
   app.get('/api/v1/*', adapt(handleWebApiV1));

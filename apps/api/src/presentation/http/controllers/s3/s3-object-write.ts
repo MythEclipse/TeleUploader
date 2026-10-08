@@ -83,11 +83,13 @@ export const handlePutObject = async (
   searchParams: URLSearchParams,
   headers: Record<string, string>,
   req: Request,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const bucketRecord = await resolveBucketOr404(
     bucketRepository,
     bucket,
+    organizationId,
     `/${bucket}/${key}`,
     reqId,
   );
@@ -101,7 +103,15 @@ export const handlePutObject = async (
   // Copy-object path
   const copySource = headers['x-amz-copy-source'];
   if (copySource) {
-    return handleCopyObject(bucket, key, copySource, headers, bucketRecord.id, reqId);
+    return handleCopyObject(
+      bucket,
+      key,
+      copySource,
+      headers,
+      bucketRecord.id,
+      organizationId,
+      reqId,
+    );
   }
 
   // Stream body to temp file — O(1) memory, safe for multi-GB blobs
@@ -282,6 +292,7 @@ export const handleCopyObject = async (
   rawCopySource: string,
   headers: Record<string, string>,
   destBucketId: string,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const copySource = decodeURIComponent(rawCopySource);
@@ -290,7 +301,7 @@ export const handleCopyObject = async (
   const sourceBucket = parts[0];
   const sourceKey = parts.slice(1).join('/');
 
-  const sourceBucketRecord = await bucketRepository.findByName(sourceBucket);
+  const sourceBucketRecord = await bucketRepository.findByName(sourceBucket, organizationId);
   if (!sourceBucketRecord)
     return s3ErrorResponse(
       'NoSuchBucket',
@@ -384,11 +395,13 @@ export const handleCopyObject = async (
 export const handleDeleteObject = async (
   bucket: string,
   key: string,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const bucketRecord = await resolveBucketOr404(
     bucketRepository,
     bucket,
+    organizationId,
     `/${bucket}/${key}`,
     reqId,
   );
@@ -414,9 +427,16 @@ export const handleDeleteObject = async (
 export const handleDeleteObjects = async (
   bucket: string,
   body: string,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(bucketRepository, bucket, `/${bucket}`, reqId);
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}`,
+    reqId,
+  );
   if (bucketRecord instanceof Response) return bucketRecord;
 
   const parsed = parseOrNull(DeleteObjectsBodySchema, parseDeleteObjectsBody(body));

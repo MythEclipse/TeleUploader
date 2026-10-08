@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../../infrastructure/file';
 import logger from '../../../infrastructure/observability/logger';
 import { buildTelegramFileUrl } from '../../../infrastructure/telegram/file-url';
 import { sanitizeFilenameHeader } from '../filename';
+import { resolveAdminOrganizationId } from './organization-resolver';
 
 /** Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
@@ -60,8 +61,8 @@ const jsonError = (error: string, status: number): Response => Response.json({ e
  *
  * @returns A JSON response with the bucket list.
  */
-export const handleListBucketsV1 = async (): Promise<Response> => {
-  const buckets = await bucketRepository.list();
+export const handleListBucketsV1 = async (organizationId: string): Promise<Response> => {
+  const buckets = await bucketRepository.list(organizationId);
   const result = await Promise.all(
     buckets.map(async (b) => ({
       id: b.id,
@@ -81,14 +82,17 @@ export const handleListBucketsV1 = async (): Promise<Response> => {
  * @param req - The incoming HTTP request with a JSON body containing `name`.
  * @returns A JSON response with the created bucket or an error.
  */
-export const handleCreateBucketV1 = async (req: Request): Promise<Response> => {
+export const handleCreateBucketV1 = async (
+  req: Request,
+  organizationId: string,
+): Promise<Response> => {
   const body = (await req.json()) as { name?: string };
   if (!body.name || !BucketNameSchema.safeParse(body.name).success) {
     return jsonError('Invalid bucket name. Use lowercase, 3-63 chars, no underscore', 400);
   }
-  const existing = await bucketRepository.findByName(body.name);
+  const existing = await bucketRepository.findByName(body.name, organizationId);
   if (existing) return jsonError('Bucket already exists', 409);
-  const bucket = await bucketRepository.create(body.name);
+  const bucket = await bucketRepository.create(body.name, organizationId);
   return json({ id: bucket.id, name: bucket.name }, 201);
 };
 
@@ -104,12 +108,13 @@ export const handleCreateBucketV1 = async (req: Request): Promise<Response> => {
 export const handleDeleteBucketV1 = async (
   _req: Request,
   params: RouteParams,
+  organizationId: string,
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!);
+  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
   const count = await fileRepository.countByBucket(bucket.id);
   if (count > 0) return jsonError('Bucket is not empty', 409);
-  await bucketRepository.delete(params.bucket!);
+  await bucketRepository.delete(params.bucket!, organizationId);
   return json({ success: true });
 };
 
@@ -122,8 +127,12 @@ export const handleDeleteBucketV1 = async (
  * @param params - Route parameters containing the bucket name.
  * @returns A JSON response with the object list.
  */
-export const handleListObjectsV1 = async (req: Request, params: RouteParams): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!);
+export const handleListObjectsV1 = async (
+  req: Request,
+  params: RouteParams,
+  organizationId: string,
+): Promise<Response> => {
+  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
 
   const url = new URL(req.url);
@@ -174,8 +183,9 @@ export const handleListObjectsV1 = async (req: Request, params: RouteParams): Pr
 export const handleUploadObjectV1 = async (
   req: Request,
   params: RouteParams,
+  organizationId: string,
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!);
+  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
 
   const formData = await req.formData();
@@ -223,8 +233,9 @@ export const handleUploadObjectV1 = async (
 export const handleDeleteObjectV1 = async (
   _req: Request,
   params: RouteParams,
+  organizationId: string,
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!);
+  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
   await fileRepository.softDelete(bucket.id, params.key!);
   return json({ success: true });
@@ -244,8 +255,9 @@ export const handleDeleteObjectV1 = async (
 export const handleDownloadObjectV1 = async (
   _req: Request,
   params: RouteParams,
+  organizationId: string,
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!);
+  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
 
   const file = await fileRepository.findByBucketAndKey(bucket.id, params.key!);
@@ -318,7 +330,11 @@ export const handleDownloadObjectV1 = async (
  * @param params - Route parameters containing the source bucket name.
  * @returns A JSON response with the copy result, or an error.
  */
-export const handleCopyObjectV1 = async (req: Request, params: RouteParams): Promise<Response> => {
+export const handleCopyObjectV1 = async (
+  req: Request,
+  params: RouteParams,
+  organizationId: string,
+): Promise<Response> => {
   const body = (await req.json()) as {
     sourceKey?: string;
     destBucket?: string;
@@ -330,8 +346,8 @@ export const handleCopyObjectV1 = async (req: Request, params: RouteParams): Pro
   }
 
   const destBucketName = body.destBucket || params.bucket!;
-  const sourceBucket = await bucketRepository.findByName(params.bucket!);
-  const destBucket = await bucketRepository.findByName(destBucketName);
+  const sourceBucket = await bucketRepository.findByName(params.bucket!, organizationId);
+  const destBucket = await bucketRepository.findByName(destBucketName, organizationId);
 
   if (!sourceBucket || !destBucket) return jsonError('Bucket not found', 404);
 
@@ -381,20 +397,28 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
   const parts = pathname.split('/').filter(Boolean);
   const method = req.method;
 
+  // P3: every route below is scoped to this one organization. Resolved once,
+  // before any bucket is touched. A missing membership is NOT treated as
+  // global access — it is denied, or the surface would be unscoped by default.
+  const organizationId = await resolveAdminOrganizationId();
+  if (!organizationId) {
+    return jsonError('No organization for the authenticated session', 403);
+  }
+
   try {
     // GET /api/v1/buckets
     if (parts.length === 1 && parts[0] === 'buckets' && method === 'GET') {
-      return await handleListBucketsV1();
+      return await handleListBucketsV1(organizationId);
     }
 
     // POST /api/v1/buckets
     if (parts.length === 1 && parts[0] === 'buckets' && method === 'POST') {
-      return await handleCreateBucketV1(req);
+      return await handleCreateBucketV1(req, organizationId);
     }
 
     // DELETE /api/v1/buckets/{name}
     if (parts.length === 2 && parts[0] === 'buckets' && method === 'DELETE') {
-      return await handleDeleteBucketV1(req, { bucket: parts[1] });
+      return await handleDeleteBucketV1(req, { bucket: parts[1] }, organizationId);
     }
 
     // GET /api/v1/buckets/{name}/objects
@@ -404,7 +428,7 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
       parts[2] === 'objects' &&
       method === 'GET'
     ) {
-      return await handleListObjectsV1(req, { bucket: parts[1] });
+      return await handleListObjectsV1(req, { bucket: parts[1] }, organizationId);
     }
 
     // POST /api/v1/buckets/{name}/upload
@@ -414,19 +438,19 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
       parts[2] === 'upload' &&
       method === 'POST'
     ) {
-      return await handleUploadObjectV1(req, { bucket: parts[1] });
+      return await handleUploadObjectV1(req, { bucket: parts[1] }, organizationId);
     }
 
     // POST /api/v1/buckets/{name}/copy
     if (parts.length === 3 && parts[0] === 'buckets' && parts[2] === 'copy' && method === 'POST') {
-      return await handleCopyObjectV1(req, { bucket: parts[1] });
+      return await handleCopyObjectV1(req, { bucket: parts[1] }, organizationId);
     }
 
     // DELETE /api/v1/buckets/{name}/{key+}
     if (parts.length >= 3 && parts[0] === 'buckets' && method === 'DELETE') {
       const bucket = parts[1];
       const key = parts.slice(2).join('/');
-      return await handleDeleteObjectV1(req, { bucket, key });
+      return await handleDeleteObjectV1(req, { bucket, key }, organizationId);
     }
 
     // GET /api/v1/buckets/{name}/download/{key+}
@@ -438,7 +462,7 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
     ) {
       const bucket = parts[1];
       const key = parts.slice(3).join('/');
-      return await handleDownloadObjectV1(req, { bucket, key });
+      return await handleDownloadObjectV1(req, { bucket, key }, organizationId);
     }
 
     return jsonError('Not found', 404);

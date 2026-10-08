@@ -12,8 +12,11 @@ import { startBot } from './presentation/telegram/handler';
 // to a warning. That made the schema unreproducible: the DDL was not
 // version-controlled, a failed migration was invisible at startup, and this file
 // plus schema.sql were two sources of truth. `pnpm db:migrate` (migrate.ts, using
-// drizzle's migrator) is now the only migration path, and deploy.sh runs it over
-// SSH before restarting the unit.
+// drizzle's migrator) is now the only migration path.
+//
+// NOT YET WIRED INTO DEPLOY. As of P3b, deploy.sh still does not invoke
+// migrate.js, so a deploy does NOT apply migrations — this comment previously
+// claimed it did, which is how the P5 gap stayed hidden. Fixing that is P5.
 
 const app = createApp();
 

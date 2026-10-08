@@ -13,6 +13,13 @@ describe('S3 Auth (SigV4)', () => {
     isS3Request = auth.isS3Request;
   });
 
+  /**
+   * Fixed pair resolver. These tests are about SigV4 arithmetic, not tenancy;
+   * credential *lookup* is covered by test/s3-credential-lookup.test.ts.
+   */
+  const fixedPair = (accessKey: string, secret: string) => async (key: string) =>
+    key === accessKey ? secret : null;
+
   it('detects S3 requests by Authorization header', () => {
     expect(isS3Request({ authorization: 'AWS4-HMAC-SHA256 Credential=...' })).toBe(true);
     expect(isS3Request({ authorization: 'Bearer token123' })).toBe(false);
@@ -25,8 +32,7 @@ describe('S3 Auth (SigV4)', () => {
       'http://localhost/',
       {},
       null,
-      'key',
-      'secret',
+      fixedPair('key', 'secret'),
       'us-east-1',
     );
     expect(result.isValid).toBe(false);
@@ -45,8 +51,7 @@ describe('S3 Auth (SigV4)', () => {
       'http://localhost/',
       headers,
       null,
-      'correctkey',
-      'secret',
+      fixedPair('correctkey', 'secret'),
       'us-east-1',
     );
     expect(result.isValid).toBe(false);
@@ -65,8 +70,7 @@ describe('S3 Auth (SigV4)', () => {
       'http://localhost/',
       headers,
       null,
-      'testkey',
-      'secret',
+      fixedPair('testkey', 'secret'),
       'us-east-1',
     );
     expect(result.isValid).toBe(false);
@@ -78,8 +82,7 @@ describe('S3 Auth (SigV4)', () => {
       url: 'http://localhost/bucket/key',
       method: 'GET',
       headers: { host: 'localhost' },
-      s3AccessKey: 'key',
-      s3SecretKey: 'secret',
+      resolveSecret: fixedPair('key', 'secret'),
       region: 'us-east-1',
     });
     expect(result.isValid).toBe(false);
@@ -142,8 +145,7 @@ describe('S3 Auth (SigV4)', () => {
       url: `https://${host}${path}?${sp.toString()}`,
       method: 'GET',
       headers: { host },
-      s3AccessKey: accessKey,
-      s3SecretKey: secret,
+      resolveSecret: fixedPair(accessKey, secret),
       region: 'us-east-1',
       now: new Date('2026-07-07T12:05:00Z'),
     });
@@ -156,8 +158,7 @@ describe('S3 Auth (SigV4)', () => {
       url: 'https://wrong.example.test/bucket/key.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=filedrop-admin%2F20260707%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260707T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=00',
       method: 'GET',
       headers: { host: 'upload.example.test' },
-      s3AccessKey: 'filedrop-admin',
-      s3SecretKey: 'unit-test-secret',
+      resolveSecret: fixedPair('filedrop-admin', 'unit-test-secret'),
       region: 'us-east-1',
       now: new Date('2026-07-07T12:05:00Z'),
     });

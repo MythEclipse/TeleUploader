@@ -1,4 +1,4 @@
-import { config } from '../../../../env';
+import { s3CredentialRepository } from '../../../../infrastructure/di';
 import { getErrorMessage } from '../../../../infrastructure/file';
 import logger from '../../../../infrastructure/observability/logger';
 import { verifyPresignedUrl, verifySignature } from '../../../s3/auth';
@@ -68,6 +68,50 @@ export const headersToRecord = (req: Request): Record<string, string> => {
 };
 
 /**
+ * Maps a SigV4 access key to the organization that owns it.
+ *
+ * This is the tenancy root of the S3 surface: every bucket resolution below is
+ * scoped by what this returns, so a key that resolves to nothing can reach no
+ * bucket at all.
+ */
+export type S3OrganizationResolver = (accessKey: string) => Promise<string | null>;
+
+/**
+ * Default resolver — reads `s3_credentials`.
+ *
+ * Returns the credential's organization, or `null` for an unknown key. There is
+ * deliberately no environment fallback: seed.ts carries the env pair into
+ * `s3_credentials`, so the table is the single source of truth.
+ */
+export const defaultOrganizationResolver: S3OrganizationResolver = async (accessKey) => {
+  const credential = await s3CredentialRepository.findByAccessKey(accessKey);
+  if (!credential) return null;
+  // Bookkeeping only — never let it fail a valid request.
+  await s3CredentialRepository.touchLastUsed(credential.id);
+  return credential.organizationId;
+};
+
+/**
+ * Builds the secret resolver handed to the SigV4 verifiers.
+ *
+ * Memoized per request so a single request never issues two lookups for the
+ * same key, and so the verifier's secret and the router's organization come
+ * from the same row rather than two reads that could disagree.
+ */
+const makeSecretResolver = (): ((accessKey: string) => Promise<string | null>) => {
+  const cache = new Map<string, Promise<string | null>>();
+  return (accessKey: string) => {
+    const cached = cache.get(accessKey);
+    if (cached) return cached;
+    const lookup = s3CredentialRepository
+      .findByAccessKey(accessKey)
+      .then((credential) => credential?.secretKey ?? null);
+    cache.set(accessKey, lookup);
+    return lookup;
+  };
+};
+
+/**
  * Main S3 request dispatcher.
  *
  * Parses the request (method, path, query parameters, headers), validates
@@ -81,11 +125,17 @@ export const headersToRecord = (req: Request): Record<string, string> => {
  * @param virtualHostBucket - When the request was routed through a
  *                            virtual-hosted domain, the extracted bucket
  *                            name; otherwise `null`.
+ * @param resolveOrganization - Maps a verified SigV4 access key to its owning
+ *                              organization UUID. Injected so the S3 surface
+ *                              has exactly one tenancy seam; every handler
+ *                              dispatched below is scoped by whatever this
+ *                              returns.
  * @returns An S3-formatted Response.
  */
 export const handleS3Request = async (
   req: Request,
   virtualHostBucket: string | null = null,
+  resolveOrganization: S3OrganizationResolver = defaultOrganizationResolver,
 ): Promise<Response> => {
   const method = req.method;
   const url = new URL(req.url);
@@ -105,26 +155,20 @@ export const handleS3Request = async (
     return s3OptionsResponse();
   }
 
-  // SigV4 authentication
+  // SigV4 authentication. The secret is resolved per access key instead of
+  // being read from the environment pair, so a key that exists only in
+  // `s3_credentials` authenticates and carries its organization.
   const isPresigned = searchParams.has('X-Amz-Signature');
+  const resolveSecret = makeSecretResolver();
   const authResult = isPresigned
     ? await verifyPresignedUrl({
         url: req.url,
         method,
         headers,
-        s3AccessKey: config.s3AccessKey,
-        s3SecretKey: config.s3SecretKey,
+        resolveSecret,
         region: REGION,
       })
-    : await verifySignature(
-        method,
-        req.url,
-        headers,
-        null,
-        config.s3AccessKey,
-        config.s3SecretKey,
-        REGION,
-      );
+    : await verifySignature(method, req.url, headers, null, resolveSecret, REGION);
 
   if (!authResult.isValid) {
     const status = authResult.errorCode === 'NotImplemented' ? 501 : 403;
@@ -143,11 +187,21 @@ export const handleS3Request = async (
     );
   }
 
+  // Resolve the caller's organization from the access key the request
+  // actually authenticated with. A key the credential store does not know
+  // cannot be mapped to a tenant, so the request is denied — 403 AccessDenied,
+  // never a 500.
+  const accessKey = authResult.credential?.accessKey;
+  const organizationId = accessKey ? await resolveOrganization(accessKey) : null;
+  if (!organizationId) {
+    return s3ErrorResponse('AccessDenied', 'Authentication required', pathname, 403, reqId);
+  }
+
   try {
     // ── Root: ListBuckets / Service-level operations ──
     if (!bucket) {
       if (method === 'GET') {
-        return handleListBuckets(reqId);
+        return handleListBuckets(organizationId, reqId);
       }
       return s3ErrorResponse(
         'MethodNotAllowed',
@@ -162,24 +216,24 @@ export const handleS3Request = async (
     if (!key) {
       if (method === 'GET') {
         if (searchParams.has('versioning')) {
-          return handleGetBucketVersioning(bucket, reqId);
+          return handleGetBucketVersioning(bucket, organizationId, reqId);
         }
         if (searchParams.has('uploads')) {
-          return handleListMultipartUploads(bucket, searchParams, reqId);
+          return handleListMultipartUploads(bucket, searchParams, organizationId, reqId);
         }
         const listType = searchParams.get('list-type');
         if (listType === '2') {
-          return handleListObjectsV2(bucket, searchParams, reqId);
+          return handleListObjectsV2(bucket, searchParams, organizationId, reqId);
         }
-        return handleListObjectsV1(bucket, searchParams, reqId);
+        return handleListObjectsV1(bucket, searchParams, organizationId, reqId);
       }
-      if (method === 'PUT') return handleCreateBucket(bucket, reqId);
-      if (method === 'HEAD') return handleHeadBucket(bucket, reqId);
-      if (method === 'DELETE') return handleDeleteBucket(bucket, reqId);
+      if (method === 'PUT') return handleCreateBucket(bucket, organizationId, reqId);
+      if (method === 'HEAD') return handleHeadBucket(bucket, organizationId, reqId);
+      if (method === 'DELETE') return handleDeleteBucket(bucket, organizationId, reqId);
       if (method === 'POST') {
         if (searchParams.has('delete')) {
           const body = await req.text();
-          return handleDeleteObjects(bucket, body, reqId);
+          return handleDeleteObjects(bucket, body, organizationId, reqId);
         }
         if (searchParams.has('tagging')) {
           return s3Response(null, 204, reqId);
@@ -196,27 +250,37 @@ export const handleS3Request = async (
 
     // ── Object-level: Multipart operations ──
     if (searchParams.has('uploads') && method === 'POST') {
-      return handleCreateMultipartUpload(bucket, key, searchParams, headers, reqId);
+      return handleCreateMultipartUpload(
+        bucket,
+        key,
+        searchParams,
+        headers,
+        organizationId,
+        accessKey!,
+        reqId,
+      );
     }
     if (searchParams.has('uploadId') && searchParams.has('partNumber') && method === 'PUT') {
-      return handleUploadPart(bucket, key, searchParams, req, reqId);
+      return handleUploadPart(bucket, key, searchParams, req, organizationId, reqId);
     }
     if (searchParams.has('uploadId') && method === 'POST') {
       const body = await req.text();
-      return handleCompleteMultipartUpload(bucket, key, searchParams, body, reqId);
+      return handleCompleteMultipartUpload(bucket, key, searchParams, body, organizationId, reqId);
     }
     if (searchParams.has('uploadId') && method === 'DELETE') {
-      return handleAbortMultipartUpload(bucket, key, searchParams, reqId);
+      return handleAbortMultipartUpload(bucket, key, searchParams, organizationId, reqId);
     }
     if (searchParams.has('uploadId') && method === 'GET') {
-      return handleListParts(bucket, key, searchParams, reqId);
+      return handleListParts(bucket, key, searchParams, organizationId, reqId);
     }
 
     // ── Standard object operations ──
-    if (method === 'GET') return handleGetObject(bucket, key, searchParams, headers, reqId);
-    if (method === 'HEAD') return handleHeadObject(bucket, key, headers, reqId);
-    if (method === 'PUT') return handlePutObject(bucket, key, searchParams, headers, req, reqId);
-    if (method === 'DELETE') return handleDeleteObject(bucket, key, reqId);
+    if (method === 'GET')
+      return handleGetObject(bucket, key, searchParams, headers, organizationId, reqId);
+    if (method === 'HEAD') return handleHeadObject(bucket, key, headers, organizationId, reqId);
+    if (method === 'PUT')
+      return handlePutObject(bucket, key, searchParams, headers, req, organizationId, reqId);
+    if (method === 'DELETE') return handleDeleteObject(bucket, key, organizationId, reqId);
 
     return s3ErrorResponse(
       'MethodNotAllowed',

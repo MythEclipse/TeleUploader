@@ -47,11 +47,14 @@ export const handleCreateMultipartUpload = async (
   key: string,
   _searchParams: URLSearchParams,
   headers: Record<string, string>,
+  organizationId: string,
+  accessKey: string,
   reqId: string,
 ): Promise<Response> => {
   const bucketRecord = await resolveBucketOr404(
     bucketRepository,
     bucket,
+    organizationId,
     `/${bucket}/${key}`,
     reqId,
   );
@@ -62,7 +65,11 @@ export const handleCreateMultipartUpload = async (
   // complete step also falls back to 'application/octet-stream' since the
   // in-progress upload record carries no contentType field.
   void headers;
-  const uploadId = await (multipartRepository as MultipartRepo).create(bucketRecord.id, key, 's3');
+  const uploadId = await (multipartRepository as MultipartRepo).create(
+    bucketRecord.id,
+    key,
+    accessKey,
+  );
 
   const xml = initiateMultipartUploadXml(bucket, key, uploadId);
   return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
@@ -85,6 +92,7 @@ export const handleUploadPart = async (
   key: string,
   searchParams: URLSearchParams,
   req: Request,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const uploadId = searchParams.get('uploadId')!;
@@ -101,10 +109,23 @@ export const handleUploadPart = async (
     );
   }
 
-  // H5: Verify both upload exists AND key matches.
+  // P3: resolve the bucket in the caller's org FIRST. Without this the guard
+  // below has no bucketId to compare against, and a wholly fictional bucket
+  // path would still be accepted.
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}/${key}`,
+    reqId,
+  );
+  if (bucketRecord instanceof Response) return bucketRecord;
+
+  // H5: Verify the upload exists, belongs to THIS bucket, AND the key matches.
   const multipart = await requireUploadOr404(
     multipartRepository,
     uploadId,
+    bucketRecord.id,
     `/${bucket}/${key}`,
     reqId,
     key,
@@ -205,13 +226,26 @@ export const handleCompleteMultipartUpload = async (
   key: string,
   searchParams: URLSearchParams,
   body: string,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const uploadId = searchParams.get('uploadId')!;
-  // H5: Verify both upload exists AND key matches (consistent with handleUploadPart)
+
+  // P3: scope to the caller's org before touching the upload (see handleUploadPart).
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}/${key}`,
+    reqId,
+  );
+  if (bucketRecord instanceof Response) return bucketRecord;
+
+  // H5: Verify the upload exists, belongs to THIS bucket, AND the key matches.
   const multipart = await requireUploadOr404(
     multipartRepository,
     uploadId,
+    bucketRecord.id,
     `/${bucket}/${key}`,
     reqId,
     key,
@@ -327,9 +361,16 @@ export const handleCompleteMultipartUpload = async (
 export const handleListMultipartUploads = async (
   bucket: string,
   searchParams: URLSearchParams,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(bucketRepository, bucket, `/${bucket}`, reqId);
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}`,
+    reqId,
+  );
   if (bucketRecord instanceof Response) return bucketRecord;
 
   const maxUploads = clampMaxKeys(searchParams.get('max-uploads'));
@@ -370,12 +411,26 @@ export const handleAbortMultipartUpload = async (
   bucket: string,
   key: string,
   searchParams: URLSearchParams,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const uploadId = searchParams.get('uploadId')!;
+
+  // P3: an upload in another org's bucket has a different bucketId, so this
+  // 404s instead of aborting someone else's row.
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}/${key}`,
+    reqId,
+  );
+  if (bucketRecord instanceof Response) return bucketRecord;
+
   const multipart = await requireUploadOr404(
     multipartRepository,
     uploadId,
+    bucketRecord.id,
     `/${bucket}/${key}`,
     reqId,
   );
@@ -400,12 +455,25 @@ export const handleListParts = async (
   bucket: string,
   key: string,
   searchParams: URLSearchParams,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
   const uploadId = searchParams.get('uploadId')!;
+
+  // P3: scope to the caller's org before reading any part (see handleUploadPart).
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}/${key}`,
+    reqId,
+  );
+  if (bucketRecord instanceof Response) return bucketRecord;
+
   const multipart = await requireUploadOr404(
     multipartRepository,
     uploadId,
+    bucketRecord.id,
     `/${bucket}/${key}`,
     reqId,
   );

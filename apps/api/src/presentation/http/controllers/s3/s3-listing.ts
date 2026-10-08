@@ -39,9 +39,16 @@ export const mapFileToListEntry = (file: FileEntity): S3ListEntry => ({
 export const handleListObjectsV1 = async (
   bucket: string,
   searchParams: URLSearchParams,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(bucketRepository, bucket, `/${bucket}`, reqId);
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}`,
+    reqId,
+  );
   if (bucketRecord instanceof Response) return bucketRecord;
 
   const prefix = searchParams.get('prefix') || '';
@@ -97,9 +104,16 @@ export const handleListObjectsV1 = async (
 export const handleListObjectsV2 = async (
   bucket: string,
   searchParams: URLSearchParams,
+  organizationId: string,
   reqId: string,
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(bucketRepository, bucket, `/${bucket}`, reqId);
+  const bucketRecord = await resolveBucketOr404(
+    bucketRepository,
+    bucket,
+    organizationId,
+    `/${bucket}`,
+    reqId,
+  );
   if (bucketRecord instanceof Response) return bucketRecord;
 
   const prefix = searchParams.get('prefix') || '';

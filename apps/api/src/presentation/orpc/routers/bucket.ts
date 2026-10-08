@@ -38,13 +38,23 @@ const objectPath = z.string().min(1).describe('Object key within the bucket');
 
 /** The controller functions this router delegates to. */
 export interface BucketHandlers {
-  listBuckets: () => Promise<Response>;
-  createBucket: (req: Request) => Promise<Response>;
-  deleteBucket: (req: Request, bucket: string) => Promise<Response>;
-  listObjects: (req: Request, bucket: string) => Promise<Response>;
-  copyObject: (req: Request, bucket: string) => Promise<Response>;
-  deleteObject: (req: Request, bucket: string, key: string) => Promise<Response>;
-  downloadObject: (req: Request, bucket: string, key: string) => Promise<Response>;
+  listBuckets: (organizationId: string) => Promise<Response>;
+  createBucket: (req: Request, organizationId: string) => Promise<Response>;
+  deleteBucket: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+  listObjects: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+  copyObject: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+  deleteObject: (
+    req: Request,
+    bucket: string,
+    key: string,
+    organizationId: string,
+  ) => Promise<Response>;
+  downloadObject: (
+    req: Request,
+    bucket: string,
+    key: string,
+    organizationId: string,
+  ) => Promise<Response>;
 }
 
 /**
@@ -161,8 +171,8 @@ const jsonPayload = async <T>(res: Response): Promise<T> => {
  */
 export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): BucketRouter =>
   base.bucket.router({
-    listBuckets: base.bucket.listBuckets.handler(async () =>
-      jsonPayload(await handlers.listBuckets()),
+    listBuckets: base.bucket.listBuckets.handler(async ({ context }) =>
+      jsonPayload(await handlers.listBuckets(context.organizationId)),
     ),
 
     createBucket: base.bucket.createBucket.handler(async ({ input, context }) =>
@@ -173,6 +183,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ name: input.name }),
           }),
+          context.organizationId,
         ),
       ),
     ),
@@ -184,6 +195,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
             method: 'DELETE',
           }),
           input.bucket,
+          context.organizationId,
         ),
       ),
     ),
@@ -199,6 +211,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
         await handlers.listObjects(
           bucketRequest(context, qs ? `${path}?${qs}` : path),
           input.bucket,
+          context.organizationId,
         ),
       );
     }),
@@ -216,6 +229,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
             }),
           }),
           input.bucket,
+          context.organizationId,
         ),
       ),
     ),
@@ -230,6 +244,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
           ),
           input.bucket,
           input.key,
+          context.organizationId,
         ),
       ),
     ),
@@ -243,6 +258,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
           ),
           input.bucket,
           input.key,
+          context.organizationId,
         ),
       ),
     ),
