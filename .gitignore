@@ -80,3 +80,6 @@ AGENTS.md
 .claude/worktrees/
 .claude/history.jsonl
 .claude/*.db
+
+# Agent scratch probes
+apps/api/.probe-conv/
