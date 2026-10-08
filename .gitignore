@@ -32,6 +32,10 @@ S3_GUIDE.md
 .cache
 *.tsbuildinfo
 
+# moon toolchain cache — .moon/{workspace,toolchain}.yml and moon.yml ARE tracked
+.moon/cache
+.moon/docker
+
 # IntelliJ based IDEs
 .idea
 

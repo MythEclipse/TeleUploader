@@ -1,0 +1,11 @@
+$schema: 'https://moonrepo.dev/schemas/toolchain.json'
+
+# Pinned to the Node major that CI already uses (deploy.yml: node-version: 24).
+# addMsw keeps moon from injecting its own Node provisioning on top of that.
+node:
+  version: '24.3.0'
+  addMsw: false
+
+pnpm:
+  addMsw: false
+  syncToolchainConfig: true

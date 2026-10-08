@@ -1,0 +1,14 @@
+$schema: 'https://moonrepo.dev/schemas/workspace.json'
+
+# P1a: the package is still at the repo root, so the glob is the repo itself.
+# P1b moves the package into apps/api and switches this to `globs: ['apps/*']`.
+#
+# Note: in moon v2 the workspace does NOT define projects inline — each project is
+# declared by its own moon.yml (via the `id` field). Listing them here is a parse error.
+projects:
+  globs:
+    - '.'
+
+vcs:
+  provider: 'other'
+  defaultBranch: 'main'

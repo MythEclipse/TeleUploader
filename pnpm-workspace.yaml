@@ -1,0 +1,12 @@
+# pnpm workspace root for the kana migration (P1a).
+#
+# The package lives at the repo ROOT today, not in apps/. That is deliberate: the
+# workspace config is proven against the *unchanged* source tree first, so a bad moon
+# config is distinguishable from a bad file move. P1b moves the package into apps/api
+# and switches this to `packages: ["apps/*"]`.
+packages: []
+
+# Moved here from the root package.json so pnpm does not block esbuild's postinstall
+# (the bundler and tsx both need its platform binary).
+onlyBuiltDependencies:
+  - esbuild
