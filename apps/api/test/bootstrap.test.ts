@@ -2,21 +2,21 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type MockServer = {
   port?: number;
-  routes?: Record<string, unknown>;
-  stop: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
 };
 
-const mockServe = vi.fn(
-  (options: { port?: number; routes?: Record<string, unknown> }): MockServer => {
-    return {
-      port: options.port,
-      routes: options.routes,
-      stop: vi.fn(),
-    };
-  },
-);
+// P2b: the server is now Hono's `@hono/node-server` adapter, which receives
+// `{ fetch, port }` instead of the shim's `{ port, routes, fetch }`. Route
+// ordering is asserted in hono-routing.test.ts against a live Hono app; here we
+// only assert that the process boots and wires the adapter correctly.
+const mockServe = vi.fn((options: { port?: number; fetch: unknown }): MockServer => {
+  return {
+    port: options.port,
+    close: vi.fn(),
+  };
+});
 
-vi.mock('../src/infrastructure/http/serve', () => ({
+vi.mock('@hono/node-server', () => ({
   serve: mockServe,
 }));
 
@@ -103,42 +103,27 @@ describe('Bootstrap Server', () => {
 
     const serveCallArgs = mockServe.mock.calls[0][0];
     expect(serveCallArgs).toHaveProperty('port');
-    expect(serveCallArgs).toHaveProperty('routes');
-    expect(serveCallArgs.routes).toBeDefined();
-    expect(serveCallArgs.routes).toHaveProperty('/api/upload');
-    expect(serveCallArgs.routes).toHaveProperty('/f/:public_id');
-    expect(serveCallArgs.routes).toHaveProperty('/file/:public_id/info');
-    expect(serveCallArgs.routes).toHaveProperty('/health');
-    expect(serveCallArgs.routes).toHaveProperty('/docs');
-    expect(serveCallArgs.routes).toHaveProperty(['/swagger.json']);
-    expect(serveCallArgs.routes).toHaveProperty('/');
-    expect(serveCallArgs.routes).toHaveProperty('/api/v1/auth/login');
-    expect(serveCallArgs.routes).toHaveProperty('/api/v1/auth/logout');
-    expect(serveCallArgs.routes).toHaveProperty('/api/v1/auth/me');
-    expect(serveCallArgs.routes).toHaveProperty('/api/v1/*');
+    expect(typeof serveCallArgs.fetch).toBe('function');
 
-    const uploadRoute = serveCallArgs.routes?.['/api/upload'] as { POST: RouteHandler };
-    const res = await uploadRoute.POST(
+    // Drive the real Hono app the adapter was handed, rather than reaching into a
+    // route table: this is the handler the Node server actually calls.
+    const fetchHandler = serveCallArgs.fetch as (req: Request) => Promise<Response>;
+
+    const uploadRes = await fetchHandler(
       new Request('http://localhost/api/upload', { method: 'POST' }),
     );
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(uploadRes.status).toBe(200);
+    expect(await uploadRes.json()).toEqual({ ok: true });
     expect(mockHandleUpload).toHaveBeenCalledTimes(1);
 
-    // GET /api/v1/* is intentionally public (read endpoints need no auth) —
+    // GET /api/v1/* is intentionally public (read endpoints need no auth) --
     // it passes through to the raw handler (stubbed here to 404).
-    const webApiRoute = serveCallArgs.routes?.['/api/v1/*'] as {
-      GET: RouteHandler;
-      POST: RouteHandler;
-    };
-    const publicRes = await webApiRoute.GET(new Request('http://localhost/api/v1/files'));
-
+    const publicRes = await fetchHandler(new Request('http://localhost/api/v1/files'));
     expect(publicRes.status).toBe(404);
     expect(await publicRes.json()).toEqual({ error: 'Not Found' });
 
-    // Write endpoints are auth-guarded — POST goes through requireAuth (401 here).
-    const protectedRes = await webApiRoute.POST(
+    // Write endpoints are auth-guarded -- POST goes through requireAuth (401 here).
+    const protectedRes = await fetchHandler(
       new Request('http://localhost/api/v1/files', { method: 'POST' }),
     );
 

@@ -10,7 +10,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "db:migrate": "node dist/migrate.js",
     "test": "pnpm run test:unit",
-    "test:unit": "vitest run --config vitest.config.ts test/rateLimit.test.ts test/file.test.ts test/files.test.ts test/health.test.ts test/db.test.ts test/bot-pool.test.ts test/bot.test.ts test/bootstrap.test.ts test/swagger.test.ts test/auth.test.ts test/auth-routes.test.ts test/validation.test.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/chunked-storage.test.ts test/temp-stream.test.ts test/zip.test.ts test/web-api.test.ts test/env.test.ts test/home.test.ts test/deploy-config.test.ts test/public-readonly-routes.test.ts",
+    "test:unit": "vitest run --config vitest.config.ts test/rateLimit.test.ts test/file.test.ts test/files.test.ts test/health.test.ts test/db.test.ts test/bot-pool.test.ts test/bot.test.ts test/bootstrap.test.ts test/swagger.test.ts test/auth.test.ts test/auth-routes.test.ts test/validation.test.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/chunked-storage.test.ts test/temp-stream.test.ts test/zip.test.ts test/web-api.test.ts test/hono-routing.test.ts test/env.test.ts test/home.test.ts test/deploy-config.test.ts test/public-readonly-routes.test.ts",
     "test:quarantine": "vitest run --config vitest.quarantine.config.ts test/telegram.test.ts test/upload.test.ts test/s3-docker-registry.test.ts test/s3-sdk.test.ts test/production-e2e.test.ts",
     "test:s3-auth": "vitest run --config vitest.config.ts test/s3-auth.test.ts",
     "test:s3-ops": "vitest run --config vitest.config.ts test/s3-operations.test.ts",
@@ -26,8 +26,10 @@
     ]
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.4",
     "@prisma/engines": "^7.8.0",
     "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.13",
     "nanoid": "^6.0.1",
     "p-queue": "^9.3.0",
     "pg": "^8.11.0",

@@ -1,12 +1,10 @@
+import { serve } from '@hono/node-server';
 import { config } from './env';
 import { fileInfoCache } from './infrastructure/cache/index';
-import { serve } from './infrastructure/http/serve';
 import { logger } from './infrastructure/observability/logger';
 import { metricsCollector } from './infrastructure/observability/metrics';
-import { handleS3Request } from './presentation/http/controllers/s3-controller';
+import { createApp } from './presentation/http/app';
 import { cleanupRateLimitCache } from './presentation/http/middleware/rate-limit';
-import { routes } from './presentation/http/routes/index';
-import { getS3RouteBucket, shouldHandleS3 } from './presentation/http/s3-detection';
 import { startBot } from './presentation/telegram/handler';
 
 // ─── Migrations no longer run at boot (P2a) ─────────────────────────────────
@@ -17,16 +15,14 @@ import { startBot } from './presentation/telegram/handler';
 // drizzle's migrator) is now the only migration path, and deploy.sh runs it over
 // SSH before restarting the unit.
 
+const app = createApp();
+
 const server = serve({
+  fetch: app.fetch,
   port: config.port,
-  routes,
-  fetch: async (req: Request) => {
-    const headers = Object.fromEntries(req.headers);
-    if (shouldHandleS3(req, headers)) {
-      return handleS3Request(req, getS3RouteBucket(req));
-    }
-    return new Response('Not Found', { status: 404 });
-  },
+  // closeAllConnections matters on shutdown: without it, keep-alive sockets hold
+  // the server open past `systemctl restart`.
+  overrideGlobalObjects: false,
 });
 
 const bot = await startBot();
@@ -37,7 +33,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info('Graceful shutdown signal received', { signal });
 
   logger.info('Closing HTTP server — no new requests accepted');
-  server.stop();
+  server.close();
 
   logger.info('Stopping Telegram bot');
   bot.stop(signal);
