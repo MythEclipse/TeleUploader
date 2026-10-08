@@ -96,12 +96,29 @@ export const files = pgTable(
 );
 
 /** S3-compatible buckets. `name` is globally UNIQUE today; P3 makes it per-org. */
-export const buckets = pgTable('buckets', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 63 }).unique().notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
+/**
+ * S3-compatible buckets.
+ *
+ * P3: `name` is no longer globally unique — it is unique per organization
+ * (`buckets_organization_id_name_unique`), so two orgs can own a bucket with the
+ * same name. That means the `.unique()` on `name` above is GONE, and callers must
+ * pass an organization: `findByName(name, organizationId)`.
+ *
+ * Do not re-add `.unique()` to `name` — `drizzle-kit generate` would then try to
+ * recreate the dropped `buckets_name_key` constraint.
+ */
+export const buckets = pgTable(
+  'buckets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 63 }).notNull(),
+    /** Set by migration 0002; NOT NULL in the database after that migration. */
+    organizationId: uuid('organization_id'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [uniqueIndex('buckets_organization_id_name_unique').on(t.organizationId, t.name)],
+);
 
 /** S3 multipart protocol state (distinct from the Telegram chunk table below). */
 export const multipartUploads = pgTable(
@@ -164,6 +181,58 @@ export const fileParts = pgTable(
     index('idx_file_parts_file_id').on(t.fileId, t.partNumber),
   ],
 );
+
+/** ── P3 tenancy ─────────────────────────────────────────────────────────── */
+
+/** Organizations own buckets. Created in drizzle/0001_tenancy_tables.sql. */
+export const organizations = pgTable('organizations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 63 }).notNull().unique(),
+  slug: varchar('slug', { length: 63 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+/** Membership of a user in an organization, with the org-side role. */
+export const members = pgTable(
+  'members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').notNull(),
+    userId: text('user_id').notNull(),
+    role: varchar('role', { length: 16 }).default('member').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('members_org_user_unique').on(t.organizationId, t.userId),
+    index('idx_members_organization_id').on(t.organizationId),
+  ],
+);
+
+/**
+ * S3 access keys, resolved to an organization.
+ *
+ * The SigV4 wire protocol is unchanged — only the LOOKUP moves. A key seeded from
+ * the S3_ACCESS_KEY/S3_SECRET_KEY env pair keeps every current aws-cli / rclone /
+ * Docker-registry client working with no configuration change.
+ */
+export const s3Credentials = pgTable(
+  's3_credentials',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').notNull(),
+    accessKey: varchar('access_key', { length: 255 }).notNull().unique(),
+    secretKey: text('secret_key').notNull(),
+    label: text('label'),
+    createdAt: timestamp('created_at').defaultNow(),
+    lastUsedAt: timestamp('last_used_at'),
+  },
+  (t) => [index('idx_s3_credentials_organization_id').on(t.organizationId)],
+);
+
+export type OrganizationRow = typeof organizations.$inferSelect;
+export type MemberRow = typeof members.$inferSelect;
+export type S3CredentialRow = typeof s3Credentials.$inferSelect;
 
 /** Row shapes inferred from the tables, for the typed raw-SQL repositories. */
 export type FileRow = typeof files.$inferSelect;

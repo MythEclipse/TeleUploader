@@ -122,6 +122,7 @@ export const runMigration = async (): Promise<void> => {
   try {
     await runBaseline(sql, migrationsFolder);
     const db = drizzle(sql);
+
     await migrate(db, { migrationsFolder });
     logger.info('Database migration completed');
   } catch (error: unknown) {

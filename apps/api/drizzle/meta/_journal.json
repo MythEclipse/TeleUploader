@@ -8,6 +8,27 @@
       "when": 1791474634699,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791474694699,
+      "tag": "0001_tenancy_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791474754699,
+      "tag": "0002_bucket_organization",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791477741022,
+      "tag": "0003_snapshot_sync",
+      "breakpoints": true
     }
   ]
 }

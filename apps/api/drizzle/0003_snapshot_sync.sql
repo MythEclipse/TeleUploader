@@ -1,0 +1,24 @@
+-- P3 — snapshot sync. Contains NO DDL on purpose; do not add any.
+--
+-- `drizzle-kit generate` produced this entry when schema.ts gained the three
+-- tenancy tables and `buckets.organization_id`. Every statement it emitted was a
+-- DUPLICATE of what 0001 and 0002 already do:
+--
+--   CREATE TABLE members / organizations / s3_credentials     == 0001
+--   ALTER TABLE buckets ADD COLUMN organization_id           == 0002
+--   ALTER TABLE buckets DROP CONSTRAINT buckets_name_unique   == 0002
+--   CREATE UNIQUE INDEX buckets_organization_id_name_unique  == 0002
+--
+-- Applying it would fail ("relation already exists") on any database where 0001
+-- and 0002 have already run. So the SQL is removed and only the SNAPSHOT is kept.
+--
+-- What the snapshot is for: meta/0003_snapshot.json records the schema state AFTER
+-- the P3 changes. Without it, every future `drizzle-kit generate` would diff
+-- against the pre-P3 state and keep re-emitting the same tenancy DDL — which is
+-- exactly the failure mode that produced this file.
+--
+-- This file must still EXIST: drizzle's migrator throws
+-- `No file <tag>.sql found` for any journal entry whose SQL file is missing.
+--
+-- DO NOT delete this entry, and do not add DDL here. It is a marker that the
+-- snapshot has caught up with schema.ts.

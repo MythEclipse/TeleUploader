@@ -18,7 +18,8 @@
     "test:s3": "vitest run --config vitest.config.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/web-api.test.ts",
     "lint": "biome check src test",
     "format": "biome format --write src test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:seed": "tsx src/infrastructure/db/seed.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
