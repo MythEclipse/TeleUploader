@@ -40,6 +40,49 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+
+    # WHY A POSTGRES SERVICE EXISTS HERE
+    #
+    # `tenant-isolation.test.ts` and `s3-credential-lookup.test.ts` are the only
+    # suites that instantiate the REAL repository against a REAL database, and
+    # they are the only coverage of the P3 tenancy invariants: that `create()`
+    # stamps an organization, that `delete()` reports success, and that a
+    # cross-tenant lookup is invisible rather than forbidden.
+    #
+    # Until this service existed, CI ran `test:unit` with no DATABASE_URL, so
+    # those suites reported "passed" having asserted nothing — the gate could not
+    # detect a regression in the exact bugs they were written for. They guarded
+    # every assertion with `if (!live) return;`, and vitest counts a silent early
+    # return as PASSED.
+    #
+    # They now skip VISIBLY when no database is configured (so the summary line
+    # says "skipped", not "passed"), and they FAIL when one is configured but
+    # unusable — a broken CI database must never be downgraded to a green skip.
+    # This service is what makes the "skip" branch unreachable here, turning the
+    # coverage from nominal into real.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: filedrop
+          POSTGRES_PASSWORD: filedrop
+          POSTGRES_DB: filedrop_test
+        ports:
+          - 5432:5432
+        # GitHub only marks the job healthy once the container accepts
+        # connections; without this the first `psql` races the server's boot.
+        options: >-
+          --health-cmd "pg_isready -U filedrop -d filedrop_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Job-wide, so BOTH the provisioning step and the test run see the same
+      # DSN. Previously the value lived only in the test process, which is why a
+      # missing or wrong database went unnoticed.
+      DATABASE_URL: postgresql://filedrop:filedrop@127.0.0.1:5432/filedrop_test
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -57,7 +100,32 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      - name: Unit tests (vitest, 29 files)
+      # The schema has to exist before the tenancy suites can run: they insert
+      # organizations/buckets and read s3_credentials for real. Two steps, in
+      # order, mirroring how production gets there:
+      #
+      #   schema.sql  — the five pre-drizzle tables (files, buckets, ...)
+      #   migrate.ts  — drizzle 0001-0003, which ADD organizations, members,
+      #                 s3_credentials and buckets.organization_id
+      #
+      # Verified against a real database rather than assumed: applying
+      # schema.sql to an empty database and then running the migrator yields all
+      # eight tables with buckets.organization_id NOT NULL, which is the state
+      # the two suites require. `gen_random_uuid` comes from pgcrypto, which
+      # Postgres 13+ provides in core, so no extension is needed.
+      #
+      # The migrator is invoked via `tsx` on the TypeScript source, NOT via
+      # `pnpm run db:migrate`. That script is `node dist/migrate.js` and CI has no
+      # `dist/` — this job never builds. Checked rather than assumed: running it
+      # as written exits 1 with `Cannot find module .../dist/migrate.js`, so the
+      # naive version of this step fails the job outright.
+      - name: Provision the test database
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f apps/api/schema.sql
+          pnpm --filter filedrop exec tsx src/infrastructure/persistence/drizzle/migrate.ts
+
+      - name: Unit tests (vitest, 34 files)
         run: pnpm run test:unit
 
       # The 5 quarantined suites hit the live production endpoint and create/destroy
