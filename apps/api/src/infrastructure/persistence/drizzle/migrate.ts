@@ -105,7 +105,26 @@ const runBaseline = async (sql: postgres.Sql, journalFolder: string): Promise<vo
  * `drizzle-kit migrate` is deliberately NOT used against production. The prod
  * DSN points at PgBouncer in transaction-pooling mode (port 6432), where a
  * session-scoped advisory lock can be released on a different pooled connection
- * mid-migration. deploy.sh runs `node dist/migrate.js` over SSH instead.
+ * mid-migration.
+ *
+ * ⚠️ THIS RUNNER IS CURRENTLY ORPHANED — read before assuming deploy.sh calls it.
+ *
+ * P2a deleted the boot-time auto-migration and replaced it with this file, on the
+ * stated assumption that "deploy.sh runs `node dist/migrate.js` over SSH". That
+ * assumption was WRONG and was caught by an adversarial review, not by a test.
+ * Verified: `deploy.sh` mentions migrate.js in exactly three places — the
+ * `--check` list, the post-build existence assertion, and the `scp` — and never
+ * EXECUTES it.
+ *
+ * So today there is NO code path that applies migrations: not at boot (removed),
+ * and not during deploy (never existed). Shipping a build containing migrations
+ * 0001-0003 would leave production on the pre-P3a schema while the new binary
+ * runs org-scoped code, and 0002's precondition guard would RAISE on any deploy
+ * that did try to run it.
+ *
+ * P5 must add the invocation to deploy.sh, immediately before `systemctl restart`
+ * and AFTER the binary is installed. Until then, `pnpm db:migrate` must be run by
+ * hand. Do not delete the boot-time call without adding the deploy-time one.
  */
 export const runMigration = async (): Promise<void> => {
   const migrationsFolder = resolveMigrationsFolder();

@@ -12,8 +12,11 @@ import { members, organizations, s3Credentials } from '../persistence/drizzle/sc
  * `0002_bucket_organization.sql` adds `buckets.organization_id`, backfills it from
  * the organization with slug 'default', then RAISES if any bucket is still
  * unattached. So the bootstrap org must exist BEFORE `migrate()` runs, or that
- * migration fails on a fresh database. `db:migrate` therefore seeds first, then
- * migrates.
+ * migration fails on a fresh database.
+ *
+ * NOTE: nothing imports `runSeed` outside this file. It is invoked by
+ * `pnpm db:seed`, and `migrate.ts` documents that it too is currently orphaned
+ * (deploy.sh ships migrate.js but never runs it — see P5).
  *
  * That ordering is the whole reason this is not an ordinary post-migrate seed:
  * seeding afterwards would leave `migrate()` unable to complete.
