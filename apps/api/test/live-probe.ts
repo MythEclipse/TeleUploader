@@ -58,6 +58,14 @@ const PROBES: { label: string; method: string; path: string; expect: number }[] 
   { label: 'CORS preflight', method: 'OPTIONS', path: '/', expect: 204 },
   { label: 'root PUT without S3 (405)', method: 'PUT', path: '/', expect: 405 },
   { label: 'unknown path (404)', method: 'GET', path: '/definitely/not/a/route', expect: 404 },
+  // P2b REGRESSION, found while planning P4: porting the route table to Hono dropped
+  // /docs and /swagger.json, which routes/index.ts had served. swagger.test.ts still
+  // passed because it imports the handlers directly and never goes through the app —
+  // a test that cannot see a missing route registration. Pinned here at 404 so the
+  // current state is explicit; P4 restores them via oRPC's OpenAPIHandler and this
+  // expectation is flipped to 200 in the same commit that does it.
+  { label: 'swagger docs (dropped in P2b)', method: 'GET', path: '/docs', expect: 404 },
+  { label: 'swagger json (dropped in P2b)', method: 'GET', path: '/swagger.json', expect: 404 },
 ];
 
 let failures = 0;

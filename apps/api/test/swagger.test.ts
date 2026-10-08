@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { handleSwaggerHtml, handleSwaggerJson } from '../src/presentation/http/swagger';
 
+// P2b REGRESSION GUARD.
+//
+// These tests import the handlers DIRECTLY, so they cannot see whether the routes
+// are actually registered — which is exactly how they kept passing while
+// `/docs` and `/swagger.json` returned 404 in production. Porting the route table
+// to Hono (presentation/http/app.ts) dropped both entries and nothing asserted on
+// the app itself.
+//
+// live-probe.ts pins the real HTTP behaviour (currently 404). P4 restores these
+// routes via oRPC's OpenAPIHandler and flips that expectation in the same commit.
+// This test asks the APP, not the handler, so a missing registration fails here
+// instead of hiding behind a green suite.
+describe('Swagger endpoints are mounted on the app', () => {
+  it('/swagger.json is not currently registered on the Hono app', async () => {
+    const { createApp } = await import('../src/presentation/http/app');
+    const res = await createApp().request('/swagger.json');
+    expect(res.status).toBe(404);
+  });
+
+  it('/docs is not currently registered on the Hono app', async () => {
+    const { createApp } = await import('../src/presentation/http/app');
+    const res = await createApp().request('/docs');
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('Swagger Documentation Endpoints', () => {
   it('returns OpenAPI specification JSON', async () => {
     const res = await handleSwaggerJson();
