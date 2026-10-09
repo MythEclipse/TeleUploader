@@ -377,13 +377,41 @@ export interface UploadResponse {
 }
 
 /**
+ * The subset of {@link FileMetadata} that {@link buildUploadResponse} reads.
+ *
+ * DECLARED BY WHAT IS READ, NOT BY WHAT EXISTS (typecheck fix).
+ *
+ * This used to take the whole `FileMetadata`, which carries Telegram-internal
+ * coordinates — `telegramFileId`, `telegramFileUniqueId`, `storageChatId`,
+ * `storageMessageId`, `uploaderId` — none of which the response exposes. The
+ * only caller passes the `UploadOutput` DTO, which models exactly the public
+ * view and has none of those fields, so the parameter type was a superset of
+ * what any caller could supply:
+ *
+ *     error TS2739: Type 'UploadOutput' is missing the following properties
+ *     from type 'FileMetadata': telegramFileId, telegramFileUniqueId,
+ *     storageChatId, storageMessageId, uploaderId
+ *
+ * Narrowing to `Pick` states the real dependency. A function must not demand
+ * fields it never reads — that requirement is what pushed callers to fabricate
+ * a synthetic record before the DTO was introduced.
+ */
+type UploadResponseSource = Pick<
+  FileMetadata,
+  'publicId' | 'fileName' | 'mimeType' | 'sizeBytes' | 'fileType' | 'createdAt'
+>;
+
+/**
  * Builds an API response object from stored file metadata.
  *
- * @param file    - The file metadata record.
+ * @param file    - The stored file metadata (its public subset).
  * @param baseUrl - The server's base URL used to construct the download link.
  * @returns A plain response object suitable for JSON serialisation.
  */
-export const buildUploadResponse = (file: FileMetadata, baseUrl: string): UploadResponse => {
+export const buildUploadResponse = (
+  file: UploadResponseSource,
+  baseUrl: string,
+): UploadResponse => {
   return {
     public_id: file.publicId,
     file_name: file.fileName,

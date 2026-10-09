@@ -229,9 +229,25 @@ export const handleUploadObjectV1 = async (
 /**
  * Deletes an object from a bucket (soft delete).
  *
+ * REPORTS WHAT ACTUALLY HAPPENED (TODO item 10).
+ *
+ * `softDelete` returns whether a row changed, and this handler used to discard
+ * that answer and reply `{"success": true}` unconditionally. So deleting a key
+ * that does not exist answered 200, deleting it twice answered 200 twice, and a
+ * whole-key `%2F`-encoded delete answered 200 having deleted nothing — the
+ * encoded slash never becomes a path separator, so the key that reaches the
+ * repository is not the key the caller named.
+ *
+ * That matters beyond tidiness: the P4 SPA works around the lying response by
+ * re-reading the listing after every delete (`assertDeleted`) rather than
+ * trusting it, so the UI was honest only because it distrusted the API. An
+ * idempotent delete (204/404 on a second call) is not what the S3 surface does,
+ * and callers must not have to guess which contract they are on — so a delete
+ * that changed nothing is a 404 here, matching the AWS behaviour clients expect.
+ *
  * @param _req - The incoming HTTP request (unused).
  * @param params - Route parameters containing the bucket name and object key.
- * @returns A JSON response indicating success.
+ * @returns 200 on a delete that changed a row, 404 when it changed none.
  */
 export const handleDeleteObjectV1 = async (
   _req: Request,
@@ -240,7 +256,10 @@ export const handleDeleteObjectV1 = async (
 ): Promise<Response> => {
   const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
   if (!bucket) return jsonError('Bucket not found', 404);
-  await fileRepository.softDelete(bucket.id, params.key!);
+
+  const deleted = await fileRepository.softDelete(bucket.id, params.key!);
+  if (!deleted) return jsonError('Object not found', 404);
+
   return json({ success: true });
 };
 
@@ -386,6 +405,36 @@ export const handleCopyObjectV1 = async (
 };
 
 /**
+ * Path segments that own a handler of their own, keyed by HTTP method.
+ *
+ * TODO item 10, defect 1: the delete catch-all used to run BEFORE these were
+ * considered, and it excluded nothing. A key whose FIRST segment is one of
+ * these — `download/…`, `objects`, `upload`, `copy` at a bucket root — was
+ * therefore reachable by `DELETE`, so a request meant to download a file
+ * soft-deleted it instead:
+ *
+ *     DELETE /api/v1/buckets/probe/download/keepme.txt -> 200 {"success":true}
+ *     DB afterwards: download/keepme.txt | t   <- deleted by a DOWNLOAD request
+ *
+ * Matching is on the FIRST segment only, and only at a bucket root. `my-objects/`
+ * and `uploads/` are ordinary keys and must stay deletable — a reserved name is
+ * reserved as a routing token, not as a substring anywhere in the key.
+ *
+ * `download` is listed because its branch is 4 segments deep (`download/{key+}`),
+ * so the collision is with any key that merely BEGINS with `download/`.
+ */
+const RESERVED_ROOT_SEGMENTS = new Set(['objects', 'upload', 'copy', 'download']);
+
+/**
+ * True when `parts` names a reserved routing segment at a bucket root.
+ *
+ * `parts` is the split path with the `/api/v1` prefix removed, so `parts[0]` is
+ * `buckets`, `parts[1]` the bucket name, and the key starts at index 2.
+ */
+const hasReservedRootSegment = (parts: string[]): boolean =>
+  parts.length >= 3 && RESERVED_ROOT_SEGMENTS.has(parts[2]);
+
+/**
  * Main Web API V1 request router.
  *
  * Parses the request path and method, then dispatches to the appropriate
@@ -462,13 +511,6 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
       return await handleCopyObjectV1(req, { bucket: parts[1] }, organizationId);
     }
 
-    // DELETE /api/v1/buckets/{name}/{key+}
-    if (parts.length >= 3 && parts[0] === 'buckets' && method === 'DELETE') {
-      const bucket = parts[1];
-      const key = parts.slice(2).join('/');
-      return await handleDeleteObjectV1(req, { bucket, key }, organizationId);
-    }
-
     // GET /api/v1/buckets/{name}/download/{key+}
     if (
       parts.length >= 4 &&
@@ -479,6 +521,29 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
       const bucket = parts[1];
       const key = parts.slice(3).join('/');
       return await handleDownloadObjectV1(req, { bucket, key }, organizationId);
+    }
+
+    // DELETE /api/v1/buckets/{name}/{key+} — the object catch-all.
+    //
+    // MUST BE LAST (TODO item 10). It matches any 3+ segment path, so while it
+    // sat above the specific branches it swallowed every one of them: a
+    // DELETE against `/download/keepme.txt`, `/objects`, `/upload` or `/copy`
+    // deleted a file rather than serving the route the caller addressed. Order
+    // is the fix — a specific handler must win over a wildcard — and
+    // `hasReservedRootSegment` is the belt to that braces, so a reserved segment
+    // still falls through to a 404 even if a future branch reorders above this.
+    //
+    // Both guards are needed: reordering alone would leave the shadowing latent
+    // for whoever adds the next branch above this line.
+    if (
+      parts.length >= 3 &&
+      parts[0] === 'buckets' &&
+      method === 'DELETE' &&
+      !hasReservedRootSegment(parts)
+    ) {
+      const bucket = parts[1];
+      const key = parts.slice(2).join('/');
+      return await handleDeleteObjectV1(req, { bucket, key }, organizationId);
     }
 
     return jsonError('Not found', 404);

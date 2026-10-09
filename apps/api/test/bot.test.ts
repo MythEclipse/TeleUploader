@@ -1,4 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// `File` is imported ALIASED: the global DOM `File` is in scope in a DOM-typed
+// lib, so an unaliased `import type { File }` loses to it and the fixture below
+// type-checks against `Blob`-ish lib types instead of the domain entity.
+import type { File as FileEntity, NewFile } from '../src/domain/entities/file';
+import type { IFileRepository } from '../src/domain/ports/file-repository';
+import type { ITelegramService } from '../src/domain/ports/telegram-service';
 import type { TelegramMediaMessage } from '../src/infrastructure/file';
 import logger from '../src/infrastructure/observability/logger';
 
@@ -46,12 +52,84 @@ vi.mock('telegraf', () => ({
   Telegraf: MockTelegraf,
 }));
 
+/**
+ * A complete {@link File} entity, for tests that need `findByUniqueId` to
+ * resolve something.
+ *
+ * COMPLETE ON PURPOSE. This fixture used to be a three-field object literal
+ * (`publicId`, `telegramFileId`, `telegramFileUniqueId`) passed straight to
+ * `mockResolvedValueOnce`, which is 22 fields short of the entity — and the
+ * compiler was the only thing that noticed, once the surrounding mock was
+ * properly typed:
+ *
+ *     error TS2740: Type '{ publicId: string; telegramFileId: string; … }' is
+ *     missing the following properties from type 'File': id, storageChatId,
+ *     storageMessageId, fileName, and 19 more.
+ *
+ * A short literal compiles fine whenever the mock is loosely typed, and then
+ * quietly supplies `undefined` for every field a caller might read. Naming every
+ * field here means adding one to the entity is a compile error in this helper —
+ * which is the only place that should have to answer for it.
+ *
+ * @param publicId - The public identifier to expose.
+ * @returns A fully-populated `File` with deterministic values.
+ */
+const existingFile = (publicId: string): FileEntity => ({
+  id: 'file-id',
+  publicId,
+  telegramFileId: 'stored_file_id',
+  telegramFileUniqueId: 'doc_uniq_123',
+  storageChatId: -1001234567890,
+  storageMessageId: 42,
+  fileName: 'document.txt',
+  mimeType: 'text/plain',
+  sizeBytes: 100,
+  fileType: 'document',
+  uploaderId: 0,
+  fileHash: 'abc123',
+  archiveTelegramFileId: null,
+  archiveStorageMessageId: null,
+  archiveFileName: null,
+  archiveEntryName: null,
+  archiveMimeType: null,
+  archiveSizeBytes: null,
+  bucketId: null,
+  s3Key: null,
+  storageBackend: 'telegram',
+  isDeleted: false,
+  multipartUploadId: null,
+  partCount: null,
+  createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
+});
+
 const infoSpy = vi.spyOn(logger, 'info');
 const errorSpy = vi.spyOn(logger, 'error');
 
 describe('Telegram Bot Handler', () => {
-  let mockTelegramService: { forwardToStorage: ReturnType<typeof vi.fn> };
-  let mockFileRepo: { findByUniqueId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+  /**
+   * The doubles are typed by the SUBSET each test actually implements.
+   *
+   * They used to be declared as bare object literals —
+   * `{ forwardToStorage: Mock }` and `{ findByUniqueId: Mock; create: Mock }` —
+   * which is a SUBSET of `ITelegramService` / `IFileRepository`. Passing a
+   * structural subset where the full port is required is a type error, so every
+   * `startBot({ telegramService, fileRepo })` call failed with TS2740/TS2741:
+   * "'getFileInfo' is missing" and "'findByHash', 'findByPublicId',
+   * 'findByBucketAndKey', 'listByPrefix', and 4 more".
+   *
+   * `startBot` takes the FULL `ITelegramService` and `IFileRepository`, so a
+   * partial double is a type error regardless of how it is spelled — `Pick<…>`
+   * names the subset without making it assignable, which is the proof that the
+   * real defect was INCOMPLETENESS rather than a loose annotation.
+   *
+   * So both doubles now implement every method of their port. The stubs answer
+   * with values no test asserts on, and that is the point: a double that is
+   * complete by construction cannot silently drop a method the code under test
+   * starts calling, which is precisely how the old pair rotted unnoticed.
+   */
+  let mockTelegramService: ITelegramService;
+  let mockFileRepo: IFileRepository;
 
   beforeEach(() => {
     mockLaunch.mockClear();
@@ -69,11 +147,45 @@ describe('Telegram Bot Handler', () => {
           storageMessageId: 9999,
         }),
       ),
+      // Not exercised by any bot-handler test — the handler never resolves a
+      // Telegram file. Implemented so the double satisfies the whole port: a
+      // method missing here is a compile error rather than a runtime surprise if
+      // the handler starts calling it.
+      getFileInfo: vi.fn(() =>
+        Promise.resolve({
+          file_id: 'stored_file_id',
+          file_size: 1,
+          mime_type: 'application/octet-stream',
+          file_path: 'documents/file.dat',
+          bot_token: '123456:ABC-DEF',
+        }),
+      ),
     };
 
+    // Every method of the port. Only `findByUniqueId` and `create` are asserted
+    // on; the rest return their empty value, which is both correct for a fresh
+    // double and the value a test that reached them would expect.
     mockFileRepo = {
-      findByUniqueId: vi.fn((): Promise<unknown> => Promise.resolve(null)),
-      create: vi.fn(() => Promise.resolve()),
+      findByUniqueId: vi.fn(() => Promise.resolve(null)),
+      findByHash: vi.fn(() => Promise.resolve(null)),
+      findByPublicId: vi.fn(() => Promise.resolve(null)),
+      findByBucketAndKey: vi.fn(() => Promise.resolve(null)),
+      create: vi.fn((file: NewFile) =>
+        Promise.resolve({
+          // A stored `File` must be an echo of the input plus the fields the
+          // repository fills in. Returning `undefined` (what this used to
+          // resolve) made `create` unusable by any caller that read the result.
+          ...file,
+          id: 'file-id',
+          createdAt: new Date('2026-01-01'),
+          updatedAt: new Date('2026-01-01'),
+        }),
+      ),
+      listByPrefix: vi.fn(() => Promise.resolve({ objects: [], prefixes: [] })),
+      softDelete: vi.fn(() => Promise.resolve(false)),
+      softDeleteBatch: vi.fn(() => Promise.resolve(0)),
+      countByBucket: vi.fn(() => Promise.resolve(0)),
+      findOrphansByBucket: vi.fn(() => Promise.resolve([])),
     };
   });
 
@@ -192,11 +304,12 @@ describe('Telegram Bot Handler', () => {
     const fileHandler = getFileHandler();
     const replyMock = vi.fn(() => Promise.resolve());
 
-    mockFileRepo.findByUniqueId.mockResolvedValueOnce({
-      publicId: 'already_exists_abc',
-      telegramFileId: 'stored_file_id',
-      telegramFileUniqueId: 'doc_uniq_123',
-    });
+    // The port type erases the mock, so the call-queue API is reached through
+    // `vi.mocked()` at the point of use — the mock type is not part of the
+    // dependency the handler receives, which is exactly right.
+    vi.mocked(mockFileRepo.findByUniqueId).mockResolvedValueOnce(
+      existingFile('already_exists_abc'),
+    );
 
     const ctx = {
       message: {

@@ -23,10 +23,25 @@ beforeAll(async () => {
 });
 
 // Mock Telegraf and fetch
+//
+// The mock class declares its fields explicitly. An untyped `constructor(token)`
+// is an implicit `any`, and the properties it assigns (`this.token`,
+// `this.telegram`) have no declaration to attach to — so under
+// `noImplicitAny` every assignment was both TS7006 and TS2339 ("Property 'token'
+// does not exist on type 'Telegraf'"). Annotating the token and declaring the
+// shape is what makes the mock satisfy the structural type `ITelegramService`.
 vi.mock('telegraf', () => {
   return {
     Telegraf: class {
-      constructor(token) {
+      token: string;
+      telegram: {
+        token: string;
+        sendPhoto: ReturnType<typeof vi.fn>;
+        sendDocument: ReturnType<typeof vi.fn>;
+        getFile: ReturnType<typeof vi.fn>;
+      };
+
+      constructor(token: string) {
         this.token = token;
         this.telegram = {
           token: token,
@@ -68,6 +83,15 @@ const errorSpy = vi.spyOn(logger, 'error');
 describe('Telegram API Utilities', () => {
   let botPool: ITelegramService;
 
+  /**
+   * The real `fetch`, captured before any test replaces it.
+   *
+   * `afterEach` restores this so one test's stub cannot leak into the next — the
+   * file shares a global, and `fileParallelism: false` means it also cannot rely
+   * on another file being scheduled in between to reset it.
+   */
+  const originalFetch = globalThis.fetch;
+
   beforeEach(async () => {
     infoSpy.mockClear();
     errorSpy.mockClear();
@@ -79,7 +103,13 @@ describe('Telegram API Utilities', () => {
   });
 
   afterEach(() => {
-    delete global.fetch;
+    // `delete global.fetch` is rejected under TS2790 ("The operand of a 'delete'
+    // operator must be optional") because `fetch` is non-optional on
+    // `typeof globalThis`. The beforeEach installs a stub, so the honest
+    // cleanup is to drop THIS test's stub and put the original back — not to
+    // leave a fake `fetch` installed for whatever runs next.
+    const mutableGlobal = globalThis as { fetch?: typeof fetch };
+    if (originalFetch) mutableGlobal.fetch = originalFetch;
   });
 
   it('botPool should be defined and have telegram methods', () => {

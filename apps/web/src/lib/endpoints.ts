@@ -9,17 +9,22 @@
  * assertion is `as T` on a parsed JSON body, which is unavoidable at an HTTP
  * boundary and is narrowed by the caller picking the right wrapper.
  *
- * ## The delete endpoint lies — re-list after deleting
+ * ## The delete endpoint used to lie — fixed in TODO item 10
  *
- * `handleDeleteObjectV1` (`web-api-controller.ts:236-245`) returns
- * `{success:true}` **unconditionally** and discards `softDelete()`'s boolean.
- * A key that matched no row, or a mis-encoded key, still reports success. The
- * response therefore carries **no information about whether anything was
- * deleted**, and `deleteObject` below cannot treat it as confirmation.
+ * `handleDeleteObjectV1` returned `{success:true}` **unconditionally** and
+ * discarded `softDelete()`'s boolean: a key that matched no row, or a
+ * mis-encoded key, still reported success. `assertDeleted` was written as the
+ * workaround — the caller re-listed the prefix and checked the key was gone.
  *
- * `assertDeleted` exists for that reason: the caller re-lists the prefix and
- * checks the key is gone. `home.html` had the same defect — it re-listed too,
- * but discarded the result and closed the modal on the `success:true` alone.
+ * That defect is FIXED: the handler now answers 404 when the delete changed no
+ * row, so the status carries the information. `assertDeleted` survives as an
+ * independent cross-check rather than as the only trustworthy confirmation.
+ *
+ * The second half of that defect — the DELETE catch-all shadowing the reserved
+ * `download` / `objects` / `upload` / `copy` segments, so a request meant to
+ * DOWNLOAD a file deleted it — was fixed in the same change, in the router's
+ * dispatch order. Both branches are pinned by
+ * `apps/api/test/web-api-delete-reserved-segments.test.ts`.
  */
 
 import { ApiError, http } from './client';
@@ -102,8 +107,12 @@ export const copyObject = (
 /**
  * `DELETE /api/v1/buckets/{bucket}/{key}` — admin.
  *
- * Key is encoded per segment (`./keys.ts`). The returned `{success:true}` is
- * **not** proof of deletion; call {@link assertDeleted} to confirm.
+ * Key is encoded per segment (`./keys.ts`).
+ *
+ * The response is now TRUSTWORTHY: the handler reports 404 when the delete
+ * changed no row, so a 200 means a row really was soft-deleted (TODO item 10).
+ * `assertDeleted` remains available as an independent cross-check, but a caller
+ * no longer depends on it to know whether anything happened.
  */
 export const deleteObject = (bucket: string, key: string): Promise<SuccessResponse> =>
   http.deleteJson<SuccessResponse>(objectUrl(bucket, key));
@@ -111,12 +120,16 @@ export const deleteObject = (bucket: string, key: string): Promise<SuccessRespon
 /**
  * Re-lists `prefix` and returns whether `key` is genuinely gone.
  *
- * This is the only trustworthy confirmation of a delete, because
- * `handleDeleteObjectV1` reports success unconditionally. It deliberately
- * re-uses the caller's `prefix`/`maxKeys` so the check is made against the
- * exact window the user is looking at; a key that fell outside the truncated
- * window reads as "deleted" either way, which is why the UI pairs this with the
- * "results are truncated" notice rather than presenting it as proof.
+ * An INDEPENDENT cross-check, not a workaround: since TODO item 10 the delete
+ * response itself reports 404 when nothing was deleted, so this is no longer the
+ * only trustworthy confirmation. It is still useful where a caller cares about a
+ * key vanishing from a specific window rather than about the delete call's
+ * status.
+ *
+ * It deliberately re-uses the caller's `prefix`/`maxKeys` so the check is made
+ * against the exact window the user is looking at; a key that fell outside the
+ * truncated window reads as "deleted" either way, which is why the UI pairs this
+ * with the "results are truncated" notice rather than presenting it as proof.
  */
 export const assertDeleted = async (
   bucket: string,

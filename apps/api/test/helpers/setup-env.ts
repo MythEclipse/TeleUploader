@@ -11,7 +11,29 @@
  * defaults in `src/env.ts` and are not touched.
  */
 
-process.env.BOT_TOKENS ||= '123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR';
+/**
+ * Bot tokens for the suite: three, so the per-bot pool has more than one member.
+ *
+ * ASSIGNED UNCONDITIONALLY, NOT WITH `||=`.
+ *
+ * `||=` meant "keep whatever the caller already had", which made this file's
+ * contract depend on the ambient environment instead of on this setup file. Any
+ * shell, CI step or parent process that happened to export `BOT_TOKENS` won the
+ * race, `src/env.ts` then saw ONE token, and `env.test.ts` failed on its own
+ * documented premise — "with mock tokens from setup-env.ts there should be at
+ * least 3 tokens":
+ *
+ *     AssertionError: expected 1 to be greater than or equal to 3
+ *
+ * Reproduced by hand: `BOT_TOKENS=one pnpm exec vitest run test/env.test.ts`
+ * failed; the same command with the variable unset passed 18/18. CI happens to
+ * export nothing, so the gate stayed green and the fragility stayed invisible.
+ *
+ * A test suite that is meant to pin its own environment must SET it. Tests that
+ * genuinely need a different value (a chunk-size guard, a bad PORT) pass it to
+ * their own spawned process, which does not inherit this.
+ */
+process.env.BOT_TOKENS = '123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR';
 process.env.STORAGE_CHANNEL_ID ||= '-1001234567890';
 // Vitest/Vite seeds process.env from import.meta.env before the setup file
 // runs, so BASE_URL arrives as vite's `base` ("/") and defeats the `||=`

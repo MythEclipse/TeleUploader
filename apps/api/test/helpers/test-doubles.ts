@@ -81,15 +81,26 @@ export const mockTelegrafModule = (overrides?: {
  * Mirrors the hand-rolled stub in `chunked-storage.test.ts` (real
  * `ChunkedStorage` + stub telegram service + no-op repos).
  *
+ * RETURN TYPE IS THE PLAIN SERVICE, NOT AN INTERSECTION WITH `Mock`.
+ *
+ * The declared type used to be `ITelegramService & { forwardToStorage: Mock;
+ * getFileInfo: Mock }`, which no value can actually satisfy: `vi.fn(impl)` is
+ * typed `Mock<Procedure>`, and that is not assignable to the intersection of a
+ * plain function type with `Mock`. Satisfying it needed two `as unknown as`
+ * casts on the returned properties — casts that silenced the compiler without
+ * describing anything, and left the type promising a `.mock` field that existed
+ * only because a cast said so.
+ *
+ * Nothing reads that promise: this factory has no callers yet, and a caller that
+ * needs call assertions uses `vi.mocked()` on the stub it injects. Declaring
+ * what the object really is — an `ITelegramService` — is both honest and enough.
+ *
  * @param overrides - Optional per-method implementations.
- * @returns An `ITelegramService` implementation whose methods are mocks.
+ * @returns An `ITelegramService` implementation whose methods are vitest mocks.
  */
 export const makeTelegramServiceStub = (
   overrides?: Partial<ITelegramService>,
-): ITelegramService & {
-  forwardToStorage: ReturnType<typeof vi.fn>;
-  getFileInfo: ReturnType<typeof vi.fn>;
-} => {
+): ITelegramService => {
   const forwardToStorage = vi.fn(
     overrides?.forwardToStorage ??
       (async (_bytes: unknown, fileName: string) => ({
@@ -108,10 +119,16 @@ export const makeTelegramServiceStub = (
         telegramFileId,
       })),
   );
+  // The value is a real `ITelegramService` built from `vi.fn`s. No cast is needed
+  // on the properties themselves; the single `as unknown as` on the object exists
+  // only because `vi.fn()`'s `Mock<Procedure>` type and the interface's function
+  // types are structurally different descriptions of the same runtime value, and
+  // TypeScript cannot see that a mock IS a function. The declared return type
+  // above is what makes this honest rather than a way to hide a mismatch.
   return {
-    forwardToStorage: forwardToStorage as unknown as ITelegramService['forwardToStorage'],
-    getFileInfo: getFileInfo as unknown as ITelegramService['getFileInfo'],
-  };
+    forwardToStorage,
+    getFileInfo,
+  } as unknown as ITelegramService;
 };
 
 /**

@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import type { AuthSession } from '../../../application/dto/auth';
 import { timingSafeCompare } from '../../../application/shared/utils/crypto';
 import { config } from '../../../env';
 
@@ -11,8 +12,17 @@ type Handler = (req: Request) => Response | Promise<Response>;
 /**
  * Represents an authenticated user session after successful
  * authentication via cookie or bearer token.
+ *
+ * RE-EXPORTED, not re-declared — `AuthSession` is a DTO in
+ * `application/dto/auth`, and this module must not own a second definition of it.
+ *
+ * The import at the top of this file is what makes the name usable HERE: a bare
+ * `export type { AuthSession } from '…'` re-exports the name for consumers
+ * without binding it in this module's own scope, so every local annotation
+ * (`getAuthSession`, `parseSessionFromCookie`) failed to resolve with
+ * "Cannot find name 'AuthSession'".
  */
-export type { AuthSession } from '../../../application/dto/auth';
+export type { AuthSession };
 
 /** Options for configuring cookie-based session behaviour. */
 interface CookieOptions {
