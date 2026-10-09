@@ -578,6 +578,32 @@ if [ -n "$port" ]; then
   if [ -n "$WEB_DIST_PATH" ]; then
     root_url="http://127.0.0.1:${port}/"
     say "site root probe $root_url"
+
+    # PROVE THE UNIT CAN SEE IT, not just this shell.
+    #
+    # The export above lives in deploy.sh's own process. If the unit resolves its
+    # environment some other way — an EnvironmentFile, or a wrapper like bws-exec
+    # that builds the child env from a secret store — then `systemctl restart`
+    # starts a process that has never seen this variable, and every SPA route
+    # 404s while this script keeps reporting success. That is not hypothetical: it
+    # is exactly how the dashboard was broken on the production box, where the
+    # unit runs `bws-exec teleuploader …` and the only teleuploader_* keys in the
+    # store had no web_dist_path.
+    #
+    # A probe that curls the port cannot tell the difference, because the failure
+    # and the success look identical from the network. Reading the unit's actual
+    # environment CAN. So read it first, and fail with the fix named.
+    say "checking the unit's environment carries WEB_DIST_PATH"
+    unit_env_dump=/proc/"${pid}"/environ
+    if [ ! -r "$unit_env_dump" ]; then
+      say "NOTE: cannot read $unit_env_dump (permissions) — relying on the HTTP probe alone"
+    elif tr '\0' '\n' < "$unit_env_dump" | grep -qx "WEB_DIST_PATH=${WEB_DIST_PATH}"; then
+      say "unit environment carries WEB_DIST_PATH (matches this release)"
+    else
+      say "unit environment does NOT carry WEB_DIST_PATH=${WEB_DIST_PATH}"
+      boom "the running unit has no WEB_DIST_PATH=${WEB_DIST_PATH}, so the dashboard would 404 at / after a SUCCESSFUL deploy. This script's export does not reach a unit that builds its own environment. Add the variable where the unit reads it — for a bws-exec unit that means a secret named after the app prefix (e.g. teleuploader_web_dist_path; bws-env only emits keys prefixed with the app name) — then restart and re-run."
+    fi
+
     # -w writes the status and content-type AFTER the body, so both are captured
     # in one request. Status alone is not enough: the S3 catch-all answers 200 for
     # some paths, and what proves the DASHBOARD answered is the HTML content-type.
