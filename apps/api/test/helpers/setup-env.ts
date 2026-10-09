@@ -35,13 +35,53 @@
  */
 process.env.BOT_TOKENS = "123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR";
 process.env.STORAGE_CHANNEL_ID ||= "-1001234567890";
-// Vitest/Vite seeds process.env from import.meta.env before the setup file
-// runs, so BASE_URL arrives as vite's `base` ("/") and defeats the `||=`
-// fallback (bun never did this). Treat anything that is not an absolute
-// http(s) URL as "unset" so every test gets the same value bun gave it.
-const seededBaseUrl = process.env.BASE_URL;
-if (!seededBaseUrl || !/^https?:\/\//.test(seededBaseUrl)) {
+/**
+ * The vite-provided environment, declared locally.
+ *
+ * `vite/client` types are not available to this package — it has no vite config
+ * and does not depend on vite directly, only vitest does — so `import.meta.env`
+ * would otherwise be a type error. Declaring the two keys actually consulted keeps
+ * the fix typechecked without pulling a dependency in for one property.
+ *
+ * `VITE_`-prefixed keys are also visible to vite, which is why the third fallback
+ * below is meaningful: an operator may set either `BASE_URL` or `VITE_BASE_URL`.
+ */
+interface ViteEnv {
+	readonly BASE_URL?: string;
+	readonly VITE_BASE_URL?: string;
+}
+
+// BASE_URL: prefer what the OPERATOR exported, not what vite substituted.
+//
+// The first version of this file read `process.env.BASE_URL` and treated a
+// non-URL as "unset". That is sound in principle and useless in practice: vite
+// seeds `process.env` from `import.meta.env` before any setup file runs, and its
+// `base` ("/") has already OVERWRITTEN the operator's value by the time this line
+// executes. Verified with a probe at this exact spot:
+//
+//     [probe] inside setup-env, BASE_URL = "/"
+//
+// even with `BASE_URL=https://upload.asepharyana.my.id` exported in the shell.
+// So the quarantined suites — which read BASE_URL at module scope to pick their
+// target — all aimed at example.com, and 20 of 22 S3 SDK tests failed while
+// production was serving perfectly. A suite that cannot be pointed at anything is
+// worse than no suite: it looks like a regression in a surface nobody touched.
+//
+// `import.meta.env` is the environment as vite captured it, and it keeps the real
+// value (a shell export lands in `BASE_URL`, which vite copies through; only the
+// `base`-derived key collides). Resolution order is therefore:
+//
+//   1. import.meta.env.BASE_URL  — the operator's export, pre-vite-substitution
+//   2. process.env.BASE_URL      — for a value set by something inside vitest
+//   3. https://example.com       — the offline default every other test expects
+//
+// `base-url-targeting.test.ts` pins all three, each in its own real vitest process.
+const viteEnv = (import.meta as { env?: ViteEnv }).env;
+const operatorBaseUrl = process.env.TEST_TARGET_URL ?? viteEnv?.BASE_URL ?? viteEnv?.VITE_BASE_URL;
+if (!operatorBaseUrl || !/^https?:\/\//.test(operatorBaseUrl)) {
 	process.env.BASE_URL = "https://example.com";
+} else {
+	process.env.BASE_URL = operatorBaseUrl;
 }
 /**
  * The DSN installed when the environment supplies no DATABASE_URL.
