@@ -143,6 +143,55 @@ restart` is the documented path and the prior release is still on disk under
 `/opt/teleuploader`, but it has not been exercised, so it must not be treated as
 verified. The schema half has no automated down-migration.
 
+**Smoke table re-run against the final deploy, and one row FAILED first.**
+`GET /` answered **404** while `/health` was 200, `/docs` 200, `/swagger.json`
+200, and the SPA sat complete on disk at `/opt/teleuploader/dist/web/`. The
+dashboard had been dead in production and every deploy had reported success.
+
+Root cause: `deploy.sh` exports `WEB_DIST_PATH` in **its own shell** before
+`systemctl restart`, but the unit is
+
+```
+ExecStart=/usr/local/bin/bws-exec teleuploader /opt/teleuploader/bin/teleuploader
+```
+
+and `bws-exec` builds the child environment from Bitwarden. Listing key *names*
+only, the `teleuploader_*` set had no `web_dist_path` — so the process never saw
+the variable, `resolveSpaRoot()` returned null, and every SPA route fell through
+to the pre-P4 404.
+
+`deploy.sh` already had a probe written to catch exactly this, and named the
+failure in its own error string. It could not catch it: the probe curls the port
+from the shell that still holds the export, so it validates the export and never
+the unit — and from the network the broken and working states look identical.
+
+Fixed on both sides:
+
+- `deploy.sh` now reads `/proc/<pid>/environ` and requires a whole-line
+  `WEB_DIST_PATH` match before probing, failing with the fix named
+  (`bws-env` only emits keys carrying the app prefix, so the secret must be
+  `teleuploader_web_dist_path`). Degrades to the old HTTP check with a NOTE if
+  `/proc` is unreadable, rather than failing a deploy it cannot judge.
+- `teleuploader_web_dist_path` created in Bitwarden, unit restarted.
+
+Verified against the real unit in **both** directions — matching path passes, a
+mismatched path is rejected rather than accepted.
+
+| Probe | Result |
+| --- | --- |
+| `GET /` | **200**, `<!doctype html>` (was 404) |
+| `GET /health` | 200 |
+| `GET /docs` | 200 |
+| `GET /swagger.json` | 200 |
+| `GET /api/v1/buckets` no auth | 401 (item 11 holding) |
+| `GET /api/v1/buckets` with token | 200 |
+| `POST /api/upload` no auth | 200 — stays public, the user's decision |
+| `GET /gitea`, `/no-such-bucket`, `/gitea/packages` | bare `404`, never HTML |
+
+That last row is the hard constraint: "does this bucket exist?" must stay
+unanswerable from the status alone, so an unsigned S3 address keeps returning a
+bare 404 rather than the SPA shell.
+
 ---
 
 ### `[x]` 4. Confirm whether `ADMIN_API_TOKEN` is set on production
