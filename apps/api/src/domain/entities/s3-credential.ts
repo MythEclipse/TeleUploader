@@ -8,23 +8,23 @@
  * Docker-registry client working with no configuration change.
  */
 export interface S3Credential {
-  /** Primary key, UUID */
-  id: string;
-  /**
-   * Owning organization (UUID).
-   *
-   * This is the tenancy root of the S3 surface: it is what every bucket
-   * lookup downstream is scoped by.
-   */
-  organizationId: string;
-  /** The access key presented in the SigV4 credential scope. */
-  accessKey: string;
-  /**
-   * The signing secret.
-   *
-   * Stored in the same bytes the client signs with. It feeds exactly one
-   * function, `getSigningKey`, so reading it from here instead of the
-   * environment cannot change a signed byte.
-   */
-  secretKey: string;
+	/** Primary key, UUID */
+	id: string;
+	/**
+	 * Owning organization (UUID).
+	 *
+	 * This is the tenancy root of the S3 surface: it is what every bucket
+	 * lookup downstream is scoped by.
+	 */
+	organizationId: string;
+	/** The access key presented in the SigV4 credential scope. */
+	accessKey: string;
+	/**
+	 * The signing secret.
+	 *
+	 * Stored in the same bytes the client signs with. It feeds exactly one
+	 * function, `getSigningKey`, so reading it from here instead of the
+	 * environment cannot change a signed byte.
+	 */
+	secretKey: string;
 }

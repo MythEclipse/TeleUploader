@@ -1,26 +1,26 @@
 import type {
-  AuthSession,
-  LoginInput,
-  LoginResponse,
-  LogoutResponse,
-  UserInfoResponse,
-} from '../dto/auth';
-import { timingSafeCompare } from '../shared/utils/crypto';
+	AuthSession,
+	LoginInput,
+	LoginResponse,
+	LogoutResponse,
+	UserInfoResponse,
+} from "../dto/auth";
+import { timingSafeCompare } from "../shared/utils/crypto";
 
 /** Subset of application configuration consumed by the authenticate use case. */
 export interface AuthUseCaseConfig {
-  /** Admin API token used to authenticate login requests. */
-  adminApiToken: string;
-  /** Name of the session cookie. */
-  sessionCookieName: string;
-  /** Session lifetime in milliseconds. */
-  sessionMaxAgeMs: number;
+	/** Admin API token used to authenticate login requests. */
+	adminApiToken: string;
+	/** Name of the session cookie. */
+	sessionCookieName: string;
+	/** Session lifetime in milliseconds. */
+	sessionMaxAgeMs: number;
 }
 
 /** Dependencies required by the authenticate use case factory. */
 export interface AuthenticateUseCaseDeps {
-  /** Application configuration subset. */
-  config: AuthUseCaseConfig;
+	/** Application configuration subset. */
+	config: AuthUseCaseConfig;
 }
 
 /**
@@ -42,17 +42,17 @@ const isAuthEnabled = (adminApiToken: string): boolean => adminApiToken.length >
  * @returns An async function accepting login input and returning a login response.
  */
 export function createLoginUseCase(deps: AuthenticateUseCaseDeps) {
-  return async (input: LoginInput): Promise<LoginResponse> => {
-    if (!isAuthEnabled(deps.config.adminApiToken)) {
-      return { username: 'admin' };
-    }
+	return async (input: LoginInput): Promise<LoginResponse> => {
+		if (!isAuthEnabled(deps.config.adminApiToken)) {
+			return { username: "admin" };
+		}
 
-    if (!timingSafeCompare(input.token, deps.config.adminApiToken)) {
-      throw new Error('Invalid token');
-    }
+		if (!timingSafeCompare(input.token, deps.config.adminApiToken)) {
+			throw new Error("Invalid token");
+		}
 
-    return { username: 'admin' };
-  };
+		return { username: "admin" };
+	};
 }
 
 /**
@@ -63,9 +63,9 @@ export function createLoginUseCase(deps: AuthenticateUseCaseDeps) {
  * @returns An async function returning a logout response.
  */
 export function createLogoutUseCase() {
-  return async (): Promise<LogoutResponse> => {
-    return { success: true };
-  };
+	return async (): Promise<LogoutResponse> => {
+		return { success: true };
+	};
 }
 
 /**
@@ -79,18 +79,18 @@ export function createLogoutUseCase() {
  * @returns An async function accepting an optional session and returning user info.
  */
 export function createMeUseCase(deps: AuthenticateUseCaseDeps) {
-  return async (session: AuthSession | null): Promise<UserInfoResponse | null> => {
-    if (!isAuthEnabled(deps.config.adminApiToken)) {
-      return null;
-    }
+	return async (session: AuthSession | null): Promise<UserInfoResponse | null> => {
+		if (!isAuthEnabled(deps.config.adminApiToken)) {
+			return null;
+		}
 
-    if (!session) {
-      return null;
-    }
+		if (!session) {
+			return null;
+		}
 
-    return {
-      username: session.username,
-      expiresAt: session.expiresAt?.toISOString() ?? null,
-    };
-  };
+		return {
+			username: session.username,
+			expiresAt: session.expiresAt?.toISOString() ?? null,
+		};
+	};
 }

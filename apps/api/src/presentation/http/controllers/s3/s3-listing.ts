@@ -1,16 +1,16 @@
-import { clampMaxKeys } from '../../../../application/shared/validation/schemas';
-import type { File as FileEntity } from '../../../../domain/entities/file';
-import { bucketRepository, fileRepository } from '../../../../infrastructure/di';
-import { listBucketResultXml, listBucketV2ResultXml } from '../../../s3/xml';
-import { etagOrFallback, resolveBucketOr404, s3Response } from './s3-common';
+import { clampMaxKeys } from "../../../../application/shared/validation/schemas";
+import type { File as FileEntity } from "../../../../domain/entities/file";
+import { bucketRepository, fileRepository } from "../../../../infrastructure/di";
+import { listBucketResultXml, listBucketV2ResultXml } from "../../../s3/xml";
+import { etagOrFallback, resolveBucketOr404, s3Response } from "./s3-common";
 
 /** Shape of an S3 list entry object. */
 export type S3ListEntry = {
-  key: string;
-  sizeBytes: number;
-  etag: string;
-  lastModified: Date;
-  mimeType: string;
+	key: string;
+	sizeBytes: number;
+	etag: string;
+	lastModified: Date;
+	mimeType: string;
 };
 
 /**
@@ -20,11 +20,11 @@ export type S3ListEntry = {
  * @returns An S3 list entry with key, size, etag, last modified, and MIME type.
  */
 export const mapFileToListEntry = (file: FileEntity): S3ListEntry => ({
-  key: file.s3Key ?? '',
-  sizeBytes: file.sizeBytes,
-  etag: etagOrFallback(file.fileHash),
-  lastModified: file.createdAt instanceof Date ? file.createdAt : new Date(),
-  mimeType: file.mimeType,
+	key: file.s3Key ?? "",
+	sizeBytes: file.sizeBytes,
+	etag: etagOrFallback(file.fileHash),
+	lastModified: file.createdAt instanceof Date ? file.createdAt : new Date(),
+	mimeType: file.mimeType,
 });
 
 /**
@@ -37,55 +37,55 @@ export const mapFileToListEntry = (file: FileEntity): S3ListEntry => ({
  * @returns An S3 XML ListBucketResult response.
  */
 export const handleListObjectsV1 = async (
-  bucket: string,
-  searchParams: URLSearchParams,
-  organizationId: string,
-  reqId: string,
+	bucket: string,
+	searchParams: URLSearchParams,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(
-    bucketRepository,
-    bucket,
-    organizationId,
-    `/${bucket}`,
-    reqId,
-  );
-  if (bucketRecord instanceof Response) return bucketRecord;
+	const bucketRecord = await resolveBucketOr404(
+		bucketRepository,
+		bucket,
+		organizationId,
+		`/${bucket}`,
+		reqId
+	);
+	if (bucketRecord instanceof Response) return bucketRecord;
 
-  const prefix = searchParams.get('prefix') || '';
-  const delimiter = searchParams.get('delimiter') || null;
-  const maxKeys = clampMaxKeys(searchParams.get('max-keys'));
-  const marker = searchParams.get('marker') || null;
-  const encodingType = searchParams.get('encoding-type') || null;
+	const prefix = searchParams.get("prefix") || "";
+	const delimiter = searchParams.get("delimiter") || null;
+	const maxKeys = clampMaxKeys(searchParams.get("max-keys"));
+	const marker = searchParams.get("marker") || null;
+	const encodingType = searchParams.get("encoding-type") || null;
 
-  const { objects, prefixes: commonPrefixes } = await fileRepository.listByPrefix(
-    bucketRecord.id,
-    prefix,
-    delimiter,
-    maxKeys,
-    marker,
-  );
+	const { objects, prefixes: commonPrefixes } = await fileRepository.listByPrefix(
+		bucketRecord.id,
+		prefix,
+		delimiter,
+		maxKeys,
+		marker
+	);
 
-  const isTruncated = objects.length > maxKeys;
-  const displayObjects = objects.slice(0, maxKeys);
-  const nextMarker = isTruncated
-    ? (displayObjects[displayObjects.length - 1]?.s3Key ?? null)
-    : null;
+	const isTruncated = objects.length > maxKeys;
+	const displayObjects = objects.slice(0, maxKeys);
+	const nextMarker = isTruncated
+		? (displayObjects[displayObjects.length - 1]?.s3Key ?? null)
+		: null;
 
-  const xml = listBucketResultXml(
-    bucket,
-    displayObjects.map(mapFileToListEntry),
-    commonPrefixes,
-    isTruncated,
-    marker,
-    maxKeys,
-    prefix,
-    delimiter,
-    nextMarker,
-    reqId,
-    encodingType,
-  );
+	const xml = listBucketResultXml(
+		bucket,
+		displayObjects.map(mapFileToListEntry),
+		commonPrefixes,
+		isTruncated,
+		marker,
+		maxKeys,
+		prefix,
+		delimiter,
+		nextMarker,
+		reqId,
+		encodingType
+	);
 
-  return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
+	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };
 
 /**
@@ -102,55 +102,55 @@ export const handleListObjectsV1 = async (
  * @returns An S3 XML ListBucketV2Result response.
  */
 export const handleListObjectsV2 = async (
-  bucket: string,
-  searchParams: URLSearchParams,
-  organizationId: string,
-  reqId: string,
+	bucket: string,
+	searchParams: URLSearchParams,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(
-    bucketRepository,
-    bucket,
-    organizationId,
-    `/${bucket}`,
-    reqId,
-  );
-  if (bucketRecord instanceof Response) return bucketRecord;
+	const bucketRecord = await resolveBucketOr404(
+		bucketRepository,
+		bucket,
+		organizationId,
+		`/${bucket}`,
+		reqId
+	);
+	if (bucketRecord instanceof Response) return bucketRecord;
 
-  const prefix = searchParams.get('prefix') || '';
-  const delimiter = searchParams.get('delimiter') || null;
-  const maxKeys = clampMaxKeys(searchParams.get('max-keys'));
-  const continuationToken = searchParams.get('continuation-token') || null;
-  const startAfter = searchParams.get('start-after') || null;
-  const encodingType = searchParams.get('encoding-type') || null;
+	const prefix = searchParams.get("prefix") || "";
+	const delimiter = searchParams.get("delimiter") || null;
+	const maxKeys = clampMaxKeys(searchParams.get("max-keys"));
+	const continuationToken = searchParams.get("continuation-token") || null;
+	const startAfter = searchParams.get("start-after") || null;
+	const encodingType = searchParams.get("encoding-type") || null;
 
-  const { objects, prefixes: commonPrefixes } = await fileRepository.listByPrefix(
-    bucketRecord.id,
-    prefix,
-    delimiter,
-    maxKeys,
-    continuationToken || startAfter,
-  );
+	const { objects, prefixes: commonPrefixes } = await fileRepository.listByPrefix(
+		bucketRecord.id,
+		prefix,
+		delimiter,
+		maxKeys,
+		continuationToken || startAfter
+	);
 
-  const isTruncated = objects.length > maxKeys;
-  const displayObjects = objects.slice(0, maxKeys);
-  const nextContinuationToken = isTruncated
-    ? (displayObjects[displayObjects.length - 1]?.s3Key ?? null)
-    : null;
+	const isTruncated = objects.length > maxKeys;
+	const displayObjects = objects.slice(0, maxKeys);
+	const nextContinuationToken = isTruncated
+		? (displayObjects[displayObjects.length - 1]?.s3Key ?? null)
+		: null;
 
-  const xml = listBucketV2ResultXml(
-    bucket,
-    displayObjects.map(mapFileToListEntry),
-    commonPrefixes,
-    isTruncated,
-    maxKeys,
-    prefix,
-    delimiter,
-    continuationToken,
-    nextContinuationToken,
-    displayObjects.length,
-    reqId,
-    encodingType,
-  );
+	const xml = listBucketV2ResultXml(
+		bucket,
+		displayObjects.map(mapFileToListEntry),
+		commonPrefixes,
+		isTruncated,
+		maxKeys,
+		prefix,
+		delimiter,
+		continuationToken,
+		nextContinuationToken,
+		displayObjects.length,
+		reqId,
+		encodingType
+	);
 
-  return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
+	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };

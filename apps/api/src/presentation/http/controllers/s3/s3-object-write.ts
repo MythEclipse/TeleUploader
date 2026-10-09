@@ -1,28 +1,28 @@
-import { createReadStream } from 'node:fs';
-import { nanoid } from 'nanoid';
-import { streamToTemp } from '../../../../application/shared/utils/temp-stream';
+import { createReadStream } from "node:fs";
+import { nanoid } from "nanoid";
+import { streamToTemp } from "../../../../application/shared/utils/temp-stream";
 import {
-  DeleteObjectsBodySchema,
-  parseOrNull,
-} from '../../../../application/shared/validation/schemas';
-import { buildNewFile } from '../../../../domain/entities/file-factory';
-import type { ForwardResult } from '../../../../domain/ports/telegram-service';
-import { config } from '../../../../env';
-import { bucketRepository, chunkedStorage, fileRepository } from '../../../../infrastructure/di';
+	DeleteObjectsBodySchema,
+	parseOrNull,
+} from "../../../../application/shared/validation/schemas";
+import { buildNewFile } from "../../../../domain/entities/file-factory";
+import type { ForwardResult } from "../../../../domain/ports/telegram-service";
+import { config } from "../../../../env";
+import { bucketRepository, chunkedStorage, fileRepository } from "../../../../infrastructure/di";
 import {
-  cleanupTempFile,
-  DEFAULT_FILE_TYPE,
-  ensureExtension,
-} from '../../../../infrastructure/file';
-import { botPool } from '../../../../infrastructure/telegram/bot-pool';
-import { verifyBodyHash } from '../../../s3/auth';
+	cleanupTempFile,
+	DEFAULT_FILE_TYPE,
+	ensureExtension,
+} from "../../../../infrastructure/file";
+import { botPool } from "../../../../infrastructure/telegram/bot-pool";
+import { verifyBodyHash } from "../../../s3/auth";
 import {
-  copyObjectResultXml,
-  deleteResultXml,
-  parseDeleteObjectsBody,
-  s3ErrorResponse,
-} from '../../../s3/xml';
-import { etagOrFallback, resolveBucketOr404, s3Response } from './s3-common';
+	copyObjectResultXml,
+	deleteResultXml,
+	parseDeleteObjectsBody,
+	s3ErrorResponse,
+} from "../../../s3/xml";
+import { etagOrFallback, resolveBucketOr404, s3Response } from "./s3-common";
 
 /**
  * Streams the request body to a temporary file while computing its SHA-256
@@ -38,23 +38,23 @@ import { etagOrFallback, resolveBucketOr404, s3Response } from './s3-common';
  * @returns The temp file path, SHA-256 hash, MD5 hash (base64), total size, and signature bytes.
  */
 export const streamBodyToTemp = async (
-  body: ReadableStream<Uint8Array> | null,
+	body: ReadableStream<Uint8Array> | null
 ): Promise<{
-  tempPath: string;
-  fileHash: string;
-  md5Hash?: string;
-  sizeBytes: number;
-  signatureBuffer: Buffer;
+	tempPath: string;
+	fileHash: string;
+	md5Hash?: string;
+	sizeBytes: number;
+	signatureBuffer: Buffer;
 }> => {
-  const reader = (
-    body ??
-    new ReadableStream({
-      start(c) {
-        c.close();
-      },
-    })
-  ).getReader() as ReadableStreamDefaultReader<Uint8Array>;
-  return streamToTemp(reader, { computeMd5: true, prefix: '/tmp/filedrop-s3-' });
+	const reader = (
+		body ??
+		new ReadableStream({
+			start(c) {
+				c.close();
+			},
+		})
+	).getReader() as ReadableStreamDefaultReader<Uint8Array>;
+	return streamToTemp(reader, { computeMd5: true, prefix: "/tmp/filedrop-s3-" });
 };
 
 /**
@@ -78,113 +78,113 @@ export const streamBodyToTemp = async (
  * @returns An S3 response with the object etag or an error.
  */
 export const handlePutObject = async (
-  bucket: string,
-  key: string,
-  searchParams: URLSearchParams,
-  headers: Record<string, string>,
-  req: Request,
-  organizationId: string,
-  reqId: string,
+	bucket: string,
+	key: string,
+	searchParams: URLSearchParams,
+	headers: Record<string, string>,
+	req: Request,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(
-    bucketRepository,
-    bucket,
-    organizationId,
-    `/${bucket}/${key}`,
-    reqId,
-  );
-  if (bucketRecord instanceof Response) return bucketRecord;
+	const bucketRecord = await resolveBucketOr404(
+		bucketRepository,
+		bucket,
+		organizationId,
+		`/${bucket}/${key}`,
+		reqId
+	);
+	if (bucketRecord instanceof Response) return bucketRecord;
 
-  // Tag operations are idempotent no-ops
-  if (searchParams.has('tagging')) {
-    return s3Response(null, 204, reqId);
-  }
+	// Tag operations are idempotent no-ops
+	if (searchParams.has("tagging")) {
+		return s3Response(null, 204, reqId);
+	}
 
-  // Copy-object path
-  const copySource = headers['x-amz-copy-source'];
-  if (copySource) {
-    return handleCopyObject(
-      bucket,
-      key,
-      copySource,
-      headers,
-      bucketRecord.id,
-      organizationId,
-      reqId,
-    );
-  }
+	// Copy-object path
+	const copySource = headers["x-amz-copy-source"];
+	if (copySource) {
+		return handleCopyObject(
+			bucket,
+			key,
+			copySource,
+			headers,
+			bucketRecord.id,
+			organizationId,
+			reqId
+		);
+	}
 
-  // Stream body to temp file — O(1) memory, safe for multi-GB blobs
-  const contentType = headers['content-type'] || 'application/octet-stream';
-  const streamed = await streamBodyToTemp(req.body);
+	// Stream body to temp file — O(1) memory, safe for multi-GB blobs
+	const contentType = headers["content-type"] || "application/octet-stream";
+	const streamed = await streamBodyToTemp(req.body);
 
-  // H4: Verify body hash against x-amz-content-sha256
-  const bodyHashError = verifyBodyHash(streamed.fileHash, headers);
-  if (bodyHashError) {
-    await cleanupTempFile(streamed.tempPath);
-    return s3ErrorResponse(
-      bodyHashError.errorCode || 'BadDigest',
-      'The x-amz-content-sha256 you specified did not match what we received.',
-      `/${bucket}/${key}`,
-      400,
-      reqId,
-    );
-  }
+	// H4: Verify body hash against x-amz-content-sha256
+	const bodyHashError = verifyBodyHash(streamed.fileHash, headers);
+	if (bodyHashError) {
+		await cleanupTempFile(streamed.tempPath);
+		return s3ErrorResponse(
+			bodyHashError.errorCode || "BadDigest",
+			"The x-amz-content-sha256 you specified did not match what we received.",
+			`/${bucket}/${key}`,
+			400,
+			reqId
+		);
+	}
 
-  // Content-Length validation: ensure actual body size matches header
-  const contentLengthHeader = headers['content-length'];
-  if (contentLengthHeader) {
-    const declaredLength = Number.parseInt(contentLengthHeader, 10);
-    if (Number.isFinite(declaredLength) && declaredLength !== streamed.sizeBytes) {
-      await cleanupTempFile(streamed.tempPath);
-      return s3ErrorResponse(
-        'IncompleteBody',
-        'You did not provide the number of bytes specified by the Content-Length HTTP header.',
-        `/${bucket}/${key}`,
-        400,
-        reqId,
-      );
-    }
-  }
+	// Content-Length validation: ensure actual body size matches header
+	const contentLengthHeader = headers["content-length"];
+	if (contentLengthHeader) {
+		const declaredLength = Number.parseInt(contentLengthHeader, 10);
+		if (Number.isFinite(declaredLength) && declaredLength !== streamed.sizeBytes) {
+			await cleanupTempFile(streamed.tempPath);
+			return s3ErrorResponse(
+				"IncompleteBody",
+				"You did not provide the number of bytes specified by the Content-Length HTTP header.",
+				`/${bucket}/${key}`,
+				400,
+				reqId
+			);
+		}
+	}
 
-  // Content-MD5 validation: use pre-computed MD5 from streaming (no OOM re-read)
-  const contentMd5 = headers['content-md5'];
-  if (contentMd5 && contentMd5 !== streamed.md5Hash) {
-    await cleanupTempFile(streamed.tempPath);
-    return s3ErrorResponse(
-      'BadDigest',
-      'The Content-MD5 you specified did not match what we received.',
-      `/${bucket}/${key}`,
-      400,
-      reqId,
-    );
-  }
+	// Content-MD5 validation: use pre-computed MD5 from streaming (no OOM re-read)
+	const contentMd5 = headers["content-md5"];
+	if (contentMd5 && contentMd5 !== streamed.md5Hash) {
+		await cleanupTempFile(streamed.tempPath);
+		return s3ErrorResponse(
+			"BadDigest",
+			"The Content-MD5 you specified did not match what we received.",
+			`/${bucket}/${key}`,
+			400,
+			reqId
+		);
+	}
 
-  // M12: Reject oversized bodies
-  if (streamed.sizeBytes > config.maxRequestBodyBytes) {
-    await cleanupTempFile(streamed.tempPath);
-    return s3ErrorResponse(
-      'EntityTooLarge',
-      'Your proposed upload exceeds the maximum allowed object size.',
-      `/${bucket}/${key}`,
-      400,
-      reqId,
-    );
-  }
+	// M12: Reject oversized bodies
+	if (streamed.sizeBytes > config.maxRequestBodyBytes) {
+		await cleanupTempFile(streamed.tempPath);
+		return s3ErrorResponse(
+			"EntityTooLarge",
+			"Your proposed upload exceeds the maximum allowed object size.",
+			`/${bucket}/${key}`,
+			400,
+			reqId
+		);
+	}
 
-  // Idempotent PUT: if the object already exists, skip upload
-  try {
-    const existing = await fileRepository.findByBucketAndKey(bucketRecord.id, key);
-    if (existing) {
-      await cleanupTempFile(streamed.tempPath);
-      return s3Response(null, 200, reqId, { etag: `"${streamed.fileHash}"` });
-    }
+	// Idempotent PUT: if the object already exists, skip upload
+	try {
+		const existing = await fileRepository.findByBucketAndKey(bucketRecord.id, key);
+		if (existing) {
+			await cleanupTempFile(streamed.tempPath);
+			return s3Response(null, 200, reqId, { etag: `"${streamed.fileHash}"` });
+		}
 
-    return await storeFileFromTemp(streamed, key, bucketRecord, contentType, reqId);
-  } catch (error) {
-    await cleanupTempFile(streamed.tempPath);
-    throw error;
-  }
+		return await storeFileFromTemp(streamed, key, bucketRecord, contentType, reqId);
+	} catch (error) {
+		await cleanupTempFile(streamed.tempPath);
+		throw error;
+	}
 };
 
 /**
@@ -203,72 +203,72 @@ export const handlePutObject = async (
  * @returns An S3 response with the etag of the stored object.
  */
 export const storeFileFromTemp = async (
-  streamed: { tempPath: string; fileHash: string; sizeBytes: number; signatureBuffer: Buffer },
-  key: string,
-  bucketRecord: { id: string; name: string },
-  contentType: string,
-  reqId: string,
+	streamed: { tempPath: string; fileHash: string; sizeBytes: number; signatureBuffer: Buffer },
+	key: string,
+	bucketRecord: { id: string; name: string },
+	contentType: string,
+	reqId: string
 ): Promise<Response> => {
-  const fileName = key.split('/').pop() || 'file';
-  const { fileName: finalFileName, mimeType } = ensureExtension(
-    fileName,
-    streamed.signatureBuffer,
-    contentType,
-  );
+	const fileName = key.split("/").pop() || "file";
+	const { fileName: finalFileName, mimeType } = ensureExtension(
+		fileName,
+		streamed.signatureBuffer,
+		contentType
+	);
 
-  const bucketId = bucketRecord.id;
-  const partFileNamePrefix = `s3-${bucketRecord.name}-${key.replace(/\//g, '_')}`;
+	const bucketId = bucketRecord.id;
+	const partFileNamePrefix = `s3-${bucketRecord.name}-${key.replace(/\//g, "_")}`;
 
-  if (streamed.sizeBytes > config.telegramChunkSizeBytes) {
-    const file = await chunkedStorage.storeFileInTelegramChunks({
-      tempPath: streamed.tempPath,
-      partFileNamePrefix,
-      fileName: finalFileName,
-      mimeType,
-      sizeBytes: streamed.sizeBytes,
-      fileType: DEFAULT_FILE_TYPE,
-      uploaderId: 0,
-      bucketId,
-      s3Key: key,
-    });
-    await cleanupTempFile(streamed.tempPath);
-    return s3Response(null, 200, reqId, { etag: `"${file.fileHash}"` });
-  }
+	if (streamed.sizeBytes > config.telegramChunkSizeBytes) {
+		const file = await chunkedStorage.storeFileInTelegramChunks({
+			tempPath: streamed.tempPath,
+			partFileNamePrefix,
+			fileName: finalFileName,
+			mimeType,
+			sizeBytes: streamed.sizeBytes,
+			fileType: DEFAULT_FILE_TYPE,
+			uploaderId: 0,
+			bucketId,
+			s3Key: key,
+		});
+		await cleanupTempFile(streamed.tempPath);
+		return s3Response(null, 200, reqId, { etag: `"${file.fileHash}"` });
+	}
 
-  const fileStream = createReadStream(streamed.tempPath);
-  let forwardResult: ForwardResult;
-  try {
-    forwardResult = await botPool.forwardToStorage(fileStream, partFileNamePrefix, 'document');
-  } catch (error) {
-    fileStream.destroy();
-    throw error;
-  }
-  fileStream.destroy();
+	const fileStream = createReadStream(streamed.tempPath);
+	let forwardResult: ForwardResult;
+	try {
+		forwardResult = await botPool.forwardToStorage(fileStream, partFileNamePrefix, "document");
+	} catch (error) {
+		fileStream.destroy();
+		throw error;
+	}
+	fileStream.destroy();
 
-  const publicId = nanoid();
+	const publicId = nanoid();
 
-  await fileRepository.create(
-    buildNewFile({
-      publicId,
-      telegramFileId: forwardResult.telegramFileId,
-      telegramFileUniqueId: forwardResult.telegramFileUniqueId,
-      storageChatId: config.storageChatId,
-      storageMessageId: forwardResult.storageMessageId,
-      fileName: finalFileName,
-      mimeType,
-      sizeBytes: streamed.sizeBytes,
-      fileType: DEFAULT_FILE_TYPE,
-      uploaderId: 0,
-      fileHash: streamed.fileHash,
-      bucketId,
-      s3Key: key,
-      storageBackend: 'telegram',
-    }),
-  );
+	await fileRepository.create(
+		buildNewFile({
+			publicId,
+			telegramFileId: forwardResult.telegramFileId,
+			telegramFileUniqueId: forwardResult.telegramFileUniqueId,
+			storageChatId: config.storageChatId,
+			storageMessageId: forwardResult.storageMessageId,
+			fileName: finalFileName,
+			mimeType,
+			sizeBytes: streamed.sizeBytes,
+			fileType: DEFAULT_FILE_TYPE,
+			uploaderId: 0,
+			fileHash: streamed.fileHash,
+			bucketId,
+			s3Key: key,
+			storageBackend: "telegram",
+		})
+	);
 
-  await cleanupTempFile(streamed.tempPath);
+	await cleanupTempFile(streamed.tempPath);
 
-  return s3Response(null, 200, reqId, { etag: `"${streamed.fileHash}"` });
+	return s3Response(null, 200, reqId, { etag: `"${streamed.fileHash}"` });
 };
 
 /**
@@ -287,101 +287,101 @@ export const storeFileFromTemp = async (
  * @returns An S3 XML response with the copy result or an error.
  */
 export const handleCopyObject = async (
-  _destBucket: string,
-  destKey: string,
-  rawCopySource: string,
-  headers: Record<string, string>,
-  destBucketId: string,
-  organizationId: string,
-  reqId: string,
+	_destBucket: string,
+	destKey: string,
+	rawCopySource: string,
+	headers: Record<string, string>,
+	destBucketId: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const copySource = decodeURIComponent(rawCopySource);
-  const sourcePath = copySource.startsWith('/') ? copySource.slice(1) : copySource;
-  const parts = sourcePath.split('/');
-  const sourceBucket = parts[0];
-  const sourceKey = parts.slice(1).join('/');
+	const copySource = decodeURIComponent(rawCopySource);
+	const sourcePath = copySource.startsWith("/") ? copySource.slice(1) : copySource;
+	const parts = sourcePath.split("/");
+	const sourceBucket = parts[0];
+	const sourceKey = parts.slice(1).join("/");
 
-  const sourceBucketRecord = await bucketRepository.findByName(sourceBucket, organizationId);
-  if (!sourceBucketRecord)
-    return s3ErrorResponse(
-      'NoSuchBucket',
-      'The specified bucket does not exist.',
-      copySource,
-      404,
-      reqId,
-    );
+	const sourceBucketRecord = await bucketRepository.findByName(sourceBucket, organizationId);
+	if (!sourceBucketRecord)
+		return s3ErrorResponse(
+			"NoSuchBucket",
+			"The specified bucket does not exist.",
+			copySource,
+			404,
+			reqId
+		);
 
-  const sourceFile = await fileRepository.findByBucketAndKey(sourceBucketRecord.id, sourceKey);
-  if (!sourceFile)
-    return s3ErrorResponse(
-      'NoSuchKey',
-      'The specified key does not exist.',
-      copySource,
-      404,
-      reqId,
-    );
+	const sourceFile = await fileRepository.findByBucketAndKey(sourceBucketRecord.id, sourceKey);
+	if (!sourceFile)
+		return s3ErrorResponse(
+			"NoSuchKey",
+			"The specified key does not exist.",
+			copySource,
+			404,
+			reqId
+		);
 
-  // Chunked objects cannot be copied yet
-  if (sourceFile.storageBackend === 'chunked') {
-    return s3ErrorResponse(
-      'NotImplemented',
-      'Copying chunked objects is not yet implemented.',
-      copySource,
-      501,
-      reqId,
-    );
-  }
+	// Chunked objects cannot be copied yet
+	if (sourceFile.storageBackend === "chunked") {
+		return s3ErrorResponse(
+			"NotImplemented",
+			"Copying chunked objects is not yet implemented.",
+			copySource,
+			501,
+			reqId
+		);
+	}
 
-  // Conditional copy: if-match / if-none-match checks
-  // M9: Use stable etag (telegramFileId fallback when fileHash is null) —
-  // kept inline (not etagOrFallback) because this variant falls back to
-  // telegramFileId while the read/list paths fall back to nanoid(16).
-  const sourceEtag = sourceFile.fileHash || sourceFile.telegramFileId;
-  const ifMatch = headers['x-amz-copy-source-if-match'];
-  const ifNoneMatch = headers['x-amz-copy-source-if-none-match'];
-  if (ifMatch && ifMatch !== '*' && ifMatch !== `"${sourceEtag}"`) {
-    return s3ErrorResponse(
-      'PreconditionFailed',
-      'The preconditions you specified did not hold.',
-      copySource,
-      412,
-      reqId,
-    );
-  }
-  if (ifNoneMatch && ifNoneMatch === `"${sourceEtag}"`) {
-    return s3ErrorResponse(
-      'PreconditionFailed',
-      'The preconditions you specified did not hold.',
-      copySource,
-      412,
-      reqId,
-    );
-  }
+	// Conditional copy: if-match / if-none-match checks
+	// M9: Use stable etag (telegramFileId fallback when fileHash is null) —
+	// kept inline (not etagOrFallback) because this variant falls back to
+	// telegramFileId while the read/list paths fall back to nanoid(16).
+	const sourceEtag = sourceFile.fileHash || sourceFile.telegramFileId;
+	const ifMatch = headers["x-amz-copy-source-if-match"];
+	const ifNoneMatch = headers["x-amz-copy-source-if-none-match"];
+	if (ifMatch && ifMatch !== "*" && ifMatch !== `"${sourceEtag}"`) {
+		return s3ErrorResponse(
+			"PreconditionFailed",
+			"The preconditions you specified did not hold.",
+			copySource,
+			412,
+			reqId
+		);
+	}
+	if (ifNoneMatch && ifNoneMatch === `"${sourceEtag}"`) {
+		return s3ErrorResponse(
+			"PreconditionFailed",
+			"The preconditions you specified did not hold.",
+			copySource,
+			412,
+			reqId
+		);
+	}
 
-  const publicId = nanoid();
+	const publicId = nanoid();
 
-  await fileRepository.create(
-    buildNewFile({
-      publicId,
-      telegramFileId: sourceFile.telegramFileId,
-      telegramFileUniqueId: sourceFile.telegramFileUniqueId,
-      storageChatId: sourceFile.storageChatId,
-      storageMessageId: sourceFile.storageMessageId,
-      fileName: sourceFile.fileName,
-      mimeType: sourceFile.mimeType,
-      sizeBytes: sourceFile.sizeBytes,
-      fileType: sourceFile.fileType,
-      uploaderId: 0,
-      fileHash: sourceFile.fileHash,
-      bucketId: destBucketId,
-      s3Key: destKey,
-      storageBackend: 'telegram',
-    }),
-  );
+	await fileRepository.create(
+		buildNewFile({
+			publicId,
+			telegramFileId: sourceFile.telegramFileId,
+			telegramFileUniqueId: sourceFile.telegramFileUniqueId,
+			storageChatId: sourceFile.storageChatId,
+			storageMessageId: sourceFile.storageMessageId,
+			fileName: sourceFile.fileName,
+			mimeType: sourceFile.mimeType,
+			sizeBytes: sourceFile.sizeBytes,
+			fileType: sourceFile.fileType,
+			uploaderId: 0,
+			fileHash: sourceFile.fileHash,
+			bucketId: destBucketId,
+			s3Key: destKey,
+			storageBackend: "telegram",
+		})
+	);
 
-  // copyObjectResultXml quotes the etag itself.
-  const xml = copyObjectResultXml(etagOrFallback(sourceFile.fileHash), new Date());
-  return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
+	// copyObjectResultXml quotes the etag itself.
+	const xml = copyObjectResultXml(etagOrFallback(sourceFile.fileHash), new Date());
+	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };
 
 /**
@@ -393,22 +393,22 @@ export const handleCopyObject = async (
  * @returns A 204 response on success, or an S3 XML error.
  */
 export const handleDeleteObject = async (
-  bucket: string,
-  key: string,
-  organizationId: string,
-  reqId: string,
+	bucket: string,
+	key: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(
-    bucketRepository,
-    bucket,
-    organizationId,
-    `/${bucket}/${key}`,
-    reqId,
-  );
-  if (bucketRecord instanceof Response) return bucketRecord;
+	const bucketRecord = await resolveBucketOr404(
+		bucketRepository,
+		bucket,
+		organizationId,
+		`/${bucket}/${key}`,
+		reqId
+	);
+	if (bucketRecord instanceof Response) return bucketRecord;
 
-  await fileRepository.softDelete(bucketRecord.id, key);
-  return s3Response(null, 204, reqId);
+	await fileRepository.softDelete(bucketRecord.id, key);
+	return s3Response(null, 204, reqId);
 };
 
 /**
@@ -425,45 +425,45 @@ export const handleDeleteObject = async (
  * @returns An S3 XML response listing deleted keys.
  */
 export const handleDeleteObjects = async (
-  bucket: string,
-  body: string,
-  organizationId: string,
-  reqId: string,
+	bucket: string,
+	body: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucketRecord = await resolveBucketOr404(
-    bucketRepository,
-    bucket,
-    organizationId,
-    `/${bucket}`,
-    reqId,
-  );
-  if (bucketRecord instanceof Response) return bucketRecord;
+	const bucketRecord = await resolveBucketOr404(
+		bucketRepository,
+		bucket,
+		organizationId,
+		`/${bucket}`,
+		reqId
+	);
+	if (bucketRecord instanceof Response) return bucketRecord;
 
-  const parsed = parseOrNull(DeleteObjectsBodySchema, parseDeleteObjectsBody(body));
+	const parsed = parseOrNull(DeleteObjectsBodySchema, parseDeleteObjectsBody(body));
 
-  // M11: S3 spec limits batch delete to 1000 keys (also enforced by schema)
-  if (parsed === null || parsed.keys.length > 1000) {
-    return s3ErrorResponse(
-      'MalformedXML',
-      'The XML you provided was not well-formed or did not validate against our published schema. Max 1000 keys per request.',
-      `/${bucket}`,
-      400,
-      reqId,
-    );
-  }
-  const { keys, quiet } = parsed;
+	// M11: S3 spec limits batch delete to 1000 keys (also enforced by schema)
+	if (parsed === null || parsed.keys.length > 1000) {
+		return s3ErrorResponse(
+			"MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema. Max 1000 keys per request.",
+			`/${bucket}`,
+			400,
+			reqId
+		);
+	}
+	const { keys, quiet } = parsed;
 
-  const deletedKeys: string[] = [];
-  const errors: Array<{ key: string; code: string; message: string }> = [];
-  for (const key of keys) {
-    const ok = await fileRepository.softDelete(bucketRecord.id, key);
-    if (ok) {
-      deletedKeys.push(key);
-    } else {
-      // Per S3 spec, deleting a non-existent key is idempotent — report as success
-      deletedKeys.push(key);
-    }
-  }
-  const xml = quiet ? deleteResultXml([], []) : deleteResultXml(deletedKeys, errors);
-  return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
+	const deletedKeys: string[] = [];
+	const errors: Array<{ key: string; code: string; message: string }> = [];
+	for (const key of keys) {
+		const ok = await fileRepository.softDelete(bucketRecord.id, key);
+		if (ok) {
+			deletedKeys.push(key);
+		} else {
+			// Per S3 spec, deleting a non-existent key is idempotent — report as success
+			deletedKeys.push(key);
+		}
+	}
+	const xml = quiet ? deleteResultXml([], []) : deleteResultXml(deletedKeys, errors);
+	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };

@@ -1,14 +1,14 @@
-import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
-import { config } from '../../../env';
-import { getErrorMessage } from '../../file';
-import logger from '../../observability/logger';
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
+import { config } from "../../../env";
+import { getErrorMessage } from "../../file";
+import logger from "../../observability/logger";
 
 /**
  * Journal entry for the pre-drizzle schema.
@@ -21,7 +21,7 @@ import logger from '../../observability/logger';
  * later migration (verified: a simulated P3 tenancy migration silently never
  * applied). See drizzle/0000_baseline.sql.
  */
-const BASELINE_ENTRY = { tag: '0000_baseline' };
+const BASELINE_ENTRY = { tag: "0000_baseline" };
 
 /**
  * Locate the drizzle migrations folder.
@@ -31,28 +31,28 @@ const BASELINE_ENTRY = { tag: '0000_baseline' };
  * code, so it is not bundled into the JS and has to be found at runtime.
  */
 const resolveMigrationsFolder = (): string | null => {
-  const dir = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // `./drizzle` is THE deployed layout and the only candidate that can resolve
-    // on the VPS: deploy.sh scp's drizzle/ next to migrate.js precisely because
-    // `node dist/migrate.js` bundles no data. It is checked FIRST because it is
-    // the one that is load-bearing in production.
-    join(dir, './drizzle'), // next to the module — THE deployed layout
-    // The rest are dev/source-tree shapes. Note what the first of them is NOT:
-    // `../../../../drizzle` does NOT mean "from dist/". From dist/ it resolves
-    // to `/drizzle` (four levels above apps/api/dist is the filesystem root),
-    // and it resolves in neither layout. It is retained only so the error message
-    // below can honestly list every path that was tried.
-    join(dir, '../../../../drizzle'), // four levels above the module — never resolves in either layout
-    join(dir, '../../drizzle'), // from src/infrastructure/persistence/drizzle/
-    join(dir, '../../../drizzle'), // from src/infrastructure/persistence/
-    join(process.cwd(), 'drizzle'), // run from apps/api
-    join(process.cwd(), 'apps/api/drizzle'), // run from the repo root
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'meta', '_journal.json'))) return candidate;
-  }
-  return null;
+	const dir = dirname(fileURLToPath(import.meta.url));
+	const candidates = [
+		// `./drizzle` is THE deployed layout and the only candidate that can resolve
+		// on the VPS: deploy.sh scp's drizzle/ next to migrate.js precisely because
+		// `node dist/migrate.js` bundles no data. It is checked FIRST because it is
+		// the one that is load-bearing in production.
+		join(dir, "./drizzle"), // next to the module — THE deployed layout
+		// The rest are dev/source-tree shapes. Note what the first of them is NOT:
+		// `../../../../drizzle` does NOT mean "from dist/". From dist/ it resolves
+		// to `/drizzle` (four levels above apps/api/dist is the filesystem root),
+		// and it resolves in neither layout. It is retained only so the error message
+		// below can honestly list every path that was tried.
+		join(dir, "../../../../drizzle"), // four levels above the module — never resolves in either layout
+		join(dir, "../../drizzle"), // from src/infrastructure/persistence/drizzle/
+		join(dir, "../../../drizzle"), // from src/infrastructure/persistence/
+		join(process.cwd(), "drizzle"), // run from apps/api
+		join(process.cwd(), "apps/api/drizzle"), // run from the repo root
+	];
+	for (const candidate of candidates) {
+		if (existsSync(join(candidate, "meta", "_journal.json"))) return candidate;
+	}
+	return null;
 };
 
 /**
@@ -75,28 +75,28 @@ const resolveMigrationsFolder = (): string | null => {
  * has no unique constraint on hash or created_at to conflict on.
  */
 const runBaseline = async (sql: postgres.Sql, journalFolder: string): Promise<void> => {
-  // Read the baseline entry's real hash the same way drizzle's migrator does:
-  // sha256 of the migration file's contents. If the file changes, this changes.
-  const baselineSql = await readFile(join(journalFolder, '0000_baseline.sql'), 'utf8');
-  const hash = createHash('sha256').update(baselineSql).digest('hex');
-  const journal = JSON.parse(
-    await readFile(join(journalFolder, 'meta', '_journal.json'), 'utf8'),
-  ) as { entries: { tag: string; when: number }[] };
-  const entry = journal.entries.find((e) => e.tag === BASELINE_ENTRY.tag);
-  if (!entry) throw new Error(`Journal entry ${BASELINE_ENTRY.tag} not found`);
+	// Read the baseline entry's real hash the same way drizzle's migrator does:
+	// sha256 of the migration file's contents. If the file changes, this changes.
+	const baselineSql = await readFile(join(journalFolder, "0000_baseline.sql"), "utf8");
+	const hash = createHash("sha256").update(baselineSql).digest("hex");
+	const journal = JSON.parse(
+		await readFile(join(journalFolder, "meta", "_journal.json"), "utf8")
+	) as { entries: { tag: string; when: number }[] };
+	const entry = journal.entries.find((e) => e.tag === BASELINE_ENTRY.tag);
+	if (!entry) throw new Error(`Journal entry ${BASELINE_ENTRY.tag} not found`);
 
-  // One statement per call: postgres.js uses the extended protocol for tagged
-  // templates, which rejects a multi-command batch with
-  // "cannot insert multiple commands into a prepared statement".
-  await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
-  await sql`
+	// One statement per call: postgres.js uses the extended protocol for tagged
+	// templates, which rejects a multi-command batch with
+	// "cannot insert multiple commands into a prepared statement".
+	await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
+	await sql`
     CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
       created_at bigint
     )
   `;
-  await sql`
+	await sql`
     INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
     SELECT ${hash}, ${entry.when}
     WHERE NOT EXISTS (
@@ -138,35 +138,35 @@ const runBaseline = async (sql: postgres.Sql, journalFolder: string): Promise<vo
  * are the only thing standing between them.
  */
 export const runMigration = async (): Promise<void> => {
-  const migrationsFolder = resolveMigrationsFolder();
-  if (!migrationsFolder) {
-    logger.error(
-      'Migration failed: drizzle migrations folder not found (looked for meta/_journal.json next to the module, in cwd, and at apps/api/drizzle)',
-    );
-    process.exitCode = 1;
-    return;
-  }
+	const migrationsFolder = resolveMigrationsFolder();
+	if (!migrationsFolder) {
+		logger.error(
+			"Migration failed: drizzle migrations folder not found (looked for meta/_journal.json next to the module, in cwd, and at apps/api/drizzle)"
+		);
+		process.exitCode = 1;
+		return;
+	}
 
-  const sql = postgres(config.databaseUrl, { max: 1 });
+	const sql = postgres(config.databaseUrl, { max: 1 });
 
-  try {
-    await runBaseline(sql, migrationsFolder);
-    const db = drizzle(sql);
+	try {
+		await runBaseline(sql, migrationsFolder);
+		const db = drizzle(sql);
 
-    await migrate(db, { migrationsFolder });
-    logger.info('Database migration completed');
-  } catch (error: unknown) {
-    logger.error('Database migration failed', { error: getErrorMessage(error) });
-    process.exitCode = 1;
-  } finally {
-    await sql.end();
-  }
+		await migrate(db, { migrationsFolder });
+		logger.info("Database migration completed");
+	} catch (error: unknown) {
+		logger.error("Database migration failed", { error: getErrorMessage(error) });
+		process.exitCode = 1;
+	} finally {
+		await sql.end();
+	}
 };
 
 // When run directly: `node dist/migrate.js` or `tsx src/.../migrate.ts`.
 // Node has no `Bun.main`, so compare this module's URL with the invoked entry.
 const invokedAsMain =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+	process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedAsMain) {
-  await runMigration();
+	await runMigration();
 }

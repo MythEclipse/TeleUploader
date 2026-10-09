@@ -16,4 +16,4 @@
  * @returns The full Telegram CDN URL.
  */
 export const buildTelegramFileUrl = (filePath: string, botToken: string): string =>
-  `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+	`https://api.telegram.org/file/bot${botToken}/${filePath}`;

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Boundary validation schemas (zod) for all system entry points.
@@ -24,16 +24,16 @@ import { z } from 'zod';
  * format, no `xn--` prefix).
  */
 export const BucketNameSchema = z
-  .string()
-  .min(3)
-  .max(63)
-  .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'Bucket name has invalid format')
-  .refine((name) => !name.includes('..'), 'Bucket name must not contain consecutive dots')
-  .refine(
-    (name) => !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name),
-    'Bucket name must not be formatted as an IP address',
-  )
-  .refine((name) => !name.startsWith('xn--'), 'Bucket name must not start with "xn--"');
+	.string()
+	.min(3)
+	.max(63)
+	.regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, "Bucket name has invalid format")
+	.refine((name) => !name.includes(".."), "Bucket name must not contain consecutive dots")
+	.refine(
+		(name) => !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name),
+		"Bucket name must not be formatted as an IP address"
+	)
+	.refine((name) => !name.startsWith("xn--"), 'Bucket name must not start with "xn--"');
 
 /** Inferred bucket-name type. */
 export type BucketName = z.infer<typeof BucketNameSchema>;
@@ -46,10 +46,10 @@ export type BucketName = z.infer<typeof BucketNameSchema>;
  * `interfaces/http/controllers/upload-controller.ts`.
  */
 export const JsonUploadPayloadSchema = z.object({
-  /** Base64-encoded file data, optionally with a `data:` URI prefix. */
-  file: z.string().min(1, 'Invalid JSON. Must include "file" (base64) and optional "fileName"'),
-  /** Optional file name. */
-  fileName: z.string().default('file'),
+	/** Base64-encoded file data, optionally with a `data:` URI prefix. */
+	file: z.string().min(1, 'Invalid JSON. Must include "file" (base64) and optional "fileName"'),
+	/** Optional file name. */
+	fileName: z.string().default("file"),
 });
 
 /** Inferred JSON-upload payload type. */
@@ -62,8 +62,8 @@ export type JsonUploadPayload = z.infer<typeof JsonUploadPayloadSchema>;
  * (`interfaces/http/controllers/auth-controller.ts`).
  */
 export const LoginBodySchema = z.object({
-  /** Admin API token. */
-  token: z.string().min(1, 'Token is required'),
+	/** Admin API token. */
+	token: z.string().min(1, "Token is required"),
 });
 
 /** Inferred login-body type. */
@@ -80,10 +80,10 @@ export const DeleteObjectKeySchema = z.string().min(1);
  * the M11 S3 limit of 1000 keys per request.
  */
 export const DeleteObjectsBodySchema = z.object({
-  /** Object keys to delete. */
-  keys: z.array(DeleteObjectKeySchema).max(1000, 'Max 1000 keys per request'),
-  /** Quiet mode — return only errors. */
-  quiet: z.boolean(),
+	/** Object keys to delete. */
+	keys: z.array(DeleteObjectKeySchema).max(1000, "Max 1000 keys per request"),
+	/** Quiet mode — return only errors. */
+	quiet: z.boolean(),
 });
 
 /** Inferred delete-objects body type. */
@@ -91,10 +91,10 @@ export type DeleteObjectsBody = z.infer<typeof DeleteObjectsBodySchema>;
 
 /** A single part entry in a CompleteMultipartUpload XML body. */
 export const CompletePartSchema = z.object({
-  /** 1-based part number (1–10000 per S3 spec). */
-  partNumber: z.number().int().min(1).max(10000),
-  /** Part ETag as returned by UploadPart (quotes already stripped by the parser). */
-  etag: z.string().min(1),
+	/** 1-based part number (1–10000 per S3 spec). */
+	partNumber: z.number().int().min(1).max(10000),
+	/** Part ETag as returned by UploadPart (quotes already stripped by the parser). */
+	etag: z.string().min(1),
 });
 
 /**
@@ -104,8 +104,8 @@ export const CompletePartSchema = z.object({
  * (`interfaces/s3/xml.ts`).
  */
 export const CompleteMultipartBodySchema = z.object({
-  /** Parts in the order submitted by the client. */
-  parts: z.array(CompletePartSchema),
+	/** Parts in the order submitted by the client. */
+	parts: z.array(CompletePartSchema),
 });
 
 /** Inferred complete-multipart body type. */
@@ -124,10 +124,10 @@ export type CompleteMultipartBody = z.infer<typeof CompleteMultipartBodySchema>;
  * @returns An integer in [1, 1000].
  */
 export const clampMaxKeys = (raw: string | null, fallback = 1000): number => {
-  const parsed = z.coerce.number().int().min(1).max(1000).safeParse(raw);
-  if (parsed.success) return parsed.data;
-  if (raw === null) return fallback;
-  return 1000;
+	const parsed = z.coerce.number().int().min(1).max(1000).safeParse(raw);
+	if (parsed.success) return parsed.data;
+	if (raw === null) return fallback;
+	return 1000;
 };
 
 /**
@@ -156,6 +156,6 @@ export const PositiveIntSchema = z.coerce.number().int().positive();
  * @returns The parsed value, or `null` when invalid.
  */
 export const parseOrNull = <T>(schema: z.ZodType<T>, input: unknown): T | null => {
-  const result = schema.safeParse(input);
-  return result.success ? result.data : null;
+	const result = schema.safeParse(input);
+	return result.success ? result.data : null;
 };

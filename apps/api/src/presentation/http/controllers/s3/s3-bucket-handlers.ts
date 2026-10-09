@@ -1,7 +1,7 @@
-import { BucketNameSchema, parseOrNull } from '../../../../application/shared/validation/schemas';
-import { bucketRepository, fileRepository } from '../../../../infrastructure/di';
-import { bucketVersioningConfigurationXml, listBucketsXml, s3ErrorResponse } from '../../../s3/xml';
-import { resolveBucketOr404, s3Response } from './s3-common';
+import { BucketNameSchema, parseOrNull } from "../../../../application/shared/validation/schemas";
+import { bucketRepository, fileRepository } from "../../../../infrastructure/di";
+import { bucketVersioningConfigurationXml, listBucketsXml, s3ErrorResponse } from "../../../s3/xml";
+import { resolveBucketOr404, s3Response } from "./s3-common";
 
 // ─────── Bucket Operations ───────
 
@@ -13,12 +13,12 @@ import { resolveBucketOr404, s3Response } from './s3-common';
  * @returns An S3 XML response with the bucket list.
  */
 export const handleListBuckets = async (
-  organizationId: string,
-  reqId: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const buckets = await bucketRepository.list(organizationId);
-  const xml = listBucketsXml(buckets, reqId);
-  return s3Response(xml, 200, reqId, { 'content-type': 'application/xml' });
+	const buckets = await bucketRepository.list(organizationId);
+	const xml = listBucketsXml(buckets, reqId);
+	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };
 
 /**
@@ -33,31 +33,31 @@ export const handleListBuckets = async (
  * @returns An S3 XML response indicating success or failure.
  */
 export const handleCreateBucket = async (
-  bucketName: string,
-  organizationId: string,
-  reqId: string,
+	bucketName: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  if (parseOrNull(BucketNameSchema, bucketName) === null) {
-    return s3ErrorResponse(
-      'InvalidBucketName',
-      'The specified bucket is not valid.',
-      `/${bucketName}`,
-      400,
-      reqId,
-    );
-  }
-  const existing = await bucketRepository.findByName(bucketName, organizationId);
-  if (existing) {
-    return s3ErrorResponse(
-      'BucketAlreadyExists',
-      'The requested bucket name is not available.',
-      `/${bucketName}`,
-      409,
-      reqId,
-    );
-  }
-  await bucketRepository.create(bucketName, organizationId);
-  return s3Response(null, 200, reqId);
+	if (parseOrNull(BucketNameSchema, bucketName) === null) {
+		return s3ErrorResponse(
+			"InvalidBucketName",
+			"The specified bucket is not valid.",
+			`/${bucketName}`,
+			400,
+			reqId
+		);
+	}
+	const existing = await bucketRepository.findByName(bucketName, organizationId);
+	if (existing) {
+		return s3ErrorResponse(
+			"BucketAlreadyExists",
+			"The requested bucket name is not available.",
+			`/${bucketName}`,
+			409,
+			reqId
+		);
+	}
+	await bucketRepository.create(bucketName, organizationId);
+	return s3Response(null, 200, reqId);
 };
 
 /**
@@ -68,19 +68,19 @@ export const handleCreateBucket = async (
  * @returns A 200 response when the bucket exists, or an S3 XML error.
  */
 export const handleHeadBucket = async (
-  bucketName: string,
-  organizationId: string,
-  reqId: string,
+	bucketName: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucket = await resolveBucketOr404(
-    bucketRepository,
-    bucketName,
-    organizationId,
-    `/${bucketName}`,
-    reqId,
-  );
-  if (bucket instanceof Response) return bucket;
-  return s3Response(null, 200, reqId);
+	const bucket = await resolveBucketOr404(
+		bucketRepository,
+		bucketName,
+		organizationId,
+		`/${bucketName}`,
+		reqId
+	);
+	if (bucket instanceof Response) return bucket;
+	return s3Response(null, 200, reqId);
 };
 
 /**
@@ -93,30 +93,30 @@ export const handleHeadBucket = async (
  * @returns A 204 response on success, or an S3 XML error.
  */
 export const handleDeleteBucket = async (
-  bucketName: string,
-  organizationId: string,
-  reqId: string,
+	bucketName: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucket = await resolveBucketOr404(
-    bucketRepository,
-    bucketName,
-    organizationId,
-    `/${bucketName}`,
-    reqId,
-  );
-  if (bucket instanceof Response) return bucket;
-  const objCount = await fileRepository.countByBucket(bucket.id);
-  if (objCount > 0) {
-    return s3ErrorResponse(
-      'BucketNotEmpty',
-      'The bucket you tried to delete is not empty.',
-      `/${bucketName}`,
-      409,
-      reqId,
-    );
-  }
-  await bucketRepository.delete(bucketName, organizationId);
-  return s3Response(null, 204, reqId);
+	const bucket = await resolveBucketOr404(
+		bucketRepository,
+		bucketName,
+		organizationId,
+		`/${bucketName}`,
+		reqId
+	);
+	if (bucket instanceof Response) return bucket;
+	const objCount = await fileRepository.countByBucket(bucket.id);
+	if (objCount > 0) {
+		return s3ErrorResponse(
+			"BucketNotEmpty",
+			"The bucket you tried to delete is not empty.",
+			`/${bucketName}`,
+			409,
+			reqId
+		);
+	}
+	await bucketRepository.delete(bucketName, organizationId);
+	return s3Response(null, 204, reqId);
 };
 
 /**
@@ -128,19 +128,19 @@ export const handleDeleteBucket = async (
  * @returns An S3 XML response with the versioning configuration.
  */
 export const handleGetBucketVersioning = async (
-  bucketName: string,
-  organizationId: string,
-  reqId: string,
+	bucketName: string,
+	organizationId: string,
+	reqId: string
 ): Promise<Response> => {
-  const bucket = await resolveBucketOr404(
-    bucketRepository,
-    bucketName,
-    organizationId,
-    `/${bucketName}`,
-    reqId,
-  );
-  if (bucket instanceof Response) return bucket;
-  return s3Response(bucketVersioningConfigurationXml(), 200, reqId, {
-    'content-type': 'application/xml',
-  });
+	const bucket = await resolveBucketOr404(
+		bucketRepository,
+		bucketName,
+		organizationId,
+		`/${bucketName}`,
+		reqId
+	);
+	if (bucket instanceof Response) return bucket;
+	return s3Response(bucketVersioningConfigurationXml(), 200, reqId, {
+		"content-type": "application/xml",
+	});
 };

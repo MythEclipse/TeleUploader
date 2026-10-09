@@ -1,6 +1,6 @@
-import { implement } from '@orpc/server';
-import type { AppRouterContext } from '../context';
-import { type BucketBase, type BucketHandlers, buildBucketRouter, rootContract } from './bucket';
+import { implement } from "@orpc/server";
+import type { AppRouterContext } from "../context";
+import { type BucketBase, type BucketHandlers, buildBucketRouter, rootContract } from "./bucket";
 
 /**
  * Root oRPC router (P2c).
@@ -16,10 +16,10 @@ import { type BucketBase, type BucketHandlers, buildBucketRouter, rootContract }
  * handler depends on.
  */
 export const buildRouter = (handlers: BucketHandlers) => {
-  const base: BucketBase = implement(rootContract).$context<AppRouterContext>();
-  return base.router({
-    bucket: buildBucketRouter(base, handlers),
-  });
+	const base: BucketBase = implement(rootContract).$context<AppRouterContext>();
+	return base.router({
+		bucket: buildBucketRouter(base, handlers),
+	});
 };
 
 /**

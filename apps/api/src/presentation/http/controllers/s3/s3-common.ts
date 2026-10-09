@@ -1,17 +1,17 @@
-import { nanoid } from 'nanoid';
-import type { Bucket } from '../../../../domain/entities/bucket';
-import type { MultipartUpload } from '../../../../domain/entities/multipart';
-import type { IBucketRepository } from '../../../../domain/ports/bucket-repository';
-import type { IMultipartRepository } from '../../../../domain/ports/multipart-repository';
-import { config } from '../../../../env';
-import { s3Headers } from '../../../s3/headers';
-import { unsatisfiedContentRange } from '../../../s3/range';
-import { s3ErrorResponse } from '../../../s3/xml';
+import { nanoid } from "nanoid";
+import type { Bucket } from "../../../../domain/entities/bucket";
+import type { MultipartUpload } from "../../../../domain/entities/multipart";
+import type { IBucketRepository } from "../../../../domain/ports/bucket-repository";
+import type { IMultipartRepository } from "../../../../domain/ports/multipart-repository";
+import { config } from "../../../../env";
+import { s3Headers } from "../../../s3/headers";
+import { unsatisfiedContentRange } from "../../../s3/range";
+import { s3ErrorResponse } from "../../../s3/xml";
 
 /**
  * The default S3 region returned when no region is explicitly configured.
  */
-export const REGION = config.s3DefaultRegion || 'us-east-1';
+export const REGION = config.s3DefaultRegion || "us-east-1";
 
 /**
  * Generates a unique request identifier for S3 responses.
@@ -30,22 +30,22 @@ export const REQUEST_ID = (): string => nanoid(16);
  * @returns An S3-formatted Response.
  */
 export const s3Response = (
-  body: string | null,
-  status: number,
-  reqId: string,
-  extraHeaders: Record<string, string> = {},
+	body: string | null,
+	status: number,
+	reqId: string,
+	extraHeaders: Record<string, string> = {}
 ): Response => {
-  // Add content-type for empty 200-series responses (not 204 which has no body)
-  if (
-    body === null &&
-    status >= 200 &&
-    status < 300 &&
-    status !== 204 &&
-    !extraHeaders['content-type']
-  ) {
-    extraHeaders['content-type'] = 'application/xml';
-  }
-  return new Response(body, { status, headers: s3Headers(reqId, extraHeaders) });
+	// Add content-type for empty 200-series responses (not 204 which has no body)
+	if (
+		body === null &&
+		status >= 200 &&
+		status < 300 &&
+		status !== 204 &&
+		!extraHeaders["content-type"]
+	) {
+		extraHeaders["content-type"] = "application/xml";
+	}
+	return new Response(body, { status, headers: s3Headers(reqId, extraHeaders) });
 };
 
 /**
@@ -68,23 +68,23 @@ export const s3Response = (
  * @returns The bucket record, or an S3 error Response when not found.
  */
 export const resolveBucketOr404 = async (
-  bucketRepo: IBucketRepository,
-  bucket: string,
-  organizationId: string,
-  path: string,
-  reqId: string,
+	bucketRepo: IBucketRepository,
+	bucket: string,
+	organizationId: string,
+	path: string,
+	reqId: string
 ): Promise<Bucket | Response> => {
-  const bucketRecord = await bucketRepo.findByName(bucket, organizationId);
-  if (!bucketRecord) {
-    return s3ErrorResponse(
-      'NoSuchBucket',
-      'The specified bucket does not exist.',
-      path,
-      404,
-      reqId,
-    );
-  }
-  return bucketRecord;
+	const bucketRecord = await bucketRepo.findByName(bucket, organizationId);
+	if (!bucketRecord) {
+		return s3ErrorResponse(
+			"NoSuchBucket",
+			"The specified bucket does not exist.",
+			path,
+			404,
+			reqId
+		);
+	}
+	return bucketRecord;
 };
 
 /**
@@ -108,28 +108,28 @@ export const resolveBucketOr404 = async (
  * @returns The upload record, or an S3 error Response when not found.
  */
 export const requireUploadOr404 = async (
-  multipartRepo: IMultipartRepository,
-  uploadId: string,
-  bucketId: string,
-  path: string,
-  reqId: string,
-  key?: string,
+	multipartRepo: IMultipartRepository,
+	uploadId: string,
+	bucketId: string,
+	path: string,
+	reqId: string,
+	key?: string
 ): Promise<MultipartUpload | Response> => {
-  const multipart = await multipartRepo.findById(uploadId);
-  if (
-    !multipart ||
-    multipart.bucketId !== bucketId ||
-    (key !== undefined && multipart.s3Key !== key)
-  ) {
-    return s3ErrorResponse(
-      'NoSuchUpload',
-      'The specified upload does not exist.',
-      path,
-      404,
-      reqId,
-    );
-  }
-  return multipart;
+	const multipart = await multipartRepo.findById(uploadId);
+	if (
+		!multipart ||
+		multipart.bucketId !== bucketId ||
+		(key !== undefined && multipart.s3Key !== key)
+	) {
+		return s3ErrorResponse(
+			"NoSuchUpload",
+			"The specified upload does not exist.",
+			path,
+			404,
+			reqId
+		);
+	}
+	return multipart;
 };
 
 /**
@@ -158,6 +158,6 @@ export const etagOrFallback = (fileHash: string | null): string => fileHash || n
  * @returns A 416 S3 error Response.
  */
 export const invalidRangeResponse = (path: string, totalSize: number, reqId: string): Response =>
-  s3ErrorResponse('InvalidRange', 'The requested range is not satisfiable.', path, 416, reqId, {
-    'content-range': unsatisfiedContentRange(totalSize),
-  });
+	s3ErrorResponse("InvalidRange", "The requested range is not satisfiable.", path, 416, reqId, {
+		"content-range": unsatisfiedContentRange(totalSize),
+	});

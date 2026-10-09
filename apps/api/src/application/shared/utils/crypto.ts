@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from "node:crypto";
 
 /**
  * Compares two strings using a timing-safe algorithm to prevent
@@ -13,12 +13,12 @@ import { timingSafeEqual } from 'node:crypto';
  * @returns `true` when the strings are equal, `false` otherwise.
  */
 export const timingSafeCompare = (left: string, right: string): boolean => {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
+	const leftBuffer = Buffer.from(left);
+	const rightBuffer = Buffer.from(right);
 
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
+	if (leftBuffer.length !== rightBuffer.length) {
+		return false;
+	}
 
-  return timingSafeEqual(leftBuffer, rightBuffer);
+	return timingSafeEqual(leftBuffer, rightBuffer);
 };

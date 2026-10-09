@@ -1,8 +1,8 @@
-import { existsSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
-import { extname, resolve, sep } from 'node:path';
-import { config } from '../../../env';
-import logger from '../../../infrastructure/observability/logger';
+import { existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
+import { config } from "../../../env";
+import logger from "../../../infrastructure/observability/logger";
 
 /**
  * Static SPA serving (P4).
@@ -30,30 +30,30 @@ import logger from '../../../infrastructure/observability/logger';
  * parse to change without a commit.
  */
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.json': 'application/json',
-  '.map': 'application/json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8',
+	".js": "text/javascript; charset=utf-8",
+	".mjs": "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".html": "text/html; charset=utf-8",
+	".json": "application/json",
+	".map": "application/json",
+	".svg": "image/svg+xml",
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif": "image/gif",
+	".webp": "image/webp",
+	".avif": "image/avif",
+	".ico": "image/x-icon",
+	".woff": "font/woff",
+	".woff2": "font/woff2",
+	".txt": "text/plain; charset=utf-8",
 };
 
 /** Unknown extensions are served as octet-stream, never as guessable text. */
-const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
+const DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
 export const contentTypeFor = (filePath: string): string =>
-  CONTENT_TYPES[extname(filePath).toLowerCase()] ?? DEFAULT_CONTENT_TYPE;
+	CONTENT_TYPES[extname(filePath).toLowerCase()] ?? DEFAULT_CONTENT_TYPE;
 
 /**
  * Boot-time state: whether the configured SPA directory exists, and whether we
@@ -65,9 +65,9 @@ let spaChecked = false;
 let spaUsable = false;
 
 const resolveDistDir = (): string | null => {
-  const configured = config.webDistPath;
-  if (!configured) return null;
-  return resolve(configured);
+	const configured = config.webDistPath;
+	if (!configured) return null;
+	return resolve(configured);
 };
 
 /**
@@ -77,32 +77,32 @@ const resolveDistDir = (): string | null => {
  * service behaved before P4" — it is NOT an error state.
  */
 export const resolveSpaRoot = (): string | null => {
-  if (spaChecked) return spaUsable ? resolveDistDir() : null;
+	if (spaChecked) return spaUsable ? resolveDistDir() : null;
 
-  spaChecked = true;
-  const root = resolveDistDir();
-  if (!root) {
-    // Unset is the normal backend-only case. Not a warning.
-    spaUsable = false;
-    return null;
-  }
+	spaChecked = true;
+	const root = resolveDistDir();
+	if (!root) {
+		// Unset is the normal backend-only case. Not a warning.
+		spaUsable = false;
+		return null;
+	}
 
-  if (!existsSync(resolve(root, 'index.html'))) {
-    logger.warn(
-      `WEB_DIST_PATH is set to "${root}" but no index.html is there — serving the API without the dashboard`,
-    );
-    spaUsable = false;
-    return null;
-  }
+	if (!existsSync(resolve(root, "index.html"))) {
+		logger.warn(
+			`WEB_DIST_PATH is set to "${root}" but no index.html is there — serving the API without the dashboard`
+		);
+		spaUsable = false;
+		return null;
+	}
 
-  spaUsable = true;
-  return root;
+	spaUsable = true;
+	return root;
 };
 
 /** Test seam: forget the cached boot probe so a new WEB_DIST_PATH takes effect. */
 export const resetSpaCache = (): void => {
-  spaChecked = false;
-  spaUsable = false;
+	spaChecked = false;
+	spaUsable = false;
 };
 
 /**
@@ -119,32 +119,32 @@ export const resetSpaCache = (): void => {
  * @returns The absolute file path, or `null` if it escapes `root`.
  */
 export const resolveWithinRoot = (root: string, reqPath: string): string | null => {
-  // A NUL byte truncates the path at the syscall layer on some platforms.
-  if (reqPath.includes('\0')) return null;
-  const decoded = safeDecode(reqPath);
-  if (decoded === null) return null;
-  const normalizedRoot = resolve(root);
-  const resolved = resolve(normalizedRoot, `.${decoded.startsWith('/') ? decoded : `/${decoded}`}`);
-  if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + sep)) return null;
-  return resolved;
+	// A NUL byte truncates the path at the syscall layer on some platforms.
+	if (reqPath.includes("\0")) return null;
+	const decoded = safeDecode(reqPath);
+	if (decoded === null) return null;
+	const normalizedRoot = resolve(root);
+	const resolved = resolve(normalizedRoot, `.${decoded.startsWith("/") ? decoded : `/${decoded}`}`);
+	if (resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + sep)) return null;
+	return resolved;
 };
 
 /** Percent-decode, refusing malformed sequences rather than throwing. */
 const safeDecode = (value: string): string | null => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return null;
+	}
 };
 
 /** True when `path` names an existing regular file. */
 const isFile = async (path: string): Promise<boolean> => {
-  try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
+	try {
+		return (await stat(path)).isFile();
+	} catch {
+		return false;
+	}
 };
 
 /**
@@ -155,31 +155,31 @@ const isFile = async (path: string): Promise<boolean> => {
  *   means "not handled" — the caller falls through to its own 404.
  */
 export const serveSpaFile = async (reqPath: string): Promise<Response | null> => {
-  const root = resolveSpaRoot();
-  if (!root) return null;
+	const root = resolveSpaRoot();
+	if (!root) return null;
 
-  const filePath = resolveWithinRoot(root, reqPath);
-  // `?.` rather than `!filePath || !filePath.startsWith(...)`: equivalent, because
-  // `!undefined` and `!''.startsWith(...)` are both true, so the traversal guard
-  // still rejects a missing path and anything outside the root. It was the only
-  // `error` in `biome check` and kept lint red.
-  if (!filePath?.startsWith(root + sep)) return null;
-  if (!(await isFile(filePath))) return null;
+	const filePath = resolveWithinRoot(root, reqPath);
+	// `?.` rather than `!filePath || !filePath.startsWith(...)`: equivalent, because
+	// `!undefined` and `!''.startsWith(...)` are both true, so the traversal guard
+	// still rejects a missing path and anything outside the root. It was the only
+	// `error` in `biome check` and kept lint red.
+	if (!filePath?.startsWith(root + sep)) return null;
+	if (!(await isFile(filePath))) return null;
 
-  const body = await readFile(filePath);
-  return new Response(new Uint8Array(body), {
-    status: 200,
-    headers: {
-      'content-type': contentTypeFor(filePath),
-      // Vite emits content-hashed filenames under /assets, so they are safe to
-      // cache hard; index.html must never be, or a deploy is invisible to
-      // anyone who visited before it.
-      'cache-control': filePath.endsWith('index.html')
-        ? 'no-cache'
-        : 'public, max-age=31536000, immutable',
-      'x-content-type-options': 'nosniff',
-    },
-  });
+	const body = await readFile(filePath);
+	return new Response(new Uint8Array(body), {
+		status: 200,
+		headers: {
+			"content-type": contentTypeFor(filePath),
+			// Vite emits content-hashed filenames under /assets, so they are safe to
+			// cache hard; index.html must never be, or a deploy is invisible to
+			// anyone who visited before it.
+			"cache-control": filePath.endsWith("index.html")
+				? "no-cache"
+				: "public, max-age=31536000, immutable",
+			"x-content-type-options": "nosniff",
+		},
+	});
 };
 
 /**
@@ -188,7 +188,7 @@ export const serveSpaFile = async (reqPath: string): Promise<Response | null> =>
  * @returns The index.html Response, or `null` when there is no SPA.
  */
 export const serveSpaIndex = async (): Promise<Response | null> => {
-  const root = resolveSpaRoot();
-  if (!root) return null;
-  return serveSpaFile('/index.html');
+	const root = resolveSpaRoot();
+	if (!root) return null;
+	return serveSpaFile("/index.html");
 };

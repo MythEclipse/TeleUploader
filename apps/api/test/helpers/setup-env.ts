@@ -33,15 +33,15 @@
  * genuinely need a different value (a chunk-size guard, a bad PORT) pass it to
  * their own spawned process, which does not inherit this.
  */
-process.env.BOT_TOKENS = '123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR';
-process.env.STORAGE_CHANNEL_ID ||= '-1001234567890';
+process.env.BOT_TOKENS = "123456:ABC-DEF,789012:GHI-JKL,345678:MNO-PQR";
+process.env.STORAGE_CHANNEL_ID ||= "-1001234567890";
 // Vitest/Vite seeds process.env from import.meta.env before the setup file
 // runs, so BASE_URL arrives as vite's `base` ("/") and defeats the `||=`
 // fallback (bun never did this). Treat anything that is not an absolute
 // http(s) URL as "unset" so every test gets the same value bun gave it.
 const seededBaseUrl = process.env.BASE_URL;
 if (!seededBaseUrl || !/^https?:\/\//.test(seededBaseUrl)) {
-  process.env.BASE_URL = 'https://example.com';
+	process.env.BASE_URL = "https://example.com";
 }
 /**
  * The DSN installed when the environment supplies no DATABASE_URL.
@@ -55,7 +55,7 @@ if (!seededBaseUrl || !/^https?:\/\//.test(seededBaseUrl)) {
  * reads like a credential to tooling that scans for them (and gets rewritten
  * out from under the author).
  */
-export const OFFLINE_DATABASE_URL = `postgresql://asephs:${'place'}holder@127.0.0.1:1/none`;
+export const OFFLINE_DATABASE_URL = `postgresql://asephs:${"place"}holder@127.0.0.1:1/none`;
 
 // WHY A LOOPBACK PLACEHOLDER, AND WHY NOT A REAL HOST
 //
@@ -99,8 +99,8 @@ export const OFFLINE_DATABASE_URL = `postgresql://asephs:${'place'}holder@127.0.
 // apart silently — pointing this at a real host without updating the guard fails
 // the suite instead of hanging the build.
 process.env.DATABASE_URL ||= OFFLINE_DATABASE_URL;
-process.env.PORT ||= '4000';
-process.env.NODE_ENV = 'test';
+process.env.PORT ||= "4000";
+process.env.NODE_ENV = "test";
 
 // Pin the chunk size to the safe 19 MB value UNCONDITIONALLY. Bun auto-loads
 // the repo .env before preloads run, and a stale oversized value there would

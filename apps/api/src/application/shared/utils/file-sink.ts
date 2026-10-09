@@ -1,8 +1,8 @@
-import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { once } from "node:events";
+import { createWriteStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 /**
  * Node replacements for two bun-only file APIs.
@@ -14,10 +14,10 @@ import { pipeline } from 'node:stream/promises';
 
 /** An ordered, append-only sink for streaming chunks to disk. */
 export interface FileSink {
-  /** Queue `chunk` for writing. Backpressure is absorbed by the stream buffer. */
-  write: (chunk: Uint8Array) => void;
-  /** Flush everything queued, close the file, and reject on any write error. */
-  end: () => Promise<void>;
+	/** Queue `chunk` for writing. Backpressure is absorbed by the stream buffer. */
+	write: (chunk: Uint8Array) => void;
+	/** Flush everything queued, close the file, and reject on any write error. */
+	end: () => Promise<void>;
 }
 
 /**
@@ -32,36 +32,36 @@ export interface FileSink {
  * @returns A {@link FileSink} that must be `end()`ed, even on the error path.
  */
 export const createFileSink = (path: string): FileSink => {
-  const stream = createWriteStream(path);
-  let failure: Error | null = null;
-  let ended = false;
+	const stream = createWriteStream(path);
+	let failure: Error | null = null;
+	let ended = false;
 
-  stream.on('error', (error: Error) => {
-    failure ??= error;
-  });
+	stream.on("error", (error: Error) => {
+		failure ??= error;
+	});
 
-  const end = async (): Promise<void> => {
-    if (ended) return;
-    ended = true;
+	const end = async (): Promise<void> => {
+		if (ended) return;
+		ended = true;
 
-    if (failure || stream.destroyed) {
-      stream.destroy();
-      if (failure) throw failure;
-      return;
-    }
+		if (failure || stream.destroyed) {
+			stream.destroy();
+			if (failure) throw failure;
+			return;
+		}
 
-    stream.end();
-    await once(stream, 'close');
-    if (failure) throw failure;
-  };
+		stream.end();
+		await once(stream, "close");
+		if (failure) throw failure;
+	};
 
-  return {
-    write(chunk) {
-      if (failure || ended) return;
-      stream.write(chunk);
-    },
-    end,
-  };
+	return {
+		write(chunk) {
+			if (failure || ended) return;
+			stream.write(chunk);
+		},
+		end,
+	};
 };
 
 /**
@@ -71,13 +71,13 @@ export const createFileSink = (path: string): FileSink => {
  * @param path - Destination path.
  */
 export const writeBodyToFile = async (response: Response, path: string): Promise<void> => {
-  if (!response.body) {
-    await writeFile(path, Buffer.alloc(0));
-    return;
-  }
+	if (!response.body) {
+		await writeFile(path, Buffer.alloc(0));
+		return;
+	}
 
-  await pipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    createWriteStream(path),
-  );
+	await pipeline(
+		Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+		createWriteStream(path)
+	);
 };

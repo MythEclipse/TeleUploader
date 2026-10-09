@@ -1,23 +1,23 @@
-import { createReadStream } from 'node:fs';
-import { nanoid } from 'nanoid';
-import { writeBodyToFile } from '../../../application/shared/utils/file-sink';
-import { locateZipEntry } from '../../../application/shared/utils/zip';
-import { chunkedStorage, fileRepository } from '../../../infrastructure/di';
-import { cleanupTempFile, formatCreatedAt, getErrorMessage } from '../../../infrastructure/file';
-import logger from '../../../infrastructure/observability/logger';
-import { botPool } from '../../../infrastructure/telegram/bot-pool';
-import { buildTelegramFileUrl } from '../../../infrastructure/telegram/file-url';
-import { sanitizeFilenameHeader } from '../filename';
+import { createReadStream } from "node:fs";
+import { nanoid } from "nanoid";
+import { writeBodyToFile } from "../../../application/shared/utils/file-sink";
+import { locateZipEntry } from "../../../application/shared/utils/zip";
+import { chunkedStorage, fileRepository } from "../../../infrastructure/di";
+import { cleanupTempFile, formatCreatedAt, getErrorMessage } from "../../../infrastructure/file";
+import logger from "../../../infrastructure/observability/logger";
+import { botPool } from "../../../infrastructure/telegram/bot-pool";
+import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
+import { sanitizeFilenameHeader } from "../filename";
 
 /**
  * Extended Request type that includes route parameter access.
  */
 type RequestWithParams = Request & {
-  /** Route parameters extracted by the router. */
-  params?: {
-    /** Public file identifier. */
-    public_id?: string;
-  };
+	/** Route parameters extracted by the router. */
+	params?: {
+		/** Public file identifier. */
+		public_id?: string;
+	};
 };
 
 /**
@@ -44,140 +44,140 @@ const fail = (status: number, error: string): Response => Response.json({ error 
  * @returns A redirect or streaming response, or a JSON error.
  */
 export const handleFileRedirect = async (req: RequestWithParams): Promise<Response> => {
-  const publicId = req.params?.public_id;
-  try {
-    if (!publicId) {
-      return fail(400, 'Missing file id');
-    }
+	const publicId = req.params?.public_id;
+	try {
+		if (!publicId) {
+			return fail(400, "Missing file id");
+		}
 
-    const file = await fileRepository.findByPublicId(publicId);
-    if (!file) {
-      logger.warn('File not found', { publicId });
-      return fail(404, 'File not found');
-    }
+		const file = await fileRepository.findByPublicId(publicId);
+		if (!file) {
+			logger.warn("File not found", { publicId });
+			return fail(404, "File not found");
+		}
 
-    if (file.storageBackend === 'chunked') {
-      if (file.archiveEntryName) {
-        return fail(501, 'Archive entry extraction is not supported for chunked files');
-      }
-      const range = { type: 'none' as const };
-      const resp = await chunkedStorage.createChunkedObjectResponse({ file, range, reqId: '' });
-      // Ensure CORS so browser fetch/XHR playback works for chunked files too.
-      const h = new Headers(resp.headers);
-      if (!h.has('Access-Control-Allow-Origin')) h.set('Access-Control-Allow-Origin', '*');
-      h.set('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Accept-Ranges');
-      return new Response(resp.body, { status: resp.status, headers: h });
-    }
+		if (file.storageBackend === "chunked") {
+			if (file.archiveEntryName) {
+				return fail(501, "Archive entry extraction is not supported for chunked files");
+			}
+			const range = { type: "none" as const };
+			const resp = await chunkedStorage.createChunkedObjectResponse({ file, range, reqId: "" });
+			// Ensure CORS so browser fetch/XHR playback works for chunked files too.
+			const h = new Headers(resp.headers);
+			if (!h.has("Access-Control-Allow-Origin")) h.set("Access-Control-Allow-Origin", "*");
+			h.set("Access-Control-Expose-Headers", "Content-Disposition, Content-Length, Accept-Ranges");
+			return new Response(resp.body, { status: resp.status, headers: h });
+		}
 
-    const archiveEntryName = file.archiveEntryName;
-    if (archiveEntryName) {
-      const archiveFileId = file.archiveTelegramFileId || file.telegramFileId;
-      const archiveInfo = await botPool.getFileInfo(archiveFileId);
-      const archiveResponse = await fetch(
-        buildTelegramFileUrl(archiveInfo.file_path, archiveInfo.bot_token),
-      );
+		const archiveEntryName = file.archiveEntryName;
+		if (archiveEntryName) {
+			const archiveFileId = file.archiveTelegramFileId || file.telegramFileId;
+			const archiveInfo = await botPool.getFileInfo(archiveFileId);
+			const archiveResponse = await fetch(
+				buildTelegramFileUrl(archiveInfo.file_path, archiveInfo.bot_token)
+			);
 
-      if (!archiveResponse.ok) {
-        logger.error('Archive download failed', { publicId, status: archiveResponse.status });
-        return fail(500, 'Server error');
-      }
+			if (!archiveResponse.ok) {
+				logger.error("Archive download failed", { publicId, status: archiveResponse.status });
+				return fail(500, "Server error");
+			}
 
-      const tempZipPath = `/tmp/filedrop-dl-${nanoid()}.zip`;
-      await writeBodyToFile(archiveResponse, tempZipPath);
+			const tempZipPath = `/tmp/filedrop-dl-${nanoid()}.zip`;
+			await writeBodyToFile(archiveResponse, tempZipPath);
 
-      const loc = await locateZipEntry(tempZipPath, archiveEntryName);
-      if (!loc) {
-        await cleanupTempFile(tempZipPath);
-        logger.error('Archive entry not found', { publicId, archiveEntryName });
-        return fail(404, 'File not found');
-      }
+			const loc = await locateZipEntry(tempZipPath, archiveEntryName);
+			if (!loc) {
+				await cleanupTempFile(tempZipPath);
+				logger.error("Archive entry not found", { publicId, archiveEntryName });
+				return fail(404, "File not found");
+			}
 
-      const fileStream = createReadStream(tempZipPath, {
-        start: loc.start,
-        end: loc.start + loc.length - 1,
-      });
+			const fileStream = createReadStream(tempZipPath, {
+				start: loc.start,
+				end: loc.start + loc.length - 1,
+			});
 
-      fileStream.on('close', () => {
-        void cleanupTempFile(tempZipPath);
-      });
-      fileStream.on('error', () => {
-        void cleanupTempFile(tempZipPath);
-      });
+			fileStream.on("close", () => {
+				void cleanupTempFile(tempZipPath);
+			});
+			fileStream.on("error", () => {
+				void cleanupTempFile(tempZipPath);
+			});
 
-      return new Response(fileStream as unknown as ReadableStream, {
-        status: 200,
-        headers: {
-          'Content-Type': file.mimeType || 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-          'Content-Length': String(loc.length),
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length, Accept-Ranges',
-        },
-      });
-    }
+			return new Response(fileStream as unknown as ReadableStream, {
+				status: 200,
+				headers: {
+					"Content-Type": file.mimeType || "application/octet-stream",
+					"Content-Disposition": `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+					"Content-Length": String(loc.length),
+					"Access-Control-Allow-Origin": "*",
+					"Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Accept-Ranges",
+				},
+			});
+		}
 
-    const fileInfo = await botPool.getFileInfo(file.telegramFileId);
-    const telegramUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
+		const fileInfo = await botPool.getFileInfo(file.telegramFileId);
+		const telegramUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
 
-    // CORS headers shared across all delivery modes — public file CDN.
-    const corsHeaders: Record<string, string> = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length, Accept-Ranges',
-      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-      'Access-Control-Allow-Headers': 'Range, Content-Type',
-      Vary: 'Origin',
-    };
+		// CORS headers shared across all delivery modes — public file CDN.
+		const corsHeaders: Record<string, string> = {
+			"Access-Control-Allow-Origin": "*",
+			"Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Accept-Ranges",
+			"Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+			"Access-Control-Allow-Headers": "Range, Content-Type",
+			Vary: "Origin",
+		};
 
-    try {
-      const upstream = await fetch(telegramUrl);
-      if (!upstream.ok) {
-        logger.error('Telegram file download failed', {
-          publicId,
-          status: upstream.status,
-        });
-        return Response.json(
-          { error: 'Upstream download failed' },
-          {
-            status: upstream.status === 404 ? 404 : 502,
-            headers: corsHeaders,
-          },
-        );
-      }
+		try {
+			const upstream = await fetch(telegramUrl);
+			if (!upstream.ok) {
+				logger.error("Telegram file download failed", {
+					publicId,
+					status: upstream.status,
+				});
+				return Response.json(
+					{ error: "Upstream download failed" },
+					{
+						status: upstream.status === 404 ? 404 : 502,
+						headers: corsHeaders,
+					}
+				);
+			}
 
-      const upstreamHeaders = new Headers(upstream.headers);
-      const contentType =
-        file.mimeType || upstreamHeaders.get('content-type') || 'application/octet-stream';
-      const headers = {
-        'Content-Type': contentType,
-        'Content-Disposition': `inline; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-        'Content-Length': String(file.sizeBytes ?? 0),
-        'Cache-Control': 'public, max-age=300',
-        ...corsHeaders,
-      };
+			const upstreamHeaders = new Headers(upstream.headers);
+			const contentType =
+				file.mimeType || upstreamHeaders.get("content-type") || "application/octet-stream";
+			const headers = {
+				"Content-Type": contentType,
+				"Content-Disposition": `inline; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+				"Content-Length": String(file.sizeBytes ?? 0),
+				"Cache-Control": "public, max-age=300",
+				...corsHeaders,
+			};
 
-      // Stream the Telegram CDN body back to the client (no cross-origin hop
-      // in the browser → no CORS block for fetch/XHR audio playback).
-      return new Response(upstream.body, {
-        status: 200,
-        headers,
-      });
-    } catch (error: unknown) {
-      logger.error('Telegram file proxy error', {
-        publicId,
-        error: getErrorMessage(error),
-      });
-      return Response.json(
-        { error: 'Upstream download failed' },
-        {
-          status: 502,
-          headers: corsHeaders,
-        },
-      );
-    }
-  } catch (error: unknown) {
-    logger.error('File redirect error', { publicId, error: getErrorMessage(error) });
-    return fail(500, 'Server error');
-  }
+			// Stream the Telegram CDN body back to the client (no cross-origin hop
+			// in the browser → no CORS block for fetch/XHR audio playback).
+			return new Response(upstream.body, {
+				status: 200,
+				headers,
+			});
+		} catch (error: unknown) {
+			logger.error("Telegram file proxy error", {
+				publicId,
+				error: getErrorMessage(error),
+			});
+			return Response.json(
+				{ error: "Upstream download failed" },
+				{
+					status: 502,
+					headers: corsHeaders,
+				}
+			);
+		}
+	} catch (error: unknown) {
+		logger.error("File redirect error", { publicId, error: getErrorMessage(error) });
+		return fail(500, "Server error");
+	}
 };
 
 /**
@@ -189,31 +189,31 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
  * @returns A JSON response with file metadata, or 404 when not found.
  */
 export const handleFileInfo = async (req: RequestWithParams): Promise<Response> => {
-  const publicId = req.params?.public_id;
-  try {
-    if (!publicId) {
-      return fail(400, 'Missing file id');
-    }
+	const publicId = req.params?.public_id;
+	try {
+		if (!publicId) {
+			return fail(400, "Missing file id");
+		}
 
-    const file = await fileRepository.findByPublicId(publicId);
-    if (!file) {
-      logger.warn('File not found', { publicId });
-      return fail(404, 'File not found');
-    }
+		const file = await fileRepository.findByPublicId(publicId);
+		if (!file) {
+			logger.warn("File not found", { publicId });
+			return fail(404, "File not found");
+		}
 
-    return Response.json(
-      {
-        public_id: file.publicId,
-        file_name: file.fileName,
-        mime_type: file.mimeType,
-        size_bytes: file.sizeBytes,
-        file_type: file.fileType,
-        created_at: formatCreatedAt(file.createdAt),
-      },
-      { status: 200 },
-    );
-  } catch (error: unknown) {
-    logger.error('File info error', { publicId, error: getErrorMessage(error) });
-    return fail(500, 'Server error');
-  }
+		return Response.json(
+			{
+				public_id: file.publicId,
+				file_name: file.fileName,
+				mime_type: file.mimeType,
+				size_bytes: file.sizeBytes,
+				file_type: file.fileType,
+				created_at: formatCreatedAt(file.createdAt),
+			},
+			{ status: 200 }
+		);
+	} catch (error: unknown) {
+		logger.error("File info error", { publicId, error: getErrorMessage(error) });
+		return fail(500, "Server error");
+	}
 };

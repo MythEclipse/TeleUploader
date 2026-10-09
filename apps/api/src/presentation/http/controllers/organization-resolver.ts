@@ -1,6 +1,6 @@
-import { config } from '../../../env';
-import { organizationRepository } from '../../../infrastructure/di';
-import logger from '../../../infrastructure/observability/logger';
+import { config } from "../../../env";
+import { organizationRepository } from "../../../infrastructure/di";
+import logger from "../../../infrastructure/observability/logger";
 
 /**
  * Resolves the ONE organization the dashboard surfaces are scoped to.
@@ -43,16 +43,16 @@ import logger from '../../../infrastructure/observability/logger';
  *   membership row. That is a deployment error, not a denied caller.
  */
 export class MissingOrganizationMembershipError extends Error {
-  constructor(readonly userId: string) {
-    super(
-      `No organization membership for the bootstrap admin "${userId}". ` +
-        'The dashboard REST (/api/v1/*) and oRPC (/rpc/*) surfaces are scoped to that ' +
-        'membership, so without it every bucket request would be denied. Run ' +
-        '`pnpm db:seed` to create the bootstrap organization and owner membership, ' +
-        'or point BOOTSTRAP_ADMIN_ID at an existing member. Refusing to start.',
-    );
-    this.name = 'MissingOrganizationMembershipError';
-  }
+	constructor(readonly userId: string) {
+		super(
+			`No organization membership for the bootstrap admin "${userId}". ` +
+				"The dashboard REST (/api/v1/*) and oRPC (/rpc/*) surfaces are scoped to that " +
+				"membership, so without it every bucket request would be denied. Run " +
+				"`pnpm db:seed` to create the bootstrap organization and owner membership, " +
+				"or point BOOTSTRAP_ADMIN_ID at an existing member. Refusing to start."
+		);
+		this.name = "MissingOrganizationMembershipError";
+	}
 }
 
 /**
@@ -63,7 +63,7 @@ let resolved: Promise<string> | null = null;
 
 /** Test seam: drops the memoized value so a test can observe a fresh lookup. */
 export const resetOrganizationResolutionCache = (): void => {
-  resolved = null;
+	resolved = null;
 };
 
 /**
@@ -73,29 +73,29 @@ export const resetOrganizationResolutionCache = (): void => {
  * @throws {MissingOrganizationMembershipError} When no membership exists.
  */
 export const resolveAdminOrganizationId = async (): Promise<string> => {
-  if (!resolved) {
-    resolved = (async () => {
-      const userId = config.bootstrapAdminId;
-      const organizationId = await organizationRepository.findOrganizationIdByUserId(userId);
-      if (!organizationId) {
-        // Log at error: this is the misconfiguration the exception describes, and
-        // `systemctl status` / the deploy log is where the operator will look.
-        logger.error(
-          'Bootstrap admin has no organization membership — tenant scoping unavailable',
-          {
-            userId,
-            hint: 'Run `pnpm db:seed`, or set BOOTSTRAP_ADMIN_ID to an existing member.',
-          },
-        );
-        throw new MissingOrganizationMembershipError(userId);
-      }
-      return organizationId;
-    })().catch((error: unknown) => {
-      // Do not cache a failure: a membership can be created without a restart,
-      // and caching the rejection would keep denying after an operator fixes it.
-      resolved = null;
-      throw error;
-    });
-  }
-  return resolved;
+	if (!resolved) {
+		resolved = (async () => {
+			const userId = config.bootstrapAdminId;
+			const organizationId = await organizationRepository.findOrganizationIdByUserId(userId);
+			if (!organizationId) {
+				// Log at error: this is the misconfiguration the exception describes, and
+				// `systemctl status` / the deploy log is where the operator will look.
+				logger.error(
+					"Bootstrap admin has no organization membership — tenant scoping unavailable",
+					{
+						userId,
+						hint: "Run `pnpm db:seed`, or set BOOTSTRAP_ADMIN_ID to an existing member.",
+					}
+				);
+				throw new MissingOrganizationMembershipError(userId);
+			}
+			return organizationId;
+		})().catch((error: unknown) => {
+			// Do not cache a failure: a membership can be created without a restart,
+			// and caching the rejection would keep denying after an operator fixes it.
+			resolved = null;
+			throw error;
+		});
+	}
+	return resolved;
 };

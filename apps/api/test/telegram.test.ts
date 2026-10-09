@@ -1,25 +1,25 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ITelegramService } from '../src/domain/ports/telegram-service';
-import { config } from '../src/env';
-import logger from '../src/infrastructure/observability/logger';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ITelegramService } from "../src/domain/ports/telegram-service";
+import { config } from "../src/env";
+import logger from "../src/infrastructure/observability/logger";
 
 let realPhotoBuffer: Buffer;
 
 beforeAll(async () => {
-  try {
-    const res = await fetch(
-      'https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png',
-    );
-    if (!res.ok) throw new Error('Wikimedia download failed');
-    const arrayBuffer = await res.arrayBuffer();
-    realPhotoBuffer = Buffer.from(arrayBuffer);
-  } catch {
-    // Fallback 1x1px JPEG
-    realPhotoBuffer = Buffer.from(
-      'ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9',
-      'hex',
-    );
-  }
+	try {
+		const res = await fetch(
+			"https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png"
+		);
+		if (!res.ok) throw new Error("Wikimedia download failed");
+		const arrayBuffer = await res.arrayBuffer();
+		realPhotoBuffer = Buffer.from(arrayBuffer);
+	} catch {
+		// Fallback 1x1px JPEG
+		realPhotoBuffer = Buffer.from(
+			"ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9",
+			"hex"
+		);
+	}
 });
 
 // Mock Telegraf and fetch
@@ -30,156 +30,156 @@ beforeAll(async () => {
 // `noImplicitAny` every assignment was both TS7006 and TS2339 ("Property 'token'
 // does not exist on type 'Telegraf'"). Annotating the token and declaring the
 // shape is what makes the mock satisfy the structural type `ITelegramService`.
-vi.mock('telegraf', () => {
-  return {
-    Telegraf: class {
-      token: string;
-      telegram: {
-        token: string;
-        sendPhoto: ReturnType<typeof vi.fn>;
-        sendDocument: ReturnType<typeof vi.fn>;
-        getFile: ReturnType<typeof vi.fn>;
-      };
+vi.mock("telegraf", () => {
+	return {
+		Telegraf: class {
+			token: string;
+			telegram: {
+				token: string;
+				sendPhoto: ReturnType<typeof vi.fn>;
+				sendDocument: ReturnType<typeof vi.fn>;
+				getFile: ReturnType<typeof vi.fn>;
+			};
 
-      constructor(token: string) {
-        this.token = token;
-        this.telegram = {
-          token: token,
-          sendPhoto: vi.fn(() =>
-            Promise.resolve({
-              message_id: 12345,
-              photo: [
-                { file_id: 'photo_id_low', file_unique_id: 'unique_id_low' },
-                { file_id: 'photo_id_high', file_unique_id: 'unique_id_high' },
-              ],
-            }),
-          ),
-          sendDocument: vi.fn(() =>
-            Promise.resolve({
-              message_id: 54321,
-              document: {
-                file_id: 'document_id',
-                file_unique_id: 'document_unique_id',
-              },
-            }),
-          ),
-          getFile: vi.fn(() =>
-            Promise.resolve({
-              file_id: 'some_file_id',
-              file_size: 98765,
-              mime_type: 'image/jpeg',
-              file_path: 'photos/file_0.jpg',
-            }),
-          ),
-        };
-      }
-    },
-  };
+			constructor(token: string) {
+				this.token = token;
+				this.telegram = {
+					token: token,
+					sendPhoto: vi.fn(() =>
+						Promise.resolve({
+							message_id: 12345,
+							photo: [
+								{ file_id: "photo_id_low", file_unique_id: "unique_id_low" },
+								{ file_id: "photo_id_high", file_unique_id: "unique_id_high" },
+							],
+						})
+					),
+					sendDocument: vi.fn(() =>
+						Promise.resolve({
+							message_id: 54321,
+							document: {
+								file_id: "document_id",
+								file_unique_id: "document_unique_id",
+							},
+						})
+					),
+					getFile: vi.fn(() =>
+						Promise.resolve({
+							file_id: "some_file_id",
+							file_size: 98765,
+							mime_type: "image/jpeg",
+							file_path: "photos/file_0.jpg",
+						})
+					),
+				};
+			}
+		},
+	};
 });
 
-const infoSpy = vi.spyOn(logger, 'info');
-const errorSpy = vi.spyOn(logger, 'error');
+const infoSpy = vi.spyOn(logger, "info");
+const errorSpy = vi.spyOn(logger, "error");
 
-describe('Telegram API Utilities', () => {
-  let botPool: ITelegramService;
+describe("Telegram API Utilities", () => {
+	let botPool: ITelegramService;
 
-  /**
-   * The real `fetch`, captured before any test replaces it.
-   *
-   * `afterEach` restores this so one test's stub cannot leak into the next — the
-   * file shares a global, and `fileParallelism: false` means it also cannot rely
-   * on another file being scheduled in between to reset it.
-   */
-  const originalFetch = globalThis.fetch;
+	/**
+	 * The real `fetch`, captured before any test replaces it.
+	 *
+	 * `afterEach` restores this so one test's stub cannot leak into the next — the
+	 * file shares a global, and `fileParallelism: false` means it also cannot rely
+	 * on another file being scheduled in between to reset it.
+	 */
+	const originalFetch = globalThis.fetch;
 
-  beforeEach(async () => {
-    infoSpy.mockClear();
-    errorSpy.mockClear();
-    global.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
+	beforeEach(async () => {
+		infoSpy.mockClear();
+		errorSpy.mockClear();
+		global.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
 
-    // Dynamic import AFTER mock.module so Telegraf mock is active
-    const botPoolModule = await import('../src/infrastructure/telegram/bot-pool');
-    botPool = botPoolModule.botPool;
-  });
+		// Dynamic import AFTER mock.module so Telegraf mock is active
+		const botPoolModule = await import("../src/infrastructure/telegram/bot-pool");
+		botPool = botPoolModule.botPool;
+	});
 
-  afterEach(() => {
-    // `delete global.fetch` is rejected under TS2790 ("The operand of a 'delete'
-    // operator must be optional") because `fetch` is non-optional on
-    // `typeof globalThis`. The beforeEach installs a stub, so the honest
-    // cleanup is to drop THIS test's stub and put the original back — not to
-    // leave a fake `fetch` installed for whatever runs next.
-    const mutableGlobal = globalThis as { fetch?: typeof fetch };
-    if (originalFetch) mutableGlobal.fetch = originalFetch;
-  });
+	afterEach(() => {
+		// `delete global.fetch` is rejected under TS2790 ("The operand of a 'delete'
+		// operator must be optional") because `fetch` is non-optional on
+		// `typeof globalThis`. The beforeEach installs a stub, so the honest
+		// cleanup is to drop THIS test's stub and put the original back — not to
+		// leave a fake `fetch` installed for whatever runs next.
+		const mutableGlobal = globalThis as { fetch?: typeof fetch };
+		if (originalFetch) mutableGlobal.fetch = originalFetch;
+	});
 
-  it('botPool should be defined and have telegram methods', () => {
-    expect(botPool).toBeDefined();
-    expect(botPool.forwardToStorage).toBeDefined();
-    expect(botPool.getFileInfo).toBeDefined();
-  });
+	it("botPool should be defined and have telegram methods", () => {
+		expect(botPool).toBeDefined();
+		expect(botPool.forwardToStorage).toBeDefined();
+		expect(botPool.getFileInfo).toBeDefined();
+	});
 
-  describe('forwardToStorage', () => {
-    it('should forward photo to storage chat and return file details', async () => {
-      const chunk = realPhotoBuffer;
-      const fileName = 'test_photo.png';
-      const result = await botPool.forwardToStorage(chunk, fileName, 'photo');
+	describe("forwardToStorage", () => {
+		it("should forward photo to storage chat and return file details", async () => {
+			const chunk = realPhotoBuffer;
+			const fileName = "test_photo.png";
+			const result = await botPool.forwardToStorage(chunk, fileName, "photo");
 
-      expect(result).toEqual({
-        telegramFileId: 'photo_id_high',
-        telegramFileUniqueId: 'unique_id_high',
-        storageMessageId: 12345,
-      });
-      expect(infoSpy).toHaveBeenCalledWith('File forwarded to storage', {
-        fileName,
-        message: 12345,
-      });
-    });
+			expect(result).toEqual({
+				telegramFileId: "photo_id_high",
+				telegramFileUniqueId: "unique_id_high",
+				storageMessageId: 12345,
+			});
+			expect(infoSpy).toHaveBeenCalledWith("File forwarded to storage", {
+				fileName,
+				message: 12345,
+			});
+		});
 
-    it('should forward documents with source and filename payload', async () => {
-      const chunk = Buffer.from('fake document data');
-      const fileName = 'document.pdf';
+		it("should forward documents with source and filename payload", async () => {
+			const chunk = Buffer.from("fake document data");
+			const fileName = "document.pdf";
 
-      const result = await botPool.forwardToStorage(chunk, fileName, 'document');
+			const result = await botPool.forwardToStorage(chunk, fileName, "document");
 
-      expect(result).toEqual({
-        telegramFileId: 'document_id',
-        telegramFileUniqueId: 'document_unique_id',
-        storageMessageId: 54321,
-      });
-    });
+			expect(result).toEqual({
+				telegramFileId: "document_id",
+				telegramFileUniqueId: "document_unique_id",
+				storageMessageId: 54321,
+			});
+		});
 
-    it('should handle error when forwarding fails', async () => {
-      const chunk = realPhotoBuffer;
-      const fileName = 'test_photo.png';
+		it("should handle error when forwarding fails", async () => {
+			const chunk = realPhotoBuffer;
+			const fileName = "test_photo.png";
 
-      // Re-import with sendPhoto mocked to fail — the module-level mock
-      // will still be active, so we test that BotPool propagates the error
-      await expect(botPool.forwardToStorage(chunk, fileName, 'photo')).resolves.toBeDefined();
-    });
+			// Re-import with sendPhoto mocked to fail — the module-level mock
+			// will still be active, so we test that BotPool propagates the error
+			await expect(botPool.forwardToStorage(chunk, fileName, "photo")).resolves.toBeDefined();
+		});
 
-    it('should retry when telegram returns 429 Too Many Requests', async () => {
-      const chunk = realPhotoBuffer;
-      const fileName = 'test_photo.png';
+		it("should retry when telegram returns 429 Too Many Requests", async () => {
+			const chunk = realPhotoBuffer;
+			const fileName = "test_photo.png";
 
-      // Since Telegraf is mocked at module level, the 429 retry behaviour
-      // comes from BotPool's executeWithBotRetry — we just verify it succeeds
-      const result = await botPool.forwardToStorage(chunk, fileName, 'photo');
+			// Since Telegraf is mocked at module level, the 429 retry behaviour
+			// comes from BotPool's executeWithBotRetry — we just verify it succeeds
+			const result = await botPool.forwardToStorage(chunk, fileName, "photo");
 
-      expect(result).toBeDefined();
-      expect(result.storageMessageId).toBeGreaterThan(0);
-    });
-  });
+			expect(result).toBeDefined();
+			expect(result.storageMessageId).toBeGreaterThan(0);
+		});
+	});
 
-  describe('getFileInfo', () => {
-    it('should fetch file details successfully', async () => {
-      const result = await botPool.getFileInfo('some_file_id');
+	describe("getFileInfo", () => {
+		it("should fetch file details successfully", async () => {
+			const result = await botPool.getFileInfo("some_file_id");
 
-      expect(result).toEqual({
-        file_size: 98765,
-        mime_type: 'image/jpeg',
-        file_path: 'photos/file_0.jpg',
-        bot_token: config.botTokens[0],
-      });
-    });
-  });
+			expect(result).toEqual({
+				file_size: 98765,
+				mime_type: "image/jpeg",
+				file_path: "photos/file_0.jpg",
+				bot_token: config.botTokens[0],
+			});
+		});
+	});
 });

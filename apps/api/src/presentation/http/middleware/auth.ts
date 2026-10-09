@@ -1,10 +1,10 @@
-import { createHmac } from 'node:crypto';
-import type { AuthSession } from '../../../application/dto/auth';
-import { timingSafeCompare } from '../../../application/shared/utils/crypto';
-import { config } from '../../../env';
+import { createHmac } from "node:crypto";
+import type { AuthSession } from "../../../application/dto/auth";
+import { timingSafeCompare } from "../../../application/shared/utils/crypto";
+import { config } from "../../../env";
 
-const ADMIN_USERNAME = 'admin';
-const SIGNATURE_SEPARATOR = '.';
+const ADMIN_USERNAME = "admin";
+const SIGNATURE_SEPARATOR = ".";
 
 /** A request handler function that returns a Response. */
 type Handler = (req: Request) => Response | Promise<Response>;
@@ -26,32 +26,32 @@ export type { AuthSession };
 
 /** Options for configuring cookie-based session behaviour. */
 interface CookieOptions {
-  /** HMAC signing secret (defaults to {@link config.adminApiToken}). */
-  secret?: string;
-  /** Name of the session cookie (defaults to {@link config.sessionCookieName}). */
-  cookieName?: string;
-  /** Session lifetime in milliseconds (defaults to {@link config.sessionMaxAgeMs}). */
-  maxAgeMs?: number;
+	/** HMAC signing secret (defaults to {@link config.adminApiToken}). */
+	secret?: string;
+	/** Name of the session cookie (defaults to {@link config.sessionCookieName}). */
+	cookieName?: string;
+	/** Session lifetime in milliseconds (defaults to {@link config.sessionMaxAgeMs}). */
+	maxAgeMs?: number;
 }
 
 /** Shape of the serialised cookie payload. */
 interface SessionPayload {
-  u: string;
-  e: number;
+	u: string;
+	e: number;
 }
 
 const getSecret = (secret?: string): string => secret ?? config.adminApiToken;
 const getCookieName = (cookieName?: string): string => cookieName ?? config.sessionCookieName;
 const getMaxAgeMs = (maxAgeMs?: number): number => maxAgeMs ?? config.sessionMaxAgeMs;
 
-const encodePayload = (value: string): string => Buffer.from(value, 'utf8').toString('base64url');
+const encodePayload = (value: string): string => Buffer.from(value, "utf8").toString("base64url");
 
 const decodePayload = (value: string): string | null => {
-  try {
-    return Buffer.from(value, 'base64url').toString('utf8');
-  } catch {
-    return null;
-  }
+	try {
+		return Buffer.from(value, "base64url").toString("utf8");
+	} catch {
+		return null;
+	}
 };
 
 /**
@@ -65,7 +65,7 @@ const decodePayload = (value: string): string | null => {
  */
 export const isAuthEnabled = (secret = config.adminApiToken): boolean => secret.length > 0;
 
-export { timingSafeCompare } from '../../../application/shared/utils/crypto';
+export { timingSafeCompare } from "../../../application/shared/utils/crypto";
 
 /**
  * Signs an arbitrary payload string with HMAC-SHA256 using the given
@@ -76,7 +76,7 @@ export { timingSafeCompare } from '../../../application/shared/utils/crypto';
  * @returns The base64url-encoded signature.
  */
 export const signCookiePayload = (payload: string, secret: string): string =>
-  createHmac('sha256', secret).update(payload).digest('base64url');
+	createHmac("sha256", secret).update(payload).digest("base64url");
 
 /**
  * Verifies the HMAC signature on a cookie value and returns the
@@ -91,20 +91,20 @@ export const signCookiePayload = (payload: string, secret: string): string =>
  * @returns The unsigned payload string, or `null` on failure.
  */
 export const verifyCookieSignature = (cookieValue: string, secret: string): string | null => {
-  const separatorIndex = cookieValue.lastIndexOf(SIGNATURE_SEPARATOR);
-  if (separatorIndex <= 0 || separatorIndex === cookieValue.length - 1) {
-    return null;
-  }
+	const separatorIndex = cookieValue.lastIndexOf(SIGNATURE_SEPARATOR);
+	if (separatorIndex <= 0 || separatorIndex === cookieValue.length - 1) {
+		return null;
+	}
 
-  const payload = cookieValue.slice(0, separatorIndex);
-  const signature = cookieValue.slice(separatorIndex + 1);
-  const expectedSignature = signCookiePayload(payload, secret);
+	const payload = cookieValue.slice(0, separatorIndex);
+	const signature = cookieValue.slice(separatorIndex + 1);
+	const expectedSignature = signCookiePayload(payload, secret);
 
-  if (!timingSafeCompare(signature, expectedSignature)) {
-    return null;
-  }
+	if (!timingSafeCompare(signature, expectedSignature)) {
+		return null;
+	}
 
-  return payload;
+	return payload;
 };
 
 /**
@@ -116,7 +116,7 @@ export const verifyCookieSignature = (cookieValue: string, secret: string): stri
  * @returns The cookie attribute string (excluding name=value).
  */
 const cookieAttributes = (maxAgeSeconds: number): string =>
-  [`Max-Age=${maxAgeSeconds}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Secure'].join('; ');
+	[`Max-Age=${maxAgeSeconds}`, "Path=/", "HttpOnly", "SameSite=Lax", "Secure"].join("; ");
 
 /**
  * Creates a signed session cookie string suitable for use as a
@@ -130,20 +130,20 @@ const cookieAttributes = (maxAgeSeconds: number): string =>
  * @returns A fully-formed `Set-Cookie` header value.
  */
 export const createSessionCookie = (
-  username = ADMIN_USERNAME,
-  options: CookieOptions = {},
+	username = ADMIN_USERNAME,
+	options: CookieOptions = {}
 ): string => {
-  const secret = getSecret(options.secret);
-  const cookieName = getCookieName(options.cookieName);
-  const maxAgeMs = getMaxAgeMs(options.maxAgeMs);
-  const expiresAt = Date.now() + maxAgeMs;
-  const payload = encodePayload(
-    JSON.stringify({ u: username, e: expiresAt } satisfies SessionPayload),
-  );
-  const signature = signCookiePayload(payload, secret);
-  const maxAgeSeconds = Math.max(1, Math.floor(maxAgeMs / 1000));
+	const secret = getSecret(options.secret);
+	const cookieName = getCookieName(options.cookieName);
+	const maxAgeMs = getMaxAgeMs(options.maxAgeMs);
+	const expiresAt = Date.now() + maxAgeMs;
+	const payload = encodePayload(
+		JSON.stringify({ u: username, e: expiresAt } satisfies SessionPayload)
+	);
+	const signature = signCookiePayload(payload, secret);
+	const maxAgeSeconds = Math.max(1, Math.floor(maxAgeMs / 1000));
 
-  return `${cookieName}=${payload}${SIGNATURE_SEPARATOR}${signature}; ${cookieAttributes(maxAgeSeconds)}`;
+	return `${cookieName}=${payload}${SIGNATURE_SEPARATOR}${signature}; ${cookieAttributes(maxAgeSeconds)}`;
 };
 
 /**
@@ -155,7 +155,7 @@ export const createSessionCookie = (
  * @returns A `Set-Cookie` header value with Max-Age=0.
  */
 export const clearSessionCookie = (cookieName = config.sessionCookieName): string =>
-  `${cookieName}=; ${cookieAttributes(0)}`;
+	`${cookieName}=; ${cookieAttributes(0)}`;
 
 /**
  * Finds the value of a named cookie from a raw `Cookie` header
@@ -166,20 +166,20 @@ export const clearSessionCookie = (cookieName = config.sessionCookieName): strin
  * @returns The cookie value, or `null` if not found.
  */
 const findCookieValue = (cookieHeader: string | null, cookieName: string): string | null => {
-  if (!cookieHeader) return null;
+	if (!cookieHeader) return null;
 
-  for (const rawCookie of cookieHeader.split(';')) {
-    const cookie = rawCookie.trim();
-    const equalsIndex = cookie.indexOf('=');
-    if (equalsIndex <= 0) continue;
+	for (const rawCookie of cookieHeader.split(";")) {
+		const cookie = rawCookie.trim();
+		const equalsIndex = cookie.indexOf("=");
+		if (equalsIndex <= 0) continue;
 
-    const name = cookie.slice(0, equalsIndex);
-    if (name === cookieName) {
-      return cookie.slice(equalsIndex + 1);
-    }
-  }
+		const name = cookie.slice(0, equalsIndex);
+		if (name === cookieName) {
+			return cookie.slice(equalsIndex + 1);
+		}
+	}
 
-  return null;
+	return null;
 };
 
 /**
@@ -196,35 +196,35 @@ const findCookieValue = (cookieHeader: string | null, cookieName: string): strin
  * @returns The parsed session, or `null`.
  */
 export const parseSessionFromCookie = (
-  cookieHeader: string | null,
-  options: Pick<CookieOptions, 'secret' | 'cookieName'> = {},
+	cookieHeader: string | null,
+	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
 ): AuthSession | null => {
-  const secret = getSecret(options.secret);
-  const cookieName = getCookieName(options.cookieName);
-  if (!isAuthEnabled(secret)) return null;
+	const secret = getSecret(options.secret);
+	const cookieName = getCookieName(options.cookieName);
+	if (!isAuthEnabled(secret)) return null;
 
-  const cookieValue = findCookieValue(cookieHeader, cookieName);
-  if (!cookieValue) return null;
+	const cookieValue = findCookieValue(cookieHeader, cookieName);
+	if (!cookieValue) return null;
 
-  const encodedPayload = verifyCookieSignature(cookieValue, secret);
-  if (!encodedPayload) return null;
+	const encodedPayload = verifyCookieSignature(cookieValue, secret);
+	if (!encodedPayload) return null;
 
-  const rawPayload = decodePayload(encodedPayload);
-  if (!rawPayload) return null;
+	const rawPayload = decodePayload(encodedPayload);
+	if (!rawPayload) return null;
 
-  try {
-    const payload = JSON.parse(rawPayload) as Partial<SessionPayload>;
-    if (payload.u !== ADMIN_USERNAME || typeof payload.e !== 'number') return null;
-    if (!Number.isFinite(payload.e) || payload.e <= Date.now()) return null;
+	try {
+		const payload = JSON.parse(rawPayload) as Partial<SessionPayload>;
+		if (payload.u !== ADMIN_USERNAME || typeof payload.e !== "number") return null;
+		if (!Number.isFinite(payload.e) || payload.e <= Date.now()) return null;
 
-    return {
-      username: payload.u,
-      expiresAt: new Date(payload.e),
-      method: 'cookie',
-    };
-  } catch {
-    return null;
-  }
+		return {
+			username: payload.u,
+			expiresAt: new Date(payload.e),
+			method: "cookie",
+		};
+	} catch {
+		return null;
+	}
 };
 
 /**
@@ -237,16 +237,16 @@ export const parseSessionFromCookie = (
  * @returns `true` when the token is valid, `false` otherwise.
  */
 export const checkBearerToken = (
-  authorizationHeader: string | null,
-  secret = config.adminApiToken,
+	authorizationHeader: string | null,
+	secret = config.adminApiToken
 ): boolean => {
-  if (!isAuthEnabled(secret) || !authorizationHeader) return false;
+	if (!isAuthEnabled(secret) || !authorizationHeader) return false;
 
-  const [scheme, ...rest] = authorizationHeader.split(' ');
-  if (scheme !== 'Bearer' || rest.length === 0) return false;
+	const [scheme, ...rest] = authorizationHeader.split(" ");
+	if (scheme !== "Bearer" || rest.length === 0) return false;
 
-  const token = rest.join(' ').trim();
-  return token.length > 0 && timingSafeCompare(token, secret);
+	const token = rest.join(" ").trim();
+	return token.length > 0 && timingSafeCompare(token, secret);
 };
 
 /**
@@ -263,30 +263,30 @@ export const checkBearerToken = (
  * @returns The authenticated session, or `null` when unauthenticated.
  */
 export const getAuthSession = (
-  req: Request,
-  options: Pick<CookieOptions, 'secret' | 'cookieName'> = {},
+	req: Request,
+	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
 ): AuthSession | null => {
-  const secret = getSecret(options.secret);
-  if (!isAuthEnabled(secret)) {
-    return {
-      username: ADMIN_USERNAME,
-      expiresAt: null,
-      method: 'bearer',
-    };
-  }
+	const secret = getSecret(options.secret);
+	if (!isAuthEnabled(secret)) {
+		return {
+			username: ADMIN_USERNAME,
+			expiresAt: null,
+			method: "bearer",
+		};
+	}
 
-  const cookieSession = parseSessionFromCookie(req.headers.get('cookie'), options);
-  if (cookieSession) return cookieSession;
+	const cookieSession = parseSessionFromCookie(req.headers.get("cookie"), options);
+	if (cookieSession) return cookieSession;
 
-  if (checkBearerToken(req.headers.get('authorization'), secret)) {
-    return {
-      username: ADMIN_USERNAME,
-      expiresAt: null,
-      method: 'bearer',
-    };
-  }
+	if (checkBearerToken(req.headers.get("authorization"), secret)) {
+		return {
+			username: ADMIN_USERNAME,
+			expiresAt: null,
+			method: "bearer",
+		};
+	}
 
-  return null;
+	return null;
 };
 
 /**
@@ -297,7 +297,7 @@ export const getAuthSession = (
  *          `{ error: "Unauthorized" }`.
  */
 export const unauthorizedResponse = (): Response =>
-  Response.json({ error: 'Unauthorized' }, { status: 401 });
+	Response.json({ error: "Unauthorized" }, { status: 401 });
 
 /**
  * Middleware that wraps a request handler with authentication.
@@ -312,20 +312,20 @@ export const unauthorizedResponse = (): Response =>
  * @returns A wrapped handler that performs the auth check.
  */
 export const requireAuth = (
-  handler: Handler,
-  options: Pick<CookieOptions, 'secret' | 'cookieName'> = {},
+	handler: Handler,
+	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
 ): ((req: Request) => Promise<Response>) => {
-  return async (req: Request): Promise<Response> => {
-    const secret = getSecret(options.secret);
-    if (!isAuthEnabled(secret)) {
-      return handler(req);
-    }
+	return async (req: Request): Promise<Response> => {
+		const secret = getSecret(options.secret);
+		if (!isAuthEnabled(secret)) {
+			return handler(req);
+		}
 
-    const session = getAuthSession(req, options);
-    if (!session) {
-      return unauthorizedResponse();
-    }
+		const session = getAuthSession(req, options);
+		if (!session) {
+			return unauthorizedResponse();
+		}
 
-    return handler(req);
-  };
+		return handler(req);
+	};
 };

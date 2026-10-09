@@ -1,11 +1,11 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { fileParts, files } from './schema';
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import { fileParts, files } from "./schema";
 
 const client = postgres(process.env.DATABASE_URL!, {
-  max: 10,
-  idle_timeout: 20,
-  connect_timeout: 10,
+	max: 10,
+	idle_timeout: 20,
+	connect_timeout: 10,
 });
 
 /** Drizzle ORM database client initialized with the files and fileParts schema. */

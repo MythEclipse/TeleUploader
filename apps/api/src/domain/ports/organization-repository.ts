@@ -12,12 +12,12 @@
  * repository layer.
  */
 export interface IOrganizationRepository {
-  /**
-   * Find the organization a user is a member of.
-   *
-   * @param userId - The authenticated identity's user id.
-   * @returns The organization UUID, or `null` when the user has no membership.
-   *          `null` MUST NOT be treated by callers as "global access".
-   */
-  findOrganizationIdByUserId(userId: string): Promise<string | null>;
+	/**
+	 * Find the organization a user is a member of.
+	 *
+	 * @param userId - The authenticated identity's user id.
+	 * @returns The organization UUID, or `null` when the user has no membership.
+	 *          `null` MUST NOT be treated by callers as "global access".
+	 */
+	findOrganizationIdByUserId(userId: string): Promise<string | null>;
 }

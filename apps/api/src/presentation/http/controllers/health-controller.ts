@@ -1,8 +1,8 @@
-import { sql } from 'drizzle-orm';
-import { config } from '../../../env';
-import { getErrorMessage } from '../../../infrastructure/file';
-import logger from '../../../infrastructure/observability/logger';
-import { db } from '../../../infrastructure/persistence/drizzle/index';
+import { sql } from "drizzle-orm";
+import { config } from "../../../env";
+import { getErrorMessage } from "../../../infrastructure/file";
+import logger from "../../../infrastructure/observability/logger";
+import { db } from "../../../infrastructure/persistence/drizzle/index";
 
 /**
  * Handles the health-check endpoint.
@@ -15,12 +15,12 @@ import { db } from '../../../infrastructure/persistence/drizzle/index';
  * @returns A JSON response indicating the database health status.
  */
 export const handleHealth = async (_req: Request): Promise<Response> => {
-  try {
-    await db.execute(sql`SELECT 1`);
-    return Response.json({ status: 'ok', version: config.appVersion }, { status: 200 });
-  } catch (error: unknown) {
-    const message = getErrorMessage(error);
-    logger.error('Health check failed', { error: message });
-    return Response.json({ status: 'error', error: message }, { status: 500 });
-  }
+	try {
+		await db.execute(sql`SELECT 1`);
+		return Response.json({ status: "ok", version: config.appVersion }, { status: 200 });
+	} catch (error: unknown) {
+		const message = getErrorMessage(error);
+		logger.error("Health check failed", { error: message });
+		return Response.json({ status: "error", error: message }, { status: 500 });
+	}
 };

@@ -10,4 +10,4 @@
  * @returns The sanitised file name.
  */
 export const sanitizeFilenameHeader = (fileName: string): string =>
-  fileName.replace(/[\\"]/g, '').replace(/[\n\r]/g, '');
+	fileName.replace(/[\\"]/g, "").replace(/[\n\r]/g, "");

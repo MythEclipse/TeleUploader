@@ -19,15 +19,15 @@ export const TELEGRAM_CHUNK_SIZE_MAX_BYTES = 19 * 1024 * 1024;
  *   the Telegram `getFile` limit (with margin).
  */
 export const asSafeChunkSize = (chunkSizeBytes: number): number => {
-  if (!Number.isSafeInteger(chunkSizeBytes) || chunkSizeBytes <= 0) {
-    throw new Error('Invalid Telegram chunk size');
-  }
-  if (chunkSizeBytes > TELEGRAM_CHUNK_SIZE_MAX_BYTES) {
-    throw new Error(
-      `Telegram chunk size ${chunkSizeBytes} exceeds the maximum allowed part size ` +
-        `${TELEGRAM_CHUNK_SIZE_MAX_BYTES} bytes (${TELEGRAM_CHUNK_SIZE_MAX_BYTES / (1024 * 1024)} MB). ` +
-        'Telegram getFile cannot download files larger than 20 MB, so such parts would be undownloadable.',
-    );
-  }
-  return chunkSizeBytes;
+	if (!Number.isSafeInteger(chunkSizeBytes) || chunkSizeBytes <= 0) {
+		throw new Error("Invalid Telegram chunk size");
+	}
+	if (chunkSizeBytes > TELEGRAM_CHUNK_SIZE_MAX_BYTES) {
+		throw new Error(
+			`Telegram chunk size ${chunkSizeBytes} exceeds the maximum allowed part size ` +
+				`${TELEGRAM_CHUNK_SIZE_MAX_BYTES} bytes (${TELEGRAM_CHUNK_SIZE_MAX_BYTES / (1024 * 1024)} MB). ` +
+				"Telegram getFile cannot download files larger than 20 MB, so such parts would be undownloadable."
+		);
+	}
+	return chunkSizeBytes;
 };

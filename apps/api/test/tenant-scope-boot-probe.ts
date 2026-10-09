@@ -16,28 +16,28 @@
  * process would not re-read it — that is precisely the "declaration trusted
  * downstream instead of re-checked" trap, one level up.
  */
-process.env.BOT_TOKENS ||= '1:test';
-process.env.STORAGE_CHANNEL_ID ||= '-1001234';
-process.env.BASE_URL ||= 'http://127.0.0.1:4311';
-process.env.PORT ||= '4311';
+process.env.BOT_TOKENS ||= "1:test";
+process.env.STORAGE_CHANNEL_ID ||= "-1001234";
+process.env.BASE_URL ||= "http://127.0.0.1:4311";
+process.env.PORT ||= "4311";
 
 const { resolveAdminOrganizationId } = await import(
-  '../src/presentation/http/controllers/organization-resolver'
+	"../src/presentation/http/controllers/organization-resolver"
 );
 
 try {
-  const organizationId = await resolveAdminOrganizationId();
-  console.log(
-    JSON.stringify({ ok: true, organizationId, bootstrapAdminId: process.env.BOOTSTRAP_ADMIN_ID }),
-  );
-  process.exit(0);
+	const organizationId = await resolveAdminOrganizationId();
+	console.log(
+		JSON.stringify({ ok: true, organizationId, bootstrapAdminId: process.env.BOOTSTRAP_ADMIN_ID })
+	);
+	process.exit(0);
 } catch (error: unknown) {
-  // The message is the operator-facing remedy. It is printed, not swallowed.
-  console.log(
-    JSON.stringify({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }),
-  );
-  process.exit(1);
+	// The message is the operator-facing remedy. It is printed, not swallowed.
+	console.log(
+		JSON.stringify({
+			ok: false,
+			error: error instanceof Error ? error.message : String(error),
+		})
+	);
+	process.exit(1);
 }

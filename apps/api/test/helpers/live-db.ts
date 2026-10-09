@@ -35,7 +35,7 @@
  * because only the former makes vitest print `skipped`.
  */
 
-import { OFFLINE_DATABASE_URL } from './setup-env';
+import { OFFLINE_DATABASE_URL } from "./setup-env";
 
 /**
  * Result of the one-shot reachability probe.
@@ -47,8 +47,8 @@ import { OFFLINE_DATABASE_URL } from './setup-env';
  * "7 skipped" run. `probeLiveDatabase` throws in that case instead.
  */
 export type LiveDbStatus =
-  | { readonly state: 'live' }
-  | { readonly state: 'unconfigured'; readonly reason: string };
+	| { readonly state: "live" }
+	| { readonly state: "unconfigured"; readonly reason: string };
 
 /**
  * A non-empty DATABASE_URL means the operator INTENDED these suites to run.
@@ -63,13 +63,13 @@ export type LiveDbStatus =
 // during import, so a value captured here can be the pre-setup `undefined`
 // depending on import order. Resolving on each call makes that ordering
 // irrelevant.
-const databaseUrl = (): string => process.env.DATABASE_URL?.trim() ?? '';
+const databaseUrl = (): string => process.env.DATABASE_URL?.trim() ?? "";
 
 /** True when the environment really asks for a live database. */
 export const liveDatabaseRequested = (): boolean => {
-  const url = databaseUrl();
-  if (url === '') return false;
-  return url !== OFFLINE_DATABASE_URL;
+	const url = databaseUrl();
+	if (url === "") return false;
+	return url !== OFFLINE_DATABASE_URL;
 };
 
 /**
@@ -82,40 +82,40 @@ export const liveDatabaseRequested = (): boolean => {
  * fall back to a runtime early return — the exact mechanism being removed.
  */
 export const probeLiveDatabase = async (probe: () => Promise<void>): Promise<LiveDbStatus> => {
-  if (!liveDatabaseRequested()) {
-    return {
-      state: 'unconfigured',
-      reason:
-        'DATABASE_URL is not set to a reachable test database. These assertions did NOT run. ' +
-        'CI provisions Postgres for this job; to run them locally see the header of ' +
-        'tenant-isolation.test.ts.',
-    };
-  }
-  try {
-    await probe();
-    return { state: 'live' };
-  } catch (error) {
-    // THROW, do not return a skip. The environment asked for these assertions to
-    // run, so the honest outcome is a failing suite: reporting "skipped" here
-    // would turn a broken CI database into a green build that proves nothing.
-    // Thrown at module scope, this aborts collection and vitest exits non-zero.
-    throw new Error(
-      `DATABASE_URL is set to ${redact(databaseUrl())} but the database is NOT usable. ` +
-        'These suites FAIL rather than skip in that case, because a skipped suite and a ' +
-        'passing suite look identical in the summary and only one of them proves anything. ' +
-        'If you meant to run offline, unset DATABASE_URL. Underlying error: ' +
-        describeError(error),
-    );
-  }
+	if (!liveDatabaseRequested()) {
+		return {
+			state: "unconfigured",
+			reason:
+				"DATABASE_URL is not set to a reachable test database. These assertions did NOT run. " +
+				"CI provisions Postgres for this job; to run them locally see the header of " +
+				"tenant-isolation.test.ts.",
+		};
+	}
+	try {
+		await probe();
+		return { state: "live" };
+	} catch (error) {
+		// THROW, do not return a skip. The environment asked for these assertions to
+		// run, so the honest outcome is a failing suite: reporting "skipped" here
+		// would turn a broken CI database into a green build that proves nothing.
+		// Thrown at module scope, this aborts collection and vitest exits non-zero.
+		throw new Error(
+			`DATABASE_URL is set to ${redact(databaseUrl())} but the database is NOT usable. ` +
+				"These suites FAIL rather than skip in that case, because a skipped suite and a " +
+				"passing suite look identical in the summary and only one of them proves anything. " +
+				"If you meant to run offline, unset DATABASE_URL. Underlying error: " +
+				describeError(error)
+		);
+	}
 };
 
 /** Strip the password out of a DSN so it is safe to print in test output. */
-export const redact = (dsn: string): string => dsn.replace(/:\/\/([^:]*):[^@]*@/, '://$1:***@');
+export const redact = (dsn: string): string => dsn.replace(/:\/\/([^:]*):[^@]*@/, "://$1:***@");
 
 const describeError = (error: unknown): string => {
-  const message = error instanceof Error ? error.message : String(error);
-  // postgres.js stacks are long; the first line carries the actual cause.
-  return message.split('\n')[0] ?? message;
+	const message = error instanceof Error ? error.message : String(error);
+	// postgres.js stacks are long; the first line carries the actual cause.
+	return message.split("\n")[0] ?? message;
 };
 
 /**

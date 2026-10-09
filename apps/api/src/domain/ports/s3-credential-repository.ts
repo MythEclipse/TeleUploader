@@ -1,4 +1,4 @@
-import type { S3Credential } from '../entities/s3-credential';
+import type { S3Credential } from "../entities/s3-credential";
 
 /**
  * Repository interface for S3 credential persistence.
@@ -10,21 +10,21 @@ import type { S3Credential } from '../entities/s3-credential';
  * database to authenticate.
  */
 export interface IS3CredentialRepository {
-  /**
-   * Look up a credential by its access key.
-   *
-   * @param accessKey - The access key from the SigV4 credential scope.
-   * @returns The matching credential, or `null` when no such key exists.
-   */
-  findByAccessKey(accessKey: string): Promise<S3Credential | null>;
+	/**
+	 * Look up a credential by its access key.
+	 *
+	 * @param accessKey - The access key from the SigV4 credential scope.
+	 * @returns The matching credential, or `null` when no such key exists.
+	 */
+	findByAccessKey(accessKey: string): Promise<S3Credential | null>;
 
-  /**
-   * Record that a credential was used, for auditing.
-   *
-   * MUST NOT be able to fail the request: a bookkeeping write that throws
-   * would turn a successful upload into a 500.
-   *
-   * @param id - The credential's UUID.
-   */
-  touchLastUsed(id: string): Promise<void>;
+	/**
+	 * Record that a credential was used, for auditing.
+	 *
+	 * MUST NOT be able to fail the request: a bookkeeping write that throws
+	 * would turn a successful upload into a 500.
+	 *
+	 * @param id - The credential's UUID.
+	 */
+	touchLastUsed(id: string): Promise<void>;
 }

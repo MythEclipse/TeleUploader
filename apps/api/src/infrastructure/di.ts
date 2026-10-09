@@ -8,21 +8,21 @@
  * @module infrastructure/di
  */
 
-import type { IBucketRepository } from '../domain/ports/bucket-repository';
-import type { IFilePartRepository } from '../domain/ports/file-part-repository';
-import type { IFileRepository } from '../domain/ports/file-repository';
-import type { IMultipartRepository } from '../domain/ports/multipart-repository';
-import type { IOrganizationRepository } from '../domain/ports/organization-repository';
-import type { IS3CredentialRepository } from '../domain/ports/s3-credential-repository';
-import type { ITelegramService } from '../domain/ports/telegram-service';
-import { DrizzleBucketRepository } from './persistence/repositories/bucket-repository';
-import { DrizzleFilePartRepository } from './persistence/repositories/file-part-repository';
-import { DrizzleFileRepository } from './persistence/repositories/file-repository';
-import { DrizzleMultipartRepository } from './persistence/repositories/multipart-repository';
-import { DrizzleOrganizationRepository } from './persistence/repositories/organization-repository';
-import { DrizzleS3CredentialRepository } from './persistence/repositories/s3-credential-repository';
-import { botPool } from './telegram/bot-pool';
-import { ChunkedStorage } from './telegram/chunked-storage';
+import type { IBucketRepository } from "../domain/ports/bucket-repository";
+import type { IFilePartRepository } from "../domain/ports/file-part-repository";
+import type { IFileRepository } from "../domain/ports/file-repository";
+import type { IMultipartRepository } from "../domain/ports/multipart-repository";
+import type { IOrganizationRepository } from "../domain/ports/organization-repository";
+import type { IS3CredentialRepository } from "../domain/ports/s3-credential-repository";
+import type { ITelegramService } from "../domain/ports/telegram-service";
+import { DrizzleBucketRepository } from "./persistence/repositories/bucket-repository";
+import { DrizzleFilePartRepository } from "./persistence/repositories/file-part-repository";
+import { DrizzleFileRepository } from "./persistence/repositories/file-repository";
+import { DrizzleMultipartRepository } from "./persistence/repositories/multipart-repository";
+import { DrizzleOrganizationRepository } from "./persistence/repositories/organization-repository";
+import { DrizzleS3CredentialRepository } from "./persistence/repositories/s3-credential-repository";
+import { botPool } from "./telegram/bot-pool";
+import { ChunkedStorage } from "./telegram/chunked-storage";
 
 // ─── Repository Singletons ──────────────────────────────────────────
 
@@ -63,7 +63,7 @@ export const organizationRepository: IOrganizationRepository = new DrizzleOrgani
 
 /** Singleton ChunkedStorage for large file chunked uploads. */
 export const chunkedStorage = new ChunkedStorage(
-  fileRepository,
-  filePartRepository,
-  telegramService,
+	fileRepository,
+	filePartRepository,
+	telegramService
 );

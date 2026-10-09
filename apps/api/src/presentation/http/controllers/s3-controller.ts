@@ -9,4 +9,4 @@
  * unchanged" for is DELETED (P4 deadcode). `app.ts` imports `handleS3Request`
  * from here directly; nothing imports the table.
  */
-export { handleS3Request } from './s3/s3-router';
+export { handleS3Request } from "./s3/s3-router";

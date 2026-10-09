@@ -12,10 +12,10 @@
  * Contains identifiers returned by the Telegram API for uploaded media.
  */
 export interface UploadedTelegramFile {
-  /** Telegram file_id for retrieving the file */
-  file_id?: string;
-  /** Telegram unique file_id (stable across bot tokens) */
-  file_unique_id?: string;
+	/** Telegram file_id for retrieving the file */
+	file_id?: string;
+	/** Telegram unique file_id (stable across bot tokens) */
+	file_unique_id?: string;
 }
 
 /**
@@ -23,26 +23,26 @@ export interface UploadedTelegramFile {
  * Covers all media types a Telegram message can carry.
  */
 export interface TelegramMessageResult {
-  /** Unique message identifier inside the chat */
-  message_id: number;
-  /** Sent document, if applicable */
-  document?: UploadedTelegramFile;
-  /** Sent photo (array of sizes, last element is largest), if applicable */
-  photo?: UploadedTelegramFile[];
-  /** Sent video, if applicable */
-  video?: UploadedTelegramFile;
-  /** Sent audio, if applicable */
-  audio?: UploadedTelegramFile;
-  /** Sent voice message, if applicable */
-  voice?: UploadedTelegramFile;
-  /** Sent animation (GIF), if applicable */
-  animation?: UploadedTelegramFile;
-  /** Sent sticker, if applicable */
-  sticker?: UploadedTelegramFile;
-  /** Sent video note, if applicable */
-  video_note?: UploadedTelegramFile;
-  /** Catch-all for any additional Telegram response fields */
-  [key: string]: unknown;
+	/** Unique message identifier inside the chat */
+	message_id: number;
+	/** Sent document, if applicable */
+	document?: UploadedTelegramFile;
+	/** Sent photo (array of sizes, last element is largest), if applicable */
+	photo?: UploadedTelegramFile[];
+	/** Sent video, if applicable */
+	video?: UploadedTelegramFile;
+	/** Sent audio, if applicable */
+	audio?: UploadedTelegramFile;
+	/** Sent voice message, if applicable */
+	voice?: UploadedTelegramFile;
+	/** Sent animation (GIF), if applicable */
+	animation?: UploadedTelegramFile;
+	/** Sent sticker, if applicable */
+	sticker?: UploadedTelegramFile;
+	/** Sent video note, if applicable */
+	video_note?: UploadedTelegramFile;
+	/** Catch-all for any additional Telegram response fields */
+	[key: string]: unknown;
 }
 
 /**
@@ -65,9 +65,9 @@ export type SendPayload = { caption?: string };
  * @internal
  */
 export type SendMethod = (
-  chatId: number,
-  filePayload: FilePayload,
-  payload?: SendPayload,
+	chatId: number,
+	filePayload: FilePayload,
+	payload?: SendPayload
 ) => Promise<TelegramMessageResult>;
 
 /**
@@ -77,14 +77,14 @@ export type SendMethod = (
  * method name to call on `bot.telegram`.
  */
 export const sendMethodMap: Record<string, string> = {
-  photo: 'sendPhoto',
-  audio: 'sendAudio',
-  video: 'sendVideo',
-  voice: 'sendVoice',
-  animation: 'sendAnimation',
-  sticker: 'sendSticker',
-  document: 'sendDocument',
-  video_note: 'sendDocument',
+	photo: "sendPhoto",
+	audio: "sendAudio",
+	video: "sendVideo",
+	voice: "sendVoice",
+	animation: "sendAnimation",
+	sticker: "sendSticker",
+	document: "sendDocument",
+	video_note: "sendDocument",
 };
 
 /**
@@ -98,18 +98,18 @@ export const sendMethodMap: Record<string, string> = {
  * @returns The uploaded file reference, or `undefined` if none was found.
  */
 export const extractUploadedFile = (
-  result: TelegramMessageResult,
-  fileType: string,
+	result: TelegramMessageResult,
+	fileType: string
 ): UploadedTelegramFile | undefined => {
-  if (result.document) return result.document;
-  if (result.photo) return result.photo?.slice(-1)[0];
-  if (result.video) return result.video;
-  if (result.audio) return result.audio;
-  if (result.voice) return result.voice;
-  if (result.animation) return result.animation;
-  if (result.sticker) return result.sticker;
-  if (result.video_note) return result.video_note;
-  return result[fileType] as UploadedTelegramFile | undefined;
+	if (result.document) return result.document;
+	if (result.photo) return result.photo?.slice(-1)[0];
+	if (result.video) return result.video;
+	if (result.audio) return result.audio;
+	if (result.voice) return result.voice;
+	if (result.animation) return result.animation;
+	if (result.sticker) return result.sticker;
+	if (result.video_note) return result.video_note;
+	return result[fileType] as UploadedTelegramFile | undefined;
 };
 
 /**
@@ -123,8 +123,8 @@ export const extractUploadedFile = (
  * @returns The payload object with caption (or empty for sticker).
  */
 export const buildSendPayload = (fileType: string, fileName: string): SendPayload => {
-  const basePayload: SendPayload = { caption: fileName };
-  if (fileType === 'sticker') return {};
-  if (fileType === 'document') return { caption: `📁 ${fileName}` };
-  return basePayload;
+	const basePayload: SendPayload = { caption: fileName };
+	if (fileType === "sticker") return {};
+	if (fileType === "document") return { caption: `📁 ${fileName}` };
+	return basePayload;
 };

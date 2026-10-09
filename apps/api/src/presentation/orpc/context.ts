@@ -11,20 +11,20 @@
  * with no organization and silently operate against whatever it was handed.
  */
 export interface AppRouterContext {
-  /** Incoming request headers, for procedures needing raw header access. */
-  readonly headers: Headers;
-  /**
-   * Server origin, used to build absolute URLs when adapting to the
-   * `Request`-taking controllers.
-   */
-  readonly baseUrl: string;
-  /**
-   * The authenticated caller's organization (UUID).
-   *
-   * P3: resolved from the admin session's membership by `buildOrpcContext`.
-   * Every bucket read and write on this surface is scoped by it.
-   */
-  readonly organizationId: string;
-  /** Set by P4 once the two-layer role system lands. */
-  readonly role?: 'owner' | 'admin' | 'member';
+	/** Incoming request headers, for procedures needing raw header access. */
+	readonly headers: Headers;
+	/**
+	 * Server origin, used to build absolute URLs when adapting to the
+	 * `Request`-taking controllers.
+	 */
+	readonly baseUrl: string;
+	/**
+	 * The authenticated caller's organization (UUID).
+	 *
+	 * P3: resolved from the admin session's membership by `buildOrpcContext`.
+	 * Every bucket read and write on this surface is scoped by it.
+	 */
+	readonly organizationId: string;
+	/** Set by P4 once the two-layer role system lands. */
+	readonly role?: "owner" | "admin" | "member";
 }

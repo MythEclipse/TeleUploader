@@ -29,15 +29,15 @@
  * a crash converges rather than accumulating.
  */
 
-import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
+import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 
 /** Row array returned by `db.execute()`. */
 type QueryResult = Record<string, unknown>[];
 
 /** The `db` handle, injected so this module stays independent of the schema import. */
 export interface FixtureDb {
-  execute: (query: unknown) => Promise<unknown>;
+	execute: (query: unknown) => Promise<unknown>;
 }
 
 /** Cast the loosely-typed drizzle handle to the shape this module uses. */
@@ -59,10 +59,10 @@ export const fixtureName = (prefix: string): string => `${prefix}-${randomUUID()
  * Cleanup sweeps on this, so a suite that is killed mid-run leaves rows this
  * can find and remove on the NEXT run.
  */
-export const ORG_PREFIX = 'p3b-live-org';
+export const ORG_PREFIX = "p3b-live-org";
 
 /** Bucket names get their own prefix so a bucket sweep cannot touch a real one. */
-export const BUCKET_PREFIX = 'p3b-live-bucket';
+export const BUCKET_PREFIX = "p3b-live-bucket";
 
 /**
  * Create one organization with a per-run unique name.
@@ -73,13 +73,13 @@ export const BUCKET_PREFIX = 'p3b-live-bucket';
  * `beforeAll` and cascading into a fake skip.
  */
 export const createOrg = async (db: FixtureDb, prefix = ORG_PREFIX): Promise<string> => {
-  const id = randomUUID();
-  const name = fixtureName(prefix);
-  await db.execute(
-    sql`INSERT INTO organizations (id, name, slug) VALUES (${id}::uuid, ${name}, ${name})
-        ON CONFLICT (name) DO NOTHING`,
-  );
-  return id;
+	const id = randomUUID();
+	const name = fixtureName(prefix);
+	await db.execute(
+		sql`INSERT INTO organizations (id, name, slug) VALUES (${id}::uuid, ${name}, ${name})
+        ON CONFLICT (name) DO NOTHING`
+	);
+	return id;
 };
 
 /**
@@ -93,16 +93,16 @@ export const createOrg = async (db: FixtureDb, prefix = ORG_PREFIX): Promise<str
  * be removed first or the organization delete raises a foreign-key violation).
  */
 export const sweepOrgs = async (db: FixtureDb, prefix = ORG_PREFIX): Promise<void> => {
-  await db
-    .execute(
-      sql`DELETE FROM files WHERE bucket_id IN (
+	await db
+		.execute(
+			sql`DELETE FROM files WHERE bucket_id IN (
           SELECT b.id FROM buckets b
           JOIN organizations o ON o.id = b.organization_id
           WHERE o.name LIKE ${`${prefix}-%`} AND b.name LIKE ${`${BUCKET_PREFIX}-%`}
-        )`,
-    )
-    .catch(() => {});
-  await db.execute(sql`DELETE FROM organizations WHERE name LIKE ${`${prefix}-%`}`).catch(() => {});
+        )`
+		)
+		.catch(() => {});
+	await db.execute(sql`DELETE FROM organizations WHERE name LIKE ${`${prefix}-%`}`).catch(() => {});
 };
 
 /**
@@ -113,7 +113,7 @@ export const sweepOrgs = async (db: FixtureDb, prefix = ORG_PREFIX): Promise<voi
  * future fixture ever reuses a name.
  */
 export const sweepBuckets = async (db: FixtureDb, prefix = BUCKET_PREFIX): Promise<void> => {
-  await db.execute(sql`DELETE FROM buckets WHERE name LIKE ${`${prefix}-%`}`).catch(() => {});
+	await db.execute(sql`DELETE FROM buckets WHERE name LIKE ${`${prefix}-%`}`).catch(() => {});
 };
 
 /**
@@ -127,23 +127,23 @@ export const sweepBuckets = async (db: FixtureDb, prefix = BUCKET_PREFIX): Promi
  * failing cleanup must not mask the test result that actually matters.
  */
 export const prepareLiveFixtures = async (
-  db: FixtureDb,
-  orgPrefix = ORG_PREFIX,
-  bucketPrefix = BUCKET_PREFIX,
+	db: FixtureDb,
+	orgPrefix = ORG_PREFIX,
+	bucketPrefix = BUCKET_PREFIX
 ): Promise<() => Promise<void>> => {
-  await sweepBuckets(db, bucketPrefix);
-  await sweepOrgs(db, orgPrefix);
+	await sweepBuckets(db, bucketPrefix);
+	await sweepOrgs(db, orgPrefix);
 
-  return async () => {
-    await sweepBuckets(db, bucketPrefix);
-    await sweepOrgs(db, orgPrefix);
-  };
+	return async () => {
+		await sweepBuckets(db, bucketPrefix);
+		await sweepOrgs(db, orgPrefix);
+	};
 };
 
 /** Count rows matching a name prefix — used by the self-check in the suites. */
 export const countOrgs = async (db: FixtureDb, prefix: string): Promise<number> => {
-  const rows = (await db.execute(
-    sql`SELECT count(*)::int AS n FROM organizations WHERE name LIKE ${`${prefix}-%`}`,
-  )) as unknown as QueryResult;
-  return rows[0]?.n as number;
+	const rows = (await db.execute(
+		sql`SELECT count(*)::int AS n FROM organizations WHERE name LIKE ${`${prefix}-%`}`
+	)) as unknown as QueryResult;
+	return rows[0]?.n as number;
 };

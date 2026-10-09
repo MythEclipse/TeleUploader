@@ -1,38 +1,38 @@
-import { nanoid } from 'nanoid';
-import { streamToTemp } from '../../../application/shared/utils/temp-stream';
-import { BucketNameSchema } from '../../../application/shared/validation/schemas';
-import { createUploadFileUseCase } from '../../../application/use-cases/upload-file';
-import { buildNewFile } from '../../../domain/entities/file-factory';
-import { config } from '../../../env';
+import { nanoid } from "nanoid";
+import { streamToTemp } from "../../../application/shared/utils/temp-stream";
+import { BucketNameSchema } from "../../../application/shared/validation/schemas";
+import { createUploadFileUseCase } from "../../../application/use-cases/upload-file";
+import { buildNewFile } from "../../../domain/entities/file-factory";
+import { config } from "../../../env";
 import {
-  bucketRepository,
-  chunkedStorage,
-  fileRepository,
-  telegramService,
-} from '../../../infrastructure/di';
-import { getErrorMessage } from '../../../infrastructure/file';
-import logger from '../../../infrastructure/observability/logger';
-import { buildTelegramFileUrl } from '../../../infrastructure/telegram/file-url';
-import { sanitizeFilenameHeader } from '../filename';
+	bucketRepository,
+	chunkedStorage,
+	fileRepository,
+	telegramService,
+} from "../../../infrastructure/di";
+import { getErrorMessage } from "../../../infrastructure/file";
+import logger from "../../../infrastructure/observability/logger";
+import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
+import { sanitizeFilenameHeader } from "../filename";
 import {
-  MissingOrganizationMembershipError,
-  resolveAdminOrganizationId,
-} from './organization-resolver';
+	MissingOrganizationMembershipError,
+	resolveAdminOrganizationId,
+} from "./organization-resolver";
 
 /** Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
-  createUploadFileUseCase({
-    fileRepo: fileRepository,
-    telegramService,
-    chunkedStorage,
-    config: {
-      baseUrl: config.baseUrl,
-      telegramChunkSizeBytes: config.telegramChunkSizeBytes,
-      storageChatId: config.storageChatId,
-      compressChunkedUploads: config.compressChunkedUploads,
-      chunkCompressionMinSizeBytes: config.chunkCompressionMinSizeBytes,
-    },
-  });
+	createUploadFileUseCase({
+		fileRepo: fileRepository,
+		telegramService,
+		chunkedStorage,
+		config: {
+			baseUrl: config.baseUrl,
+			telegramChunkSizeBytes: config.telegramChunkSizeBytes,
+			storageChatId: config.storageChatId,
+			compressChunkedUploads: config.compressChunkedUploads,
+			chunkCompressionMinSizeBytes: config.chunkCompressionMinSizeBytes,
+		},
+	});
 
 /**
  * Route parameters extracted from the URL path.
@@ -65,16 +65,16 @@ const jsonError = (error: string, status: number): Response => Response.json({ e
  * @returns A JSON response with the bucket list.
  */
 export const handleListBucketsV1 = async (organizationId: string): Promise<Response> => {
-  const buckets = await bucketRepository.list(organizationId);
-  const result = await Promise.all(
-    buckets.map(async (b) => ({
-      id: b.id,
-      name: b.name,
-      createdAt: b.createdAt.toISOString(),
-      objectCount: await fileRepository.countByBucket(b.id),
-    })),
-  );
-  return json({ buckets: result });
+	const buckets = await bucketRepository.list(organizationId);
+	const result = await Promise.all(
+		buckets.map(async (b) => ({
+			id: b.id,
+			name: b.name,
+			createdAt: b.createdAt.toISOString(),
+			objectCount: await fileRepository.countByBucket(b.id),
+		}))
+	);
+	return json({ buckets: result });
 };
 
 /**
@@ -86,17 +86,17 @@ export const handleListBucketsV1 = async (organizationId: string): Promise<Respo
  * @returns A JSON response with the created bucket or an error.
  */
 export const handleCreateBucketV1 = async (
-  req: Request,
-  organizationId: string,
+	req: Request,
+	organizationId: string
 ): Promise<Response> => {
-  const body = (await req.json()) as { name?: string };
-  if (!body.name || !BucketNameSchema.safeParse(body.name).success) {
-    return jsonError('Invalid bucket name. Use lowercase, 3-63 chars, no underscore', 400);
-  }
-  const existing = await bucketRepository.findByName(body.name, organizationId);
-  if (existing) return jsonError('Bucket already exists', 409);
-  const bucket = await bucketRepository.create(body.name, organizationId);
-  return json({ id: bucket.id, name: bucket.name }, 201);
+	const body = (await req.json()) as { name?: string };
+	if (!body.name || !BucketNameSchema.safeParse(body.name).success) {
+		return jsonError("Invalid bucket name. Use lowercase, 3-63 chars, no underscore", 400);
+	}
+	const existing = await bucketRepository.findByName(body.name, organizationId);
+	if (existing) return jsonError("Bucket already exists", 409);
+	const bucket = await bucketRepository.create(body.name, organizationId);
+	return json({ id: bucket.id, name: bucket.name }, 201);
 };
 
 /**
@@ -109,16 +109,16 @@ export const handleCreateBucketV1 = async (
  * @returns A JSON response indicating success or an error.
  */
 export const handleDeleteBucketV1 = async (
-  _req: Request,
-  params: RouteParams,
-  organizationId: string,
+	_req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  if (!bucket) return jsonError('Bucket not found', 404);
-  const count = await fileRepository.countByBucket(bucket.id);
-  if (count > 0) return jsonError('Bucket is not empty', 409);
-  await bucketRepository.delete(params.bucket!, organizationId);
-  return json({ success: true });
+	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	if (!bucket) return jsonError("Bucket not found", 404);
+	const count = await fileRepository.countByBucket(bucket.id);
+	if (count > 0) return jsonError("Bucket is not empty", 409);
+	await bucketRepository.delete(params.bucket!, organizationId);
+	return json({ success: true });
 };
 
 // ─────── Object endpoints ───────
@@ -131,47 +131,47 @@ export const handleDeleteBucketV1 = async (
  * @returns A JSON response with the object list.
  */
 export const handleListObjectsV1 = async (
-  req: Request,
-  params: RouteParams,
-  organizationId: string,
+	req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  if (!bucket) return jsonError('Bucket not found', 404);
+	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	if (!bucket) return jsonError("Bucket not found", 404);
 
-  const url = new URL(req.url);
-  const prefix = url.searchParams.get('prefix') || '';
-  const delimiter = url.searchParams.get('delimiter') || '/';
-  const maxKeys = Number.parseInt(url.searchParams.get('max-keys') || '1000', 10);
-  const continuationToken = url.searchParams.get('continuation-token') || null;
+	const url = new URL(req.url);
+	const prefix = url.searchParams.get("prefix") || "";
+	const delimiter = url.searchParams.get("delimiter") || "/";
+	const maxKeys = Number.parseInt(url.searchParams.get("max-keys") || "1000", 10);
+	const continuationToken = url.searchParams.get("continuation-token") || null;
 
-  const { objects, prefixes } = await fileRepository.listByPrefix(
-    bucket.id,
-    prefix,
-    delimiter,
-    maxKeys,
-    continuationToken,
-  );
-  const isTruncated = objects.length > maxKeys;
-  const displayObjects = objects.slice(0, maxKeys);
+	const { objects, prefixes } = await fileRepository.listByPrefix(
+		bucket.id,
+		prefix,
+		delimiter,
+		maxKeys,
+		continuationToken
+	);
+	const isTruncated = objects.length > maxKeys;
+	const displayObjects = objects.slice(0, maxKeys);
 
-  return json({
-    objects: displayObjects.map((o) => ({
-      key: o.s3Key,
-      fileName: o.fileName,
-      mimeType: o.mimeType,
-      sizeBytes: Number(o.sizeBytes),
-      fileType: o.fileType,
-      etag: o.fileHash,
-      lastModified:
-        o.createdAt instanceof Date
-          ? o.createdAt.toISOString()
-          : new Date(o.createdAt).toISOString(),
-      downloadUrl: `${config.baseUrl}/f/${o.publicId}`,
-    })),
-    prefixes,
-    isTruncated,
-    nextContinuationToken: isTruncated ? displayObjects[displayObjects.length - 1]?.s3Key : null,
-  });
+	return json({
+		objects: displayObjects.map((o) => ({
+			key: o.s3Key,
+			fileName: o.fileName,
+			mimeType: o.mimeType,
+			sizeBytes: Number(o.sizeBytes),
+			fileType: o.fileType,
+			etag: o.fileHash,
+			lastModified:
+				o.createdAt instanceof Date
+					? o.createdAt.toISOString()
+					: new Date(o.createdAt).toISOString(),
+			downloadUrl: `${config.baseUrl}/f/${o.publicId}`,
+		})),
+		prefixes,
+		isTruncated,
+		nextContinuationToken: isTruncated ? displayObjects[displayObjects.length - 1]?.s3Key : null,
+	});
 };
 
 /**
@@ -184,46 +184,46 @@ export const handleListObjectsV1 = async (
  * @returns A JSON response with the object metadata.
  */
 export const handleUploadObjectV1 = async (
-  req: Request,
-  params: RouteParams,
-  organizationId: string,
+	req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  if (!bucket) return jsonError('Bucket not found', 404);
+	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	if (!bucket) return jsonError("Bucket not found", 404);
 
-  const formData = await req.formData();
-  const file = formData.get('file');
+	const formData = await req.formData();
+	const file = formData.get("file");
 
-  if (!file || !(file instanceof File)) {
-    return jsonError('No file provided', 400);
-  }
+	if (!file || !(file instanceof File)) {
+		return jsonError("No file provided", 400);
+	}
 
-  const key = (formData.get('key') as string) || file.name;
-  const streamed = await streamToTemp(file.stream().getReader(), { prefix: '/tmp/filedrop-web-' });
+	const key = (formData.get("key") as string) || file.name;
+	const streamed = await streamToTemp(file.stream().getReader(), { prefix: "/tmp/filedrop-web-" });
 
-  const output = await getUploadUseCase()({
-    tempPath: streamed.tempPath,
-    fileHash: streamed.fileHash,
-    fileName: key.split('/').pop() || 'file',
-    mimeType: file.type || 'application/octet-stream',
-    sizeBytes: streamed.sizeBytes,
-    uploaderId: 0,
-    bucketId: bucket.id,
-    s3Key: key,
-    dedup: 'none',
-    partPrefix: `s3-${bucket.name}-${key.replace(/\//g, '_')}`,
-    signatureBuffer: streamed.signatureBuffer,
-  });
+	const output = await getUploadUseCase()({
+		tempPath: streamed.tempPath,
+		fileHash: streamed.fileHash,
+		fileName: key.split("/").pop() || "file",
+		mimeType: file.type || "application/octet-stream",
+		sizeBytes: streamed.sizeBytes,
+		uploaderId: 0,
+		bucketId: bucket.id,
+		s3Key: key,
+		dedup: "none",
+		partPrefix: `s3-${bucket.name}-${key.replace(/\//g, "_")}`,
+		signatureBuffer: streamed.signatureBuffer,
+	});
 
-  return json(
-    {
-      key,
-      size: output.sizeBytes,
-      etag: output.fileHash,
-      downloadUrl: output.downloadUrl,
-    },
-    201,
-  );
+	return json(
+		{
+			key,
+			size: output.sizeBytes,
+			etag: output.fileHash,
+			downloadUrl: output.downloadUrl,
+		},
+		201
+	);
 };
 
 /**
@@ -250,17 +250,17 @@ export const handleUploadObjectV1 = async (
  * @returns 200 on a delete that changed a row, 404 when it changed none.
  */
 export const handleDeleteObjectV1 = async (
-  _req: Request,
-  params: RouteParams,
-  organizationId: string,
+	_req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  if (!bucket) return jsonError('Bucket not found', 404);
+	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	if (!bucket) return jsonError("Bucket not found", 404);
 
-  const deleted = await fileRepository.softDelete(bucket.id, params.key!);
-  if (!deleted) return jsonError('Object not found', 404);
+	const deleted = await fileRepository.softDelete(bucket.id, params.key!);
+	if (!deleted) return jsonError("Object not found", 404);
 
-  return json({ success: true });
+	return json({ success: true });
 };
 
 /**
@@ -275,69 +275,69 @@ export const handleDeleteObjectV1 = async (
  * @returns A streaming response with the file body, or a JSON error.
  */
 export const handleDownloadObjectV1 = async (
-  _req: Request,
-  params: RouteParams,
-  organizationId: string,
+	_req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  if (!bucket) return jsonError('Bucket not found', 404);
+	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	if (!bucket) return jsonError("Bucket not found", 404);
 
-  const file = await fileRepository.findByBucketAndKey(bucket.id, params.key!);
-  if (!file) return jsonError('Object not found', 404);
+	const file = await fileRepository.findByBucketAndKey(bucket.id, params.key!);
+	if (!file) return jsonError("Object not found", 404);
 
-  if (file.storageBackend === 'chunked') {
-    const range = { type: 'none' as const };
-    return chunkedStorage.createChunkedObjectResponse({ file, range, reqId: '' });
-  }
+	if (file.storageBackend === "chunked") {
+		const range = { type: "none" as const };
+		return chunkedStorage.createChunkedObjectResponse({ file, range, reqId: "" });
+	}
 
-  const fileInfo = await telegramService.getFileInfo(file.telegramFileId);
-  const telegramUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
+	const fileInfo = await telegramService.getFileInfo(file.telegramFileId);
+	const telegramUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
 
-  const corsHeaders: Record<string, string> = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length, Accept-Ranges',
-    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-    'Access-Control-Allow-Headers': 'Range, Content-Type',
-    Vary: 'Origin',
-  };
+	const corsHeaders: Record<string, string> = {
+		"Access-Control-Allow-Origin": "*",
+		"Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Accept-Ranges",
+		"Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+		"Access-Control-Allow-Headers": "Range, Content-Type",
+		Vary: "Origin",
+	};
 
-  try {
-    const upstream = await fetch(telegramUrl);
-    if (!upstream.ok) {
-      logger.error('Web API object download failed', {
-        bucket: bucket.name,
-        key: params.key,
-        status: upstream.status,
-      });
-      return Response.json(
-        { error: 'Upstream download failed' },
-        { status: upstream.status === 404 ? 404 : 502, headers: corsHeaders },
-      );
-    }
+	try {
+		const upstream = await fetch(telegramUrl);
+		if (!upstream.ok) {
+			logger.error("Web API object download failed", {
+				bucket: bucket.name,
+				key: params.key,
+				status: upstream.status,
+			});
+			return Response.json(
+				{ error: "Upstream download failed" },
+				{ status: upstream.status === 404 ? 404 : 502, headers: corsHeaders }
+			);
+		}
 
-    const upstreamHeaders = new Headers(upstream.headers);
-    return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        'Content-Type':
-          file.mimeType || upstreamHeaders.get('content-type') || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-        'Content-Length': String(file.sizeBytes ?? 0),
-        'Cache-Control': 'public, max-age=300',
-        ...corsHeaders,
-      },
-    });
-  } catch (error: unknown) {
-    logger.error('Web API object proxy error', {
-      bucket: bucket.name,
-      key: params.key,
-      error: getErrorMessage(error),
-    });
-    return Response.json(
-      { error: 'Upstream download failed' },
-      { status: 502, headers: corsHeaders },
-    );
-  }
+		const upstreamHeaders = new Headers(upstream.headers);
+		return new Response(upstream.body, {
+			status: 200,
+			headers: {
+				"Content-Type":
+					file.mimeType || upstreamHeaders.get("content-type") || "application/octet-stream",
+				"Content-Disposition": `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+				"Content-Length": String(file.sizeBytes ?? 0),
+				"Cache-Control": "public, max-age=300",
+				...corsHeaders,
+			},
+		});
+	} catch (error: unknown) {
+		logger.error("Web API object proxy error", {
+			bucket: bucket.name,
+			key: params.key,
+			error: getErrorMessage(error),
+		});
+		return Response.json(
+			{ error: "Upstream download failed" },
+			{ status: 502, headers: corsHeaders }
+		);
+	}
 };
 
 /**
@@ -353,55 +353,55 @@ export const handleDownloadObjectV1 = async (
  * @returns A JSON response with the copy result, or an error.
  */
 export const handleCopyObjectV1 = async (
-  req: Request,
-  params: RouteParams,
-  organizationId: string,
+	req: Request,
+	params: RouteParams,
+	organizationId: string
 ): Promise<Response> => {
-  const body = (await req.json()) as {
-    sourceKey?: string;
-    destBucket?: string;
-    destKey?: string;
-  };
+	const body = (await req.json()) as {
+		sourceKey?: string;
+		destBucket?: string;
+		destKey?: string;
+	};
 
-  if (!body.sourceKey || !body.destKey) {
-    return jsonError('sourceKey and destKey are required', 400);
-  }
+	if (!body.sourceKey || !body.destKey) {
+		return jsonError("sourceKey and destKey are required", 400);
+	}
 
-  const destBucketName = body.destBucket || params.bucket!;
-  const sourceBucket = await bucketRepository.findByName(params.bucket!, organizationId);
-  const destBucket = await bucketRepository.findByName(destBucketName, organizationId);
+	const destBucketName = body.destBucket || params.bucket!;
+	const sourceBucket = await bucketRepository.findByName(params.bucket!, organizationId);
+	const destBucket = await bucketRepository.findByName(destBucketName, organizationId);
 
-  if (!sourceBucket || !destBucket) return jsonError('Bucket not found', 404);
+	if (!sourceBucket || !destBucket) return jsonError("Bucket not found", 404);
 
-  const sourceFile = await fileRepository.findByBucketAndKey(sourceBucket.id, body.sourceKey);
-  if (!sourceFile) return jsonError('Source object not found', 404);
+	const sourceFile = await fileRepository.findByBucketAndKey(sourceBucket.id, body.sourceKey);
+	if (!sourceFile) return jsonError("Source object not found", 404);
 
-  if (sourceFile.storageBackend === 'chunked') {
-    return json({ error: 'Copying chunked objects is not implemented' }, 501);
-  }
+	if (sourceFile.storageBackend === "chunked") {
+		return json({ error: "Copying chunked objects is not implemented" }, 501);
+	}
 
-  const publicId = nanoid();
+	const publicId = nanoid();
 
-  await fileRepository.create(
-    buildNewFile({
-      publicId,
-      telegramFileId: sourceFile.telegramFileId,
-      telegramFileUniqueId: sourceFile.telegramFileUniqueId,
-      storageChatId: sourceFile.storageChatId,
-      storageMessageId: sourceFile.storageMessageId,
-      fileName: sourceFile.fileName,
-      mimeType: sourceFile.mimeType,
-      sizeBytes: Number(sourceFile.sizeBytes),
-      fileType: sourceFile.fileType,
-      uploaderId: 0,
-      fileHash: sourceFile.fileHash,
-      bucketId: destBucket.id,
-      s3Key: body.destKey,
-      storageBackend: 'telegram',
-    }),
-  );
+	await fileRepository.create(
+		buildNewFile({
+			publicId,
+			telegramFileId: sourceFile.telegramFileId,
+			telegramFileUniqueId: sourceFile.telegramFileUniqueId,
+			storageChatId: sourceFile.storageChatId,
+			storageMessageId: sourceFile.storageMessageId,
+			fileName: sourceFile.fileName,
+			mimeType: sourceFile.mimeType,
+			sizeBytes: Number(sourceFile.sizeBytes),
+			fileType: sourceFile.fileType,
+			uploaderId: 0,
+			fileHash: sourceFile.fileHash,
+			bucketId: destBucket.id,
+			s3Key: body.destKey,
+			storageBackend: "telegram",
+		})
+	);
 
-  return json({ sourceKey: body.sourceKey, destKey: body.destKey, destBucket: destBucketName });
+	return json({ sourceKey: body.sourceKey, destKey: body.destKey, destBucket: destBucketName });
 };
 
 /**
@@ -423,7 +423,7 @@ export const handleCopyObjectV1 = async (
  * `download` is listed because its branch is 4 segments deep (`download/{key+}`),
  * so the collision is with any key that merely BEGINS with `download/`.
  */
-const RESERVED_ROOT_SEGMENTS = new Set(['objects', 'upload', 'copy', 'download']);
+const RESERVED_ROOT_SEGMENTS = new Set(["objects", "upload", "copy", "download"]);
 
 /**
  * True when `parts` names a reserved routing segment at a bucket root.
@@ -432,7 +432,7 @@ const RESERVED_ROOT_SEGMENTS = new Set(['objects', 'upload', 'copy', 'download']
  * `buckets`, `parts[1]` the bucket name, and the key starts at index 2.
  */
 const hasReservedRootSegment = (parts: string[]): boolean =>
-  parts.length >= 3 && RESERVED_ROOT_SEGMENTS.has(parts[2]);
+	parts.length >= 3 && RESERVED_ROOT_SEGMENTS.has(parts[2]);
 
 /**
  * Main Web API V1 request router.
@@ -444,111 +444,111 @@ const hasReservedRootSegment = (parts: string[]): boolean =>
  * @returns A JSON response from the matched handler, or 404.
  */
 export const handleWebApiV1 = async (req: Request): Promise<Response> => {
-  const url = new URL(req.url);
-  const pathname = url.pathname.replace(/^\/api\/v1/, '');
-  const parts = pathname.split('/').filter(Boolean);
-  const method = req.method;
+	const url = new URL(req.url);
+	const pathname = url.pathname.replace(/^\/api\/v1/, "");
+	const parts = pathname.split("/").filter(Boolean);
+	const method = req.method;
 
-  // P3: every route below is scoped to this one organization. Resolved once,
-  // before any bucket is touched, and it THROWS if the bootstrap admin has no
-  // membership — a missing membership is a misconfiguration that stops the
-  // service at boot, not a per-request 403. It is never treated as global
-  // access either: the surface stays scoped or it is down.
-  //
-  // The catch keeps an embedded/test process that never booted src/index.ts from
-  // turning into an opaque 500 with an empty body. 503 + a stable error name
-  // says "this deployment has no tenant scope", which is not the same as the
-  // 403 this code used to return — that 403 was indistinguishable from a real
-  // authorization denial, and was the reason this defect shipped green.
-  let organizationId: string;
-  try {
-    organizationId = await resolveAdminOrganizationId();
-  } catch (error: unknown) {
-    if (error instanceof MissingOrganizationMembershipError) {
-      return jsonError('Tenant scope unavailable (missing_organization_membership)', 503);
-    }
-    throw error;
-  }
+	// P3: every route below is scoped to this one organization. Resolved once,
+	// before any bucket is touched, and it THROWS if the bootstrap admin has no
+	// membership — a missing membership is a misconfiguration that stops the
+	// service at boot, not a per-request 403. It is never treated as global
+	// access either: the surface stays scoped or it is down.
+	//
+	// The catch keeps an embedded/test process that never booted src/index.ts from
+	// turning into an opaque 500 with an empty body. 503 + a stable error name
+	// says "this deployment has no tenant scope", which is not the same as the
+	// 403 this code used to return — that 403 was indistinguishable from a real
+	// authorization denial, and was the reason this defect shipped green.
+	let organizationId: string;
+	try {
+		organizationId = await resolveAdminOrganizationId();
+	} catch (error: unknown) {
+		if (error instanceof MissingOrganizationMembershipError) {
+			return jsonError("Tenant scope unavailable (missing_organization_membership)", 503);
+		}
+		throw error;
+	}
 
-  try {
-    // GET /api/v1/buckets
-    if (parts.length === 1 && parts[0] === 'buckets' && method === 'GET') {
-      return await handleListBucketsV1(organizationId);
-    }
+	try {
+		// GET /api/v1/buckets
+		if (parts.length === 1 && parts[0] === "buckets" && method === "GET") {
+			return await handleListBucketsV1(organizationId);
+		}
 
-    // POST /api/v1/buckets
-    if (parts.length === 1 && parts[0] === 'buckets' && method === 'POST') {
-      return await handleCreateBucketV1(req, organizationId);
-    }
+		// POST /api/v1/buckets
+		if (parts.length === 1 && parts[0] === "buckets" && method === "POST") {
+			return await handleCreateBucketV1(req, organizationId);
+		}
 
-    // DELETE /api/v1/buckets/{name}
-    if (parts.length === 2 && parts[0] === 'buckets' && method === 'DELETE') {
-      return await handleDeleteBucketV1(req, { bucket: parts[1] }, organizationId);
-    }
+		// DELETE /api/v1/buckets/{name}
+		if (parts.length === 2 && parts[0] === "buckets" && method === "DELETE") {
+			return await handleDeleteBucketV1(req, { bucket: parts[1] }, organizationId);
+		}
 
-    // GET /api/v1/buckets/{name}/objects
-    if (
-      parts.length === 3 &&
-      parts[0] === 'buckets' &&
-      parts[2] === 'objects' &&
-      method === 'GET'
-    ) {
-      return await handleListObjectsV1(req, { bucket: parts[1] }, organizationId);
-    }
+		// GET /api/v1/buckets/{name}/objects
+		if (
+			parts.length === 3 &&
+			parts[0] === "buckets" &&
+			parts[2] === "objects" &&
+			method === "GET"
+		) {
+			return await handleListObjectsV1(req, { bucket: parts[1] }, organizationId);
+		}
 
-    // POST /api/v1/buckets/{name}/upload
-    if (
-      parts.length === 3 &&
-      parts[0] === 'buckets' &&
-      parts[2] === 'upload' &&
-      method === 'POST'
-    ) {
-      return await handleUploadObjectV1(req, { bucket: parts[1] }, organizationId);
-    }
+		// POST /api/v1/buckets/{name}/upload
+		if (
+			parts.length === 3 &&
+			parts[0] === "buckets" &&
+			parts[2] === "upload" &&
+			method === "POST"
+		) {
+			return await handleUploadObjectV1(req, { bucket: parts[1] }, organizationId);
+		}
 
-    // POST /api/v1/buckets/{name}/copy
-    if (parts.length === 3 && parts[0] === 'buckets' && parts[2] === 'copy' && method === 'POST') {
-      return await handleCopyObjectV1(req, { bucket: parts[1] }, organizationId);
-    }
+		// POST /api/v1/buckets/{name}/copy
+		if (parts.length === 3 && parts[0] === "buckets" && parts[2] === "copy" && method === "POST") {
+			return await handleCopyObjectV1(req, { bucket: parts[1] }, organizationId);
+		}
 
-    // GET /api/v1/buckets/{name}/download/{key+}
-    if (
-      parts.length >= 4 &&
-      parts[0] === 'buckets' &&
-      parts[2] === 'download' &&
-      method === 'GET'
-    ) {
-      const bucket = parts[1];
-      const key = parts.slice(3).join('/');
-      return await handleDownloadObjectV1(req, { bucket, key }, organizationId);
-    }
+		// GET /api/v1/buckets/{name}/download/{key+}
+		if (
+			parts.length >= 4 &&
+			parts[0] === "buckets" &&
+			parts[2] === "download" &&
+			method === "GET"
+		) {
+			const bucket = parts[1];
+			const key = parts.slice(3).join("/");
+			return await handleDownloadObjectV1(req, { bucket, key }, organizationId);
+		}
 
-    // DELETE /api/v1/buckets/{name}/{key+} — the object catch-all.
-    //
-    // MUST BE LAST (TODO item 10). It matches any 3+ segment path, so while it
-    // sat above the specific branches it swallowed every one of them: a
-    // DELETE against `/download/keepme.txt`, `/objects`, `/upload` or `/copy`
-    // deleted a file rather than serving the route the caller addressed. Order
-    // is the fix — a specific handler must win over a wildcard — and
-    // `hasReservedRootSegment` is the belt to that braces, so a reserved segment
-    // still falls through to a 404 even if a future branch reorders above this.
-    //
-    // Both guards are needed: reordering alone would leave the shadowing latent
-    // for whoever adds the next branch above this line.
-    if (
-      parts.length >= 3 &&
-      parts[0] === 'buckets' &&
-      method === 'DELETE' &&
-      !hasReservedRootSegment(parts)
-    ) {
-      const bucket = parts[1];
-      const key = parts.slice(2).join('/');
-      return await handleDeleteObjectV1(req, { bucket, key }, organizationId);
-    }
+		// DELETE /api/v1/buckets/{name}/{key+} — the object catch-all.
+		//
+		// MUST BE LAST (TODO item 10). It matches any 3+ segment path, so while it
+		// sat above the specific branches it swallowed every one of them: a
+		// DELETE against `/download/keepme.txt`, `/objects`, `/upload` or `/copy`
+		// deleted a file rather than serving the route the caller addressed. Order
+		// is the fix — a specific handler must win over a wildcard — and
+		// `hasReservedRootSegment` is the belt to that braces, so a reserved segment
+		// still falls through to a 404 even if a future branch reorders above this.
+		//
+		// Both guards are needed: reordering alone would leave the shadowing latent
+		// for whoever adds the next branch above this line.
+		if (
+			parts.length >= 3 &&
+			parts[0] === "buckets" &&
+			method === "DELETE" &&
+			!hasReservedRootSegment(parts)
+		) {
+			const bucket = parts[1];
+			const key = parts.slice(2).join("/");
+			return await handleDeleteObjectV1(req, { bucket, key }, organizationId);
+		}
 
-    return jsonError('Not found', 404);
-  } catch (error: unknown) {
-    logger.error('Web API error', { path: pathname, error: getErrorMessage(error) });
-    return jsonError('Internal server error', 500);
-  }
+		return jsonError("Not found", 404);
+	} catch (error: unknown) {
+		logger.error("Web API error", { path: pathname, error: getErrorMessage(error) });
+		return jsonError("Internal server error", 500);
+	}
 };

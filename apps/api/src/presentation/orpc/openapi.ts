@@ -1,7 +1,7 @@
-import { traverseContractProcedures } from '@orpc/server';
-import { z } from 'zod';
-import { config } from '../../env';
-import { rootContract } from './routers/bucket';
+import { traverseContractProcedures } from "@orpc/server";
+import { z } from "zod";
+import { config } from "../../env";
+import { rootContract } from "./routers/bucket";
 
 /**
  * OpenAPI generation from the live oRPC router (P4).
@@ -40,17 +40,17 @@ import { rootContract } from './routers/bucket';
 
 /** `~orpc` is oRPC's internal contract envelope; nothing public exposes it. */
 interface OrpcEnvelope {
-  meta?: RouteMeta;
-  inputSchema?: StandardSchemaEnvelope;
+	meta?: RouteMeta;
+	inputSchema?: StandardSchemaEnvelope;
 }
 
 interface RouteMeta {
-  method?: string;
-  path?: string;
-  summary?: string;
-  description?: string;
-  deprecated?: boolean;
-  tags?: string[];
+	method?: string;
+	path?: string;
+	summary?: string;
+	description?: string;
+	deprecated?: boolean;
+	tags?: string[];
 }
 
 /**
@@ -63,14 +63,14 @@ interface RouteMeta {
  * therefore lossless for input validation.
  */
 interface StandardSchemaEnvelope {
-  def?: { type?: string; shape?: Record<string, unknown> };
-  type?: string;
+	def?: { type?: string; shape?: Record<string, unknown> };
+	type?: string;
 }
 
 type JsonSchema = Record<string, unknown>;
 
 /** Procedures whose body carries no schema. */
-const NO_INPUT = Symbol('no-input');
+const NO_INPUT = Symbol("no-input");
 
 /**
  * Read a contract procedure's `~orpc` envelope.
@@ -79,9 +79,9 @@ const NO_INPUT = Symbol('no-input');
  * under `~orpc`; the top level exposes only the `~orpc` key itself.
  */
 const envelopeOf = (contract: unknown): OrpcEnvelope => {
-  const holder = contract as Record<string, unknown>;
-  const envelope = holder['~orpc'] as OrpcEnvelope | undefined;
-  return envelope ?? (holder as OrpcEnvelope);
+	const holder = contract as Record<string, unknown>;
+	const envelope = holder["~orpc"] as OrpcEnvelope | undefined;
+	return envelope ?? (holder as OrpcEnvelope);
 };
 
 /**
@@ -90,36 +90,36 @@ const envelopeOf = (contract: unknown): OrpcEnvelope => {
  * @returns The schema, or `NO_INPUT` when the procedure takes no input.
  */
 const inputJsonSchemaOf = (envelope: OrpcEnvelope): JsonSchema | typeof NO_INPUT => {
-  const shape = envelope.inputSchema?.def?.shape;
-  if (!shape || Object.keys(shape).length === 0) return NO_INPUT;
-  try {
-    const rebuilt = z.object(shape as never);
-    return z.toJSONSchema(rebuilt as never, {
-      io: 'input',
-      target: 'draft-7',
-      // Without this, zod throws on anything it cannot represent. Emitting
-      // `{}` keeps one exotic field from taking down the whole spec.
-      unrepresentable: 'any',
-    }) as JsonSchema;
-  } catch {
-    return NO_INPUT;
-  }
+	const shape = envelope.inputSchema?.def?.shape;
+	if (!shape || Object.keys(shape).length === 0) return NO_INPUT;
+	try {
+		const rebuilt = z.object(shape as never);
+		return z.toJSONSchema(rebuilt as never, {
+			io: "input",
+			target: "draft-7",
+			// Without this, zod throws on anything it cannot represent. Emitting
+			// `{}` keeps one exotic field from taking down the whole spec.
+			unrepresentable: "any",
+		}) as JsonSchema;
+	} catch {
+		return NO_INPUT;
+	}
 };
 
 /** `{bucket}` -> `{ name: 'bucket', in: 'path', required: true, schema }`. */
 const pathParametersOf = (path: string, body: JsonSchema | typeof NO_INPUT): unknown[] => {
-  const properties = (body === NO_INPUT ? undefined : body.properties) as
-    | Record<string, JsonSchema>
-    | undefined;
-  return [...path.matchAll(/\{(\w+)\}/g)].map((match) => {
-    const name = match[1];
-    return {
-      name,
-      in: 'path',
-      required: true,
-      ...(properties?.[name] ? { schema: properties[name] } : { schema: { type: 'string' } }),
-    };
-  });
+	const properties = (body === NO_INPUT ? undefined : body.properties) as
+		| Record<string, JsonSchema>
+		| undefined;
+	return [...path.matchAll(/\{(\w+)\}/g)].map((match) => {
+		const name = match[1];
+		return {
+			name,
+			in: "path",
+			required: true,
+			...(properties?.[name] ? { schema: properties[name] } : { schema: { type: "string" } }),
+		};
+	});
 };
 
 /**
@@ -128,7 +128,7 @@ const pathParametersOf = (path: string, body: JsonSchema | typeof NO_INPUT): unk
  * @param method - The OpenAPI method key, which is always lower-case.
  */
 const methodTakesBody = (method: string): boolean =>
-  method === 'post' || method === 'put' || method === 'patch';
+	method === "post" || method === "put" || method === "patch";
 
 /**
  * Build the OpenAPI `paths` fragment for every procedure on the router.
@@ -142,56 +142,56 @@ const methodTakesBody = (method: string): boolean =>
  * @returns Path items keyed by OpenAPI path template.
  */
 export const buildRouterPaths = (
-  contract: unknown = rootContract,
+	contract: unknown = rootContract
 ): Record<string, Record<string, unknown>> => {
-  const paths: Record<string, Record<string, unknown>> = {};
+	const paths: Record<string, Record<string, unknown>> = {};
 
-  traverseContractProcedures({ router: contract as never, path: [] }, ({ contract: procedure }) => {
-    const envelope = envelopeOf(procedure);
-    const meta = envelope.meta;
-    if (!meta?.method || !meta.path) return;
+	traverseContractProcedures({ router: contract as never, path: [] }, ({ contract: procedure }) => {
+		const envelope = envelopeOf(procedure);
+		const meta = envelope.meta;
+		if (!meta?.method || !meta.path) return;
 
-    const method = meta.method.toLowerCase();
-    const body = inputJsonSchemaOf(envelope);
-    const parameters = pathParametersOf(meta.path, body);
+		const method = meta.method.toLowerCase();
+		const body = inputJsonSchemaOf(envelope);
+		const parameters = pathParametersOf(meta.path, body);
 
-    const operation: Record<string, unknown> = {
-      summary: meta.summary ?? '',
-      operationId: `${meta.path.replace(/[/{}]/g, '_').replace(/^_|_$/g, '')}_${method}`,
-      tags: meta.tags ?? ['bucket'],
-      ...(meta.description ? { description: meta.description } : {}),
-      ...(meta.deprecated ? { deprecated: true } : {}),
-      ...(parameters.length > 0 ? { parameters } : {}),
-      responses: {
-        '200': {
-          description: 'Successful response.',
-          content: { 'application/json': { schema: { type: 'object' } } },
-        },
-        '400': { description: 'Invalid request.', content: { 'application/json': {} } },
-        '401': { description: 'Unauthorized.', content: { 'application/json': {} } },
-        '500': { description: 'Internal error.', content: { 'application/json': {} } },
-      },
-    };
+		const operation: Record<string, unknown> = {
+			summary: meta.summary ?? "",
+			operationId: `${meta.path.replace(/[/{}]/g, "_").replace(/^_|_$/g, "")}_${method}`,
+			tags: meta.tags ?? ["bucket"],
+			...(meta.description ? { description: meta.description } : {}),
+			...(meta.deprecated ? { deprecated: true } : {}),
+			...(parameters.length > 0 ? { parameters } : {}),
+			responses: {
+				"200": {
+					description: "Successful response.",
+					content: { "application/json": { schema: { type: "object" } } },
+				},
+				"400": { description: "Invalid request.", content: { "application/json": {} } },
+				"401": { description: "Unauthorized.", content: { "application/json": {} } },
+				"500": { description: "Internal error.", content: { "application/json": {} } },
+			},
+		};
 
-    if (methodTakesBody(method) && body !== NO_INPUT) {
-      operation.requestBody = {
-        required: true,
-        content: { 'application/json': { schema: body } },
-      };
-    }
+		if (methodTakesBody(method) && body !== NO_INPUT) {
+			operation.requestBody = {
+				required: true,
+				content: { "application/json": { schema: body } },
+			};
+		}
 
-    // Lazily create the path item. Written as two statements rather than
-    // `paths[meta.path] ??= {}` so the mutation is not hidden inside an
-    // expression that reads like a pure lookup.
-    let existing = paths[meta.path];
-    if (!existing) {
-      existing = {};
-      paths[meta.path] = existing;
-    }
-    existing[method] = operation;
-  });
+		// Lazily create the path item. Written as two statements rather than
+		// `paths[meta.path] ??= {}` so the mutation is not hidden inside an
+		// expression that reads like a pure lookup.
+		let existing = paths[meta.path];
+		if (!existing) {
+			existing = {};
+			paths[meta.path] = existing;
+		}
+		existing[method] = operation;
+	});
 
-  return paths;
+	return paths;
 };
 
 /**
@@ -200,15 +200,15 @@ export const buildRouterPaths = (
  * `/api/v1/*` write sit behind `requireAuth`.
  */
 export const securitySchemes = (): Record<string, unknown> => ({
-  sessionCookie: {
-    type: 'apiKey',
-    in: 'cookie',
-    name: config.sessionCookieName,
-    description: 'Session cookie set by POST /api/v1/auth/login.',
-  },
-  bearerToken: {
-    type: 'http',
-    scheme: 'bearer',
-    description: 'Admin API token as a bearer credential.',
-  },
+	sessionCookie: {
+		type: "apiKey",
+		in: "cookie",
+		name: config.sessionCookieName,
+		description: "Session cookie set by POST /api/v1/auth/login.",
+	},
+	bearerToken: {
+		type: "http",
+		scheme: "bearer",
+		description: "Admin API token as a bearer credential.",
+	},
 });

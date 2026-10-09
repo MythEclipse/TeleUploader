@@ -1,17 +1,17 @@
-import type { AuthSession } from '../../../application/dto/auth';
-import { LoginBodySchema } from '../../../application/shared/validation/schemas';
+import type { AuthSession } from "../../../application/dto/auth";
+import { LoginBodySchema } from "../../../application/shared/validation/schemas";
 import {
-  createLoginUseCase,
-  createLogoutUseCase,
-  createMeUseCase,
-} from '../../../application/use-cases/authenticate';
-import { config } from '../../../env';
+	createLoginUseCase,
+	createLogoutUseCase,
+	createMeUseCase,
+} from "../../../application/use-cases/authenticate";
+import { config } from "../../../env";
 import {
-  clearSessionCookie,
-  createSessionCookie,
-  getAuthSession,
-  isAuthEnabled,
-} from '../middleware/auth';
+	clearSessionCookie,
+	createSessionCookie,
+	getAuthSession,
+	isAuthEnabled,
+} from "../middleware/auth";
 
 /**
  * Helper that builds a JSON Response with optional extra headers.
@@ -22,7 +22,7 @@ import {
  * @returns A JSON Response.
  */
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}): Response =>
-  Response.json(data, { status, headers });
+	Response.json(data, { status, headers });
 
 /**
  * Returns a standard 404 Not Found JSON response.
@@ -31,7 +31,7 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
  *
  * @returns A 404 JSON response.
  */
-const notFound = (): Response => json({ error: 'Not found' }, 404);
+const notFound = (): Response => json({ error: "Not found" }, 404);
 
 /**
  * Parses the login request body, extracting the `token` field.
@@ -43,13 +43,13 @@ const notFound = (): Response => json({ error: 'Not found' }, 404);
  * @returns The login token payload, or `null` when the body is invalid.
  */
 const readLoginBody = async (req: Request): Promise<{ token: string } | null> => {
-  try {
-    const parsed = LoginBodySchema.safeParse(await req.json());
-    if (!parsed.success) return null;
-    return { token: parsed.data.token };
-  } catch {
-    return null;
-  }
+	try {
+		const parsed = LoginBodySchema.safeParse(await req.json());
+		if (!parsed.success) return null;
+		return { token: parsed.data.token };
+	} catch {
+		return null;
+	}
 };
 
 /**
@@ -64,32 +64,32 @@ const readLoginBody = async (req: Request): Promise<{ token: string } | null> =>
  * @returns A JSON response with login status and a Set-Cookie header.
  */
 export const handleLogin = async (req: Request): Promise<Response> => {
-  if (!isAuthEnabled()) return notFound();
+	if (!isAuthEnabled()) return notFound();
 
-  const body = await readLoginBody(req);
-  if (!body) return json({ error: 'Token is required' }, 400);
+	const body = await readLoginBody(req);
+	if (!body) return json({ error: "Token is required" }, 400);
 
-  try {
-    const loginUseCase = createLoginUseCase({
-      config: {
-        adminApiToken: config.adminApiToken,
-        sessionCookieName: config.sessionCookieName,
-        sessionMaxAgeMs: config.sessionMaxAgeMs,
-      },
-    });
+	try {
+		const loginUseCase = createLoginUseCase({
+			config: {
+				adminApiToken: config.adminApiToken,
+				sessionCookieName: config.sessionCookieName,
+				sessionMaxAgeMs: config.sessionMaxAgeMs,
+			},
+		});
 
-    const result = await loginUseCase({ token: body.token });
+		const result = await loginUseCase({ token: body.token });
 
-    return json({ username: result.username }, 200, {
-      'set-cookie': createSessionCookie('admin'),
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Invalid token';
-    if (message === 'Invalid token') {
-      return json({ error: 'Invalid token' }, 401);
-    }
-    return json({ error: message }, 500);
-  }
+		return json({ username: result.username }, 200, {
+			"set-cookie": createSessionCookie("admin"),
+		});
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : "Invalid token";
+		if (message === "Invalid token") {
+			return json({ error: "Invalid token" }, 401);
+		}
+		return json({ error: message }, 500);
+	}
 };
 
 /**
@@ -100,12 +100,12 @@ export const handleLogin = async (req: Request): Promise<Response> => {
  * @returns A JSON response with a cleared Set-Cookie header.
  */
 export const handleLogout = async (): Promise<Response> => {
-  const logoutUseCase = createLogoutUseCase();
-  await logoutUseCase();
+	const logoutUseCase = createLogoutUseCase();
+	await logoutUseCase();
 
-  return json({ success: true }, 200, {
-    'set-cookie': clearSessionCookie(),
-  });
+	return json({ success: true }, 200, {
+		"set-cookie": clearSessionCookie(),
+	});
 };
 
 /**
@@ -120,31 +120,31 @@ export const handleLogout = async (): Promise<Response> => {
  * @returns A JSON response with user info, or 401 when unauthenticated.
  */
 export const handleMe = async (req: Request): Promise<Response> => {
-  if (!isAuthEnabled()) return notFound();
+	if (!isAuthEnabled()) return notFound();
 
-  // getAuthSession already checks the bearer token (cookie first, then
-  // Authorization header) — no second check needed here.
-  const session: AuthSession | null = getAuthSession(req);
-  if (!session) {
-    return json({ error: 'Unauthorized' }, 401);
-  }
+	// getAuthSession already checks the bearer token (cookie first, then
+	// Authorization header) — no second check needed here.
+	const session: AuthSession | null = getAuthSession(req);
+	if (!session) {
+		return json({ error: "Unauthorized" }, 401);
+	}
 
-  const meUseCase = createMeUseCase({
-    config: {
-      adminApiToken: config.adminApiToken,
-      sessionCookieName: config.sessionCookieName,
-      sessionMaxAgeMs: config.sessionMaxAgeMs,
-    },
-  });
+	const meUseCase = createMeUseCase({
+		config: {
+			adminApiToken: config.adminApiToken,
+			sessionCookieName: config.sessionCookieName,
+			sessionMaxAgeMs: config.sessionMaxAgeMs,
+		},
+	});
 
-  const result = await meUseCase(session);
+	const result = await meUseCase(session);
 
-  if (!result) {
-    return json({ error: 'Unauthorized' }, 401);
-  }
+	if (!result) {
+		return json({ error: "Unauthorized" }, 401);
+	}
 
-  return json({
-    username: result.username,
-    expiresAt: result.expiresAt,
-  });
+	return json({
+		username: result.username,
+		expiresAt: result.expiresAt,
+	});
 };

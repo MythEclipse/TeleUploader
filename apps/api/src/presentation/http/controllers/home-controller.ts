@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Directory of this module — the Node replacement for bun's `import.meta.dir`. */
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -31,15 +31,15 @@ const MAX_PARENT_WALK = 6;
  * @returns Absolute path to home.html, or `null` if not found.
  */
 export const resolveHomeHtml = (startDir: string, maxDepth = MAX_PARENT_WALK): string | null => {
-  let dir = startDir;
-  for (let depth = 0; depth <= maxDepth; depth++) {
-    const candidate = join(dir, 'home.html');
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
+	let dir = startDir;
+	for (let depth = 0; depth <= maxDepth; depth++) {
+		const candidate = join(dir, "home.html");
+		if (existsSync(candidate)) return candidate;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return null;
 };
 
 /**
@@ -52,17 +52,17 @@ export const resolveHomeHtml = (startDir: string, maxDepth = MAX_PARENT_WALK): s
  * @returns An HTML response containing the home page content.
  */
 export const handleHome = async (): Promise<Response> => {
-  const homeHtml = resolveHomeHtml(MODULE_DIR);
-  if (!homeHtml) {
-    throw new Error(
-      `home.html not found — looked up from ${MODULE_DIR} and ${MAX_PARENT_WALK} parent dirs`,
-    );
-  }
-  const html = await readFile(homeHtml, 'utf8');
-  return new Response(html, {
-    status: 200,
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-    },
-  });
+	const homeHtml = resolveHomeHtml(MODULE_DIR);
+	if (!homeHtml) {
+		throw new Error(
+			`home.html not found — looked up from ${MODULE_DIR} and ${MAX_PARENT_WALK} parent dirs`
+		);
+	}
+	const html = await readFile(homeHtml, "utf8");
+	return new Response(html, {
+		status: 200,
+		headers: {
+			"content-type": "text/html; charset=utf-8",
+		},
+	});
 };

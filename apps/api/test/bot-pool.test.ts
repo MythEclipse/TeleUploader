@@ -1,130 +1,130 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-process.env.BOT_TOKENS = 'bot1:token,bot2:token,bot3:token';
-process.env.STORAGE_CHANNEL_ID = '-1001234567890';
-process.env.BASE_URL = 'https://example.com';
-process.env.DATABASE_URL = 'sqlite://test.db';
-process.env.PORT = '4000';
+process.env.BOT_TOKENS = "bot1:token,bot2:token,bot3:token";
+process.env.STORAGE_CHANNEL_ID = "-1001234567890";
+process.env.BASE_URL = "https://example.com";
+process.env.DATABASE_URL = "sqlite://test.db";
+process.env.PORT = "4000";
 
 // Track mock queue instances for per-bot assertions
 const queueInstances: Array<{
-  concurrency: number;
-  add: ReturnType<typeof vi.fn>;
-  pending: number;
-  size: number;
+	concurrency: number;
+	add: ReturnType<typeof vi.fn>;
+	pending: number;
+	size: number;
 }> = [];
 
 // Mock PQueue so we can verify concurrency
 const mockAdd = vi.fn(function addFn(this: any, fn: () => Promise<any>) {
-  return Promise.resolve().then(() => fn());
+	return Promise.resolve().then(() => fn());
 });
 
-vi.mock('p-queue', () => {
-  return {
-    default: vi.fn(function MockQueue(this: any, opts?: { concurrency?: number }) {
-      const instance = {
-        concurrency: opts?.concurrency ?? 1,
-        add: mockAdd,
-        pending: 0,
-        size: 0,
-      };
-      queueInstances.push(instance);
-      return instance;
-    }),
-  };
+vi.mock("p-queue", () => {
+	return {
+		default: vi.fn(function MockQueue(this: any, opts?: { concurrency?: number }) {
+			const instance = {
+				concurrency: opts?.concurrency ?? 1,
+				add: mockAdd,
+				pending: 0,
+				size: 0,
+			};
+			queueInstances.push(instance);
+			return instance;
+		}),
+	};
 });
 
 // Mock Telegraf — use a class so `new Telegraf(token)` works correctly
 const mockTelegramInstances: Record<
-  string,
-  {
-    token: string;
-    sendDocument: ReturnType<typeof vi.fn>;
-    sendPhoto: ReturnType<typeof vi.fn>;
-    getFile: ReturnType<typeof vi.fn>;
-  }
+	string,
+	{
+		token: string;
+		sendDocument: ReturnType<typeof vi.fn>;
+		sendPhoto: ReturnType<typeof vi.fn>;
+		getFile: ReturnType<typeof vi.fn>;
+	}
 > = {};
 
 class MockTelegraf {
-  token: string;
-  telegram: {
-    token: string;
-    sendDocument: ReturnType<typeof vi.fn>;
-    sendPhoto: ReturnType<typeof vi.fn>;
-    getFile: ReturnType<typeof vi.fn>;
-  };
+	token: string;
+	telegram: {
+		token: string;
+		sendDocument: ReturnType<typeof vi.fn>;
+		sendPhoto: ReturnType<typeof vi.fn>;
+		getFile: ReturnType<typeof vi.fn>;
+	};
 
-  constructor(token: string) {
-    this.token = token;
-    this.telegram = {
-      token,
-      sendDocument: vi.fn(() =>
-        Promise.resolve({
-          message_id: 1,
-          document: { file_id: `file_${token}`, file_unique_id: `uniq_${token}` },
-        }),
-      ),
-      sendPhoto: vi.fn(() =>
-        Promise.resolve({
-          message_id: 1,
-          photo: [{ file_id: `photo_${token}`, file_unique_id: `photo_uniq_${token}` }],
-        }),
-      ),
-      getFile: vi.fn(() =>
-        Promise.resolve({ file_size: 100, mime_type: 'text/plain', file_path: 'path' }),
-      ),
-    };
-    mockTelegramInstances[token] = this.telegram;
-  }
+	constructor(token: string) {
+		this.token = token;
+		this.telegram = {
+			token,
+			sendDocument: vi.fn(() =>
+				Promise.resolve({
+					message_id: 1,
+					document: { file_id: `file_${token}`, file_unique_id: `uniq_${token}` },
+				})
+			),
+			sendPhoto: vi.fn(() =>
+				Promise.resolve({
+					message_id: 1,
+					photo: [{ file_id: `photo_${token}`, file_unique_id: `photo_uniq_${token}` }],
+				})
+			),
+			getFile: vi.fn(() =>
+				Promise.resolve({ file_size: 100, mime_type: "text/plain", file_path: "path" })
+			),
+		};
+		mockTelegramInstances[token] = this.telegram;
+	}
 }
 
-vi.mock('telegraf', () => ({
-  Telegraf: MockTelegraf,
+vi.mock("telegraf", () => ({
+	Telegraf: MockTelegraf,
 }));
 
-describe('BotPool', () => {
-  let BotPool: typeof import('../src/infrastructure/telegram/bot-pool').BotPool;
-  let botPool: import('../src/infrastructure/telegram/bot-pool').BotPool;
+describe("BotPool", () => {
+	let BotPool: typeof import("../src/infrastructure/telegram/bot-pool").BotPool;
+	let botPool: import("../src/infrastructure/telegram/bot-pool").BotPool;
 
-  beforeEach(async () => {
-    mockAdd.mockClear();
-    queueInstances.length = 0;
-    for (const token of Object.keys(mockTelegramInstances)) {
-      const tg = mockTelegramInstances[token];
-      if (tg) {
-        tg.sendDocument?.mockClear();
-        tg.getFile?.mockClear();
-      }
-    }
-    const mod = await import('../src/infrastructure/telegram/bot-pool');
-    BotPool = mod.BotPool;
-    botPool = new BotPool();
-  });
+	beforeEach(async () => {
+		mockAdd.mockClear();
+		queueInstances.length = 0;
+		for (const token of Object.keys(mockTelegramInstances)) {
+			const tg = mockTelegramInstances[token];
+			if (tg) {
+				tg.sendDocument?.mockClear();
+				tg.getFile?.mockClear();
+			}
+		}
+		const mod = await import("../src/infrastructure/telegram/bot-pool");
+		BotPool = mod.BotPool;
+		botPool = new BotPool();
+	});
 
-  afterEach(() => {
-    // No module cache cleanup needed — Bun handles import caching correctly
-  });
+	afterEach(() => {
+		// No module cache cleanup needed — Bun handles import caching correctly
+	});
 
-  it('should have correct bot count', () => {
-    expect(botPool.size).toBe(3);
-  });
+	it("should have correct bot count", () => {
+		expect(botPool.size).toBe(3);
+	});
 
-  it('should have correct effective concurrency', () => {
-    // 3 bots * 1 concurrency per bot
-    expect(botPool.getEffectiveConcurrency()).toBe(3);
-  });
+	it("should have correct effective concurrency", () => {
+		// 3 bots * 1 concurrency per bot
+		expect(botPool.getEffectiveConcurrency()).toBe(3);
+	});
 
-  it('should forward files through the queue', async () => {
-    const result = await botPool.forwardToStorage(Buffer.from('test data'), 'test.txt', 'document');
-    expect(result.telegramFileId).toBeDefined();
-    expect(result.storageMessageId).toBeGreaterThan(0);
-  });
+	it("should forward files through the queue", async () => {
+		const result = await botPool.forwardToStorage(Buffer.from("test data"), "test.txt", "document");
+		expect(result.telegramFileId).toBeDefined();
+		expect(result.storageMessageId).toBeGreaterThan(0);
+	});
 
-  it('should use per-bot queues with concurrency=1', () => {
-    // Each bot gets its own PQueue instance with concurrency=1
-    expect(queueInstances.length).toBe(3);
-    for (const qi of queueInstances) {
-      expect(qi.concurrency).toBe(1);
-    }
-  });
+	it("should use per-bot queues with concurrency=1", () => {
+		// Each bot gets its own PQueue instance with concurrency=1
+		expect(queueInstances.length).toBe(3);
+		for (const qi of queueInstances) {
+			expect(qi.concurrency).toBe(1);
+		}
+	});
 });

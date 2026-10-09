@@ -1,6 +1,6 @@
-import { implement, os } from '@orpc/server';
-import { z } from 'zod';
-import type { AppRouterContext } from '../context';
+import { implement, os } from "@orpc/server";
+import { z } from "zod";
+import type { AppRouterContext } from "../context";
 
 /**
  * Bucket management procedures (P2c).
@@ -25,36 +25,36 @@ import type { AppRouterContext } from '../context';
  */
 
 const bucketName = z
-  .string()
-  .min(3)
-  .max(63)
-  // S3 bucket naming rules, enforced client-side by the dashboard today. Kept
-  // here so the typed client rejects the same inputs the controller does.
-  .regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/, 'Invalid bucket name')
-  .describe('S3 bucket name');
+	.string()
+	.min(3)
+	.max(63)
+	// S3 bucket naming rules, enforced client-side by the dashboard today. Kept
+	// here so the typed client rejects the same inputs the controller does.
+	.regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/, "Invalid bucket name")
+	.describe("S3 bucket name");
 
 /** Object key within a bucket. May contain slashes. */
-const objectPath = z.string().min(1).describe('Object key within the bucket');
+const objectPath = z.string().min(1).describe("Object key within the bucket");
 
 /** The controller functions this router delegates to. */
 export interface BucketHandlers {
-  listBuckets: (organizationId: string) => Promise<Response>;
-  createBucket: (req: Request, organizationId: string) => Promise<Response>;
-  deleteBucket: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
-  listObjects: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
-  copyObject: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
-  deleteObject: (
-    req: Request,
-    bucket: string,
-    key: string,
-    organizationId: string,
-  ) => Promise<Response>;
-  downloadObject: (
-    req: Request,
-    bucket: string,
-    key: string,
-    organizationId: string,
-  ) => Promise<Response>;
+	listBuckets: (organizationId: string) => Promise<Response>;
+	createBucket: (req: Request, organizationId: string) => Promise<Response>;
+	deleteBucket: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+	listObjects: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+	copyObject: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
+	deleteObject: (
+		req: Request,
+		bucket: string,
+		key: string,
+		organizationId: string
+	) => Promise<Response>;
+	downloadObject: (
+		req: Request,
+		bucket: string,
+		key: string,
+		organizationId: string
+	) => Promise<Response>;
 }
 
 /**
@@ -65,68 +65,68 @@ export interface BucketHandlers {
  * resolve exactly as they did over HTTP.
  */
 const bucketRequest = (context: AppRouterContext, path: string, init?: RequestInit): Request =>
-  new Request(new URL(path, context.baseUrl).href, init);
+	new Request(new URL(path, context.baseUrl).href, init);
 
 /** Percent-encode each path segment while preserving `/` separators. */
-const encodeKey = (key: string): string => key.split('/').map(encodeURIComponent).join('/');
+const encodeKey = (key: string): string => key.split("/").map(encodeURIComponent).join("/");
 
 /** Contract: routes, inputs, and OpenAPI metadata, with no implementation. */
 const bucketNamespace = {
-  // ── Buckets ──────────────────────────────────────────────────────────────
-  listBuckets: os.meta({ method: 'GET', path: '/api/v1/buckets', summary: 'List all buckets' }),
+	// ── Buckets ──────────────────────────────────────────────────────────────
+	listBuckets: os.meta({ method: "GET", path: "/api/v1/buckets", summary: "List all buckets" }),
 
-  createBucket: os
-    .input(z.object({ name: bucketName }))
-    .meta({ method: 'POST', path: '/api/v1/buckets', summary: 'Create a bucket' }),
+	createBucket: os
+		.input(z.object({ name: bucketName }))
+		.meta({ method: "POST", path: "/api/v1/buckets", summary: "Create a bucket" }),
 
-  deleteBucket: os.input(z.object({ bucket: bucketName })).meta({
-    method: 'DELETE',
-    path: '/api/v1/buckets/{bucket}',
-    summary: 'Delete a bucket and its contents',
-  }),
+	deleteBucket: os.input(z.object({ bucket: bucketName })).meta({
+		method: "DELETE",
+		path: "/api/v1/buckets/{bucket}",
+		summary: "Delete a bucket and its contents",
+	}),
 
-  // ── Objects ──────────────────────────────────────────────────────────────
-  listObjects: os
-    .input(
-      z.object({
-        bucket: bucketName,
-        prefix: z.string().optional(),
-        delimiter: z.string().optional(),
-        maxKeys: z.coerce.number().int().positive().max(1000).optional(),
-      }),
-    )
-    .meta({
-      method: 'GET',
-      path: '/api/v1/buckets/{bucket}/objects',
-      summary: 'List objects in a bucket',
-    }),
+	// ── Objects ──────────────────────────────────────────────────────────────
+	listObjects: os
+		.input(
+			z.object({
+				bucket: bucketName,
+				prefix: z.string().optional(),
+				delimiter: z.string().optional(),
+				maxKeys: z.coerce.number().int().positive().max(1000).optional(),
+			})
+		)
+		.meta({
+			method: "GET",
+			path: "/api/v1/buckets/{bucket}/objects",
+			summary: "List objects in a bucket",
+		}),
 
-  copyObject: os
-    .input(
-      z.object({
-        bucket: bucketName,
-        sourceKey: objectPath,
-        destKey: objectPath,
-        destBucket: bucketName.optional(),
-      }),
-    )
-    .meta({
-      method: 'POST',
-      path: '/api/v1/buckets/{bucket}/copy',
-      summary: 'Copy an object within or across buckets',
-    }),
+	copyObject: os
+		.input(
+			z.object({
+				bucket: bucketName,
+				sourceKey: objectPath,
+				destKey: objectPath,
+				destBucket: bucketName.optional(),
+			})
+		)
+		.meta({
+			method: "POST",
+			path: "/api/v1/buckets/{bucket}/copy",
+			summary: "Copy an object within or across buckets",
+		}),
 
-  deleteObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
-    method: 'DELETE',
-    path: '/api/v1/buckets/{bucket}/{key}',
-    summary: 'Delete an object (soft delete)',
-  }),
+	deleteObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
+		method: "DELETE",
+		path: "/api/v1/buckets/{bucket}/{key}",
+		summary: "Delete an object (soft delete)",
+	}),
 
-  downloadObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
-    method: 'GET',
-    path: '/api/v1/buckets/{bucket}/download/{key}',
-    summary: 'Download an object',
-  }),
+	downloadObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
+		method: "GET",
+		path: "/api/v1/buckets/{bucket}/download/{key}",
+		summary: "Download an object",
+	}),
 };
 
 /**
@@ -142,7 +142,7 @@ const typedBuilder = () => implement(rootContract).$context<AppRouterContext>();
 export type BucketBase = ReturnType<typeof typedBuilder>;
 
 /** The bound bucket router shape. */
-export type BucketRouter = ReturnType<ReturnType<BucketBase['bucket']['router']>>;
+export type BucketRouter = ReturnType<ReturnType<BucketBase["bucket"]["router"]>>;
 /**
  * Convert a controller's JSON `Response` into an RPC payload.
  *
@@ -153,13 +153,13 @@ export type BucketRouter = ReturnType<ReturnType<BucketBase['bucket']['router']>
  * oRPC maps to an error rather than a success carrying an error payload.
  */
 const jsonPayload = async <T>(res: Response): Promise<T> => {
-  if (!res.ok) {
-    const body = await res.json().catch(() => undefined);
-    throw new Error(
-      `controller responded ${res.status}: ${typeof body === 'string' ? body : JSON.stringify(body ?? {})}`,
-    );
-  }
-  return (await res.json()) as T;
+	if (!res.ok) {
+		const body = await res.json().catch(() => undefined);
+		throw new Error(
+			`controller responded ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body ?? {})}`
+		);
+	}
+	return (await res.json()) as T;
 };
 
 /**
@@ -170,96 +170,96 @@ const jsonPayload = async <T>(res: Response): Promise<T> => {
  * `$context<AppRouterContext>()` exactly once.
  */
 export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): BucketRouter =>
-  base.bucket.router({
-    listBuckets: base.bucket.listBuckets.handler(async ({ context }) =>
-      jsonPayload(await handlers.listBuckets(context.organizationId)),
-    ),
+	base.bucket.router({
+		listBuckets: base.bucket.listBuckets.handler(async ({ context }) =>
+			jsonPayload(await handlers.listBuckets(context.organizationId))
+		),
 
-    createBucket: base.bucket.createBucket.handler(async ({ input, context }) =>
-      jsonPayload(
-        await handlers.createBucket(
-          bucketRequest(context, '/api/v1/buckets', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: input.name }),
-          }),
-          context.organizationId,
-        ),
-      ),
-    ),
+		createBucket: base.bucket.createBucket.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.createBucket(
+					bucketRequest(context, "/api/v1/buckets", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ name: input.name }),
+					}),
+					context.organizationId
+				)
+			)
+		),
 
-    deleteBucket: base.bucket.deleteBucket.handler(async ({ input, context }) =>
-      jsonPayload(
-        await handlers.deleteBucket(
-          bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}`, {
-            method: 'DELETE',
-          }),
-          input.bucket,
-          context.organizationId,
-        ),
-      ),
-    ),
+		deleteBucket: base.bucket.deleteBucket.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.deleteBucket(
+					bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}`, {
+						method: "DELETE",
+					}),
+					input.bucket,
+					context.organizationId
+				)
+			)
+		),
 
-    listObjects: base.bucket.listObjects.handler(async ({ input, context }) => {
-      const query = new URLSearchParams();
-      if (input.prefix !== undefined) query.set('prefix', input.prefix);
-      if (input.delimiter !== undefined) query.set('delimiter', input.delimiter);
-      if (input.maxKeys !== undefined) query.set('max-keys', String(input.maxKeys));
-      const qs = query.toString();
-      const path = `/api/v1/buckets/${encodeURIComponent(input.bucket)}/objects`;
-      return jsonPayload(
-        await handlers.listObjects(
-          bucketRequest(context, qs ? `${path}?${qs}` : path),
-          input.bucket,
-          context.organizationId,
-        ),
-      );
-    }),
+		listObjects: base.bucket.listObjects.handler(async ({ input, context }) => {
+			const query = new URLSearchParams();
+			if (input.prefix !== undefined) query.set("prefix", input.prefix);
+			if (input.delimiter !== undefined) query.set("delimiter", input.delimiter);
+			if (input.maxKeys !== undefined) query.set("max-keys", String(input.maxKeys));
+			const qs = query.toString();
+			const path = `/api/v1/buckets/${encodeURIComponent(input.bucket)}/objects`;
+			return jsonPayload(
+				await handlers.listObjects(
+					bucketRequest(context, qs ? `${path}?${qs}` : path),
+					input.bucket,
+					context.organizationId
+				)
+			);
+		}),
 
-    copyObject: base.bucket.copyObject.handler(async ({ input, context }) =>
-      jsonPayload(
-        await handlers.copyObject(
-          bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}/copy`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              sourceKey: input.sourceKey,
-              destKey: input.destKey,
-              destBucket: input.destBucket,
-            }),
-          }),
-          input.bucket,
-          context.organizationId,
-        ),
-      ),
-    ),
+		copyObject: base.bucket.copyObject.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.copyObject(
+					bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}/copy`, {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({
+							sourceKey: input.sourceKey,
+							destKey: input.destKey,
+							destBucket: input.destBucket,
+						}),
+					}),
+					input.bucket,
+					context.organizationId
+				)
+			)
+		),
 
-    deleteObject: base.bucket.deleteObject.handler(async ({ input, context }) =>
-      jsonPayload(
-        await handlers.deleteObject(
-          bucketRequest(
-            context,
-            `/api/v1/buckets/${encodeURIComponent(input.bucket)}/${encodeKey(input.key)}`,
-            { method: 'DELETE' },
-          ),
-          input.bucket,
-          input.key,
-          context.organizationId,
-        ),
-      ),
-    ),
+		deleteObject: base.bucket.deleteObject.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.deleteObject(
+					bucketRequest(
+						context,
+						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/${encodeKey(input.key)}`,
+						{ method: "DELETE" }
+					),
+					input.bucket,
+					input.key,
+					context.organizationId
+				)
+			)
+		),
 
-    downloadObject: base.bucket.downloadObject.handler(async ({ input, context }) =>
-      jsonPayload(
-        await handlers.downloadObject(
-          bucketRequest(
-            context,
-            `/api/v1/buckets/${encodeURIComponent(input.bucket)}/download/${encodeKey(input.key)}`,
-          ),
-          input.bucket,
-          input.key,
-          context.organizationId,
-        ),
-      ),
-    ),
-  });
+		downloadObject: base.bucket.downloadObject.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.downloadObject(
+					bucketRequest(
+						context,
+						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/download/${encodeKey(input.key)}`
+					),
+					input.bucket,
+					input.key,
+					context.organizationId
+				)
+			)
+		),
+	});

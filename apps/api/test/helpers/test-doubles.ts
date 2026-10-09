@@ -1,5 +1,5 @@
-import { vi } from 'vitest';
-import type { ITelegramService } from '../../src/domain/ports/telegram-service';
+import { vi } from "vitest";
+import type { ITelegramService } from "../../src/domain/ports/telegram-service";
 
 /**
  * Shared test doubles for the TeleUploader unit test suite.
@@ -19,12 +19,12 @@ import type { ITelegramService } from '../../src/domain/ports/telegram-service';
 
 /** Minimal Telegram message result shape used by the MockTelegraf doubles. */
 export interface MockTelegramMessage {
-  /** Telegram message identifier. */
-  message_id: number;
-  /** Document payload (present for document uploads). */
-  document?: { file_id: string; file_unique_id: string };
-  /** Photo payload (present for photo uploads). */
-  photo?: Array<{ file_id: string; file_unique_id: string }>;
+	/** Telegram message identifier. */
+	message_id: number;
+	/** Document payload (present for document uploads). */
+	document?: { file_id: string; file_unique_id: string };
+	/** Photo payload (present for photo uploads). */
+	photo?: Array<{ file_id: string; file_unique_id: string }>;
 }
 
 /**
@@ -37,42 +37,42 @@ export interface MockTelegramMessage {
  * @returns A `{ Telegraf }` module shape for `mock.module`.
  */
 export const mockTelegrafModule = (overrides?: {
-  sendDocument?: (chatId: unknown, file: unknown, extra?: unknown) => Promise<MockTelegramMessage>;
-  sendPhoto?: (chatId: unknown, file: unknown, extra?: unknown) => Promise<MockTelegramMessage>;
-  getFile?: (fileId: string) => Promise<{ file_path?: string }>;
+	sendDocument?: (chatId: unknown, file: unknown, extra?: unknown) => Promise<MockTelegramMessage>;
+	sendPhoto?: (chatId: unknown, file: unknown, extra?: unknown) => Promise<MockTelegramMessage>;
+	getFile?: (fileId: string) => Promise<{ file_path?: string }>;
 }) => {
-  const sendDocument =
-    overrides?.sendDocument ??
-    (async () => ({
-      message_id: 54321,
-      document: { file_id: 'document_id', file_unique_id: 'document_unique_id' },
-    }));
-  const sendPhoto =
-    overrides?.sendPhoto ??
-    (async () => ({
-      message_id: 12345,
-      photo: [
-        { file_id: 'photo_id_low', file_unique_id: 'unique_id_low' },
-        { file_id: 'photo_id_high', file_unique_id: 'unique_id_high' },
-      ],
-    }));
-  const getFile = overrides?.getFile ?? (async () => ({ file_path: 'documents/file.dat' }));
+	const sendDocument =
+		overrides?.sendDocument ??
+		(async () => ({
+			message_id: 54321,
+			document: { file_id: "document_id", file_unique_id: "document_unique_id" },
+		}));
+	const sendPhoto =
+		overrides?.sendPhoto ??
+		(async () => ({
+			message_id: 12345,
+			photo: [
+				{ file_id: "photo_id_low", file_unique_id: "unique_id_low" },
+				{ file_id: "photo_id_high", file_unique_id: "unique_id_high" },
+			],
+		}));
+	const getFile = overrides?.getFile ?? (async () => ({ file_path: "documents/file.dat" }));
 
-  return {
-    Telegraf: class {
-      token: unknown;
-      telegram: {
-        sendDocument: typeof sendDocument;
-        sendPhoto: typeof sendPhoto;
-        getFile: typeof getFile;
-      };
+	return {
+		Telegraf: class {
+			token: unknown;
+			telegram: {
+				sendDocument: typeof sendDocument;
+				sendPhoto: typeof sendPhoto;
+				getFile: typeof getFile;
+			};
 
-      constructor(token: unknown) {
-        this.token = token;
-        this.telegram = { sendDocument, sendPhoto, getFile };
-      }
-    },
-  };
+			constructor(token: unknown) {
+				this.token = token;
+				this.telegram = { sendDocument, sendPhoto, getFile };
+			}
+		},
+	};
 };
 
 /**
@@ -99,36 +99,36 @@ export const mockTelegrafModule = (overrides?: {
  * @returns An `ITelegramService` implementation whose methods are vitest mocks.
  */
 export const makeTelegramServiceStub = (
-  overrides?: Partial<ITelegramService>,
+	overrides?: Partial<ITelegramService>
 ): ITelegramService => {
-  const forwardToStorage = vi.fn(
-    overrides?.forwardToStorage ??
-      (async (_bytes: unknown, fileName: string) => ({
-        telegramFileId: `tg-${fileName}`,
-        telegramFileUniqueId: `tg-unique-${fileName}`,
-        storageMessageId: 1,
-      })),
-  );
-  const getFileInfo = vi.fn(
-    overrides?.getFileInfo ??
-      (async (telegramFileId: string) => ({
-        file_size: 100,
-        mime_type: 'application/octet-stream',
-        file_path: 'documents/file.dat',
-        bot_token: '123456:ABC-DEF',
-        telegramFileId,
-      })),
-  );
-  // The value is a real `ITelegramService` built from `vi.fn`s. No cast is needed
-  // on the properties themselves; the single `as unknown as` on the object exists
-  // only because `vi.fn()`'s `Mock<Procedure>` type and the interface's function
-  // types are structurally different descriptions of the same runtime value, and
-  // TypeScript cannot see that a mock IS a function. The declared return type
-  // above is what makes this honest rather than a way to hide a mismatch.
-  return {
-    forwardToStorage,
-    getFileInfo,
-  } as unknown as ITelegramService;
+	const forwardToStorage = vi.fn(
+		overrides?.forwardToStorage ??
+			(async (_bytes: unknown, fileName: string) => ({
+				telegramFileId: `tg-${fileName}`,
+				telegramFileUniqueId: `tg-unique-${fileName}`,
+				storageMessageId: 1,
+			}))
+	);
+	const getFileInfo = vi.fn(
+		overrides?.getFileInfo ??
+			(async (telegramFileId: string) => ({
+				file_size: 100,
+				mime_type: "application/octet-stream",
+				file_path: "documents/file.dat",
+				bot_token: "123456:ABC-DEF",
+				telegramFileId,
+			}))
+	);
+	// The value is a real `ITelegramService` built from `vi.fn`s. No cast is needed
+	// on the properties themselves; the single `as unknown as` on the object exists
+	// only because `vi.fn()`'s `Mock<Procedure>` type and the interface's function
+	// types are structurally different descriptions of the same runtime value, and
+	// TypeScript cannot see that a mock IS a function. The declared return type
+	// above is what makes this honest rather than a way to hide a mismatch.
+	return {
+		forwardToStorage,
+		getFileInfo,
+	} as unknown as ITelegramService;
 };
 
 /**
@@ -140,11 +140,11 @@ export const makeTelegramServiceStub = (
  * @param prefix - Prefix for generated IDs (default `"test-id"`).
  * @returns A `{ nanoid }` module shape for `mock.module`.
  */
-export const mockNanoidModule = (prefix = 'test-id') => {
-  let counter = 0;
-  return {
-    nanoid: vi.fn(() => `${prefix}-${++counter}`),
-  };
+export const mockNanoidModule = (prefix = "test-id") => {
+	let counter = 0;
+	return {
+		nanoid: vi.fn(() => `${prefix}-${++counter}`),
+	};
 };
 
 /**
@@ -159,20 +159,20 @@ export const mockNanoidModule = (prefix = 'test-id') => {
  * @returns A `Request` with stub SigV4 headers.
  */
 export const s3TestRequest = (url: string, init?: RequestInit): Request =>
-  new Request(url, {
-    method: 'GET',
-    ...init,
-    headers: {
-      authorization: 'AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/s3/aws4_request',
-      'x-amz-date': '20260101T000000Z',
-      'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
-      ...(init?.headers ?? {}),
-    },
-  });
+	new Request(url, {
+		method: "GET",
+		...init,
+		headers: {
+			authorization: "AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/s3/aws4_request",
+			"x-amz-date": "20260101T000000Z",
+			"x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+			...(init?.headers ?? {}),
+		},
+	});
 
 /** 1x1px JPEG fallback binary (offline-safe fixture, no network fetch). */
 export const TINY_JPEG_HEX =
-  'ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0b000080100010101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9';
+	"ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0b000080100010101011100ffc4001f0000010501010110000000000000000000000102030405060708ffda000c03010002110311003f00a0ffd9";
 
 /**
  * Returns the tiny-JPEG fixture as a `Buffer` without any network access.
@@ -184,4 +184,4 @@ export const TINY_JPEG_HEX =
  *
  * @returns A 1x1px JPEG buffer.
  */
-export const tinyJpegBuffer = (): Buffer => Buffer.from(TINY_JPEG_HEX, 'hex');
+export const tinyJpegBuffer = (): Buffer => Buffer.from(TINY_JPEG_HEX, "hex");
