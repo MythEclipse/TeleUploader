@@ -1,3 +1,10 @@
+## [1.3.5](https://github.com/asepharyana/TeleUploader/compare/v1.3.4...v1.3.5) (2026-10-09)
+
+
+### Bug Fixes
+
+* **deploy:** check the UNIT's env for WEB_DIST_PATH, not just this shell's ([87e4880](https://github.com/asepharyana/TeleUploader/commit/87e4880cb8a90b547896916c54f8dfa665773fea))
+
 ## [1.3.4](https://github.com/asepharyana/TeleUploader/compare/v1.3.3...v1.3.4) (2026-10-09)
 
 ## [1.3.3](https://github.com/asepharyana/TeleUploader/compare/v1.3.2...v1.3.3) (2026-10-09)
