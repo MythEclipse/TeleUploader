@@ -1,6 +1,6 @@
 {
   "name": "teleuploader-workspace",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "description": "Workspace root for TeleUploader (kana migration). The app package lives in apps/api.",
   "type": "module",
