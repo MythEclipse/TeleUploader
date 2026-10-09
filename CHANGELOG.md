@@ -1,3 +1,11 @@
+## [1.3.3](https://github.com/asepharyana/TeleUploader/compare/v1.3.2...v1.3.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* **s3:** decode XML-escaped etags so multipart uploads complete (item 8) ([77c4800](https://github.com/asepharyana/TeleUploader/commit/77c4800f706fea53e93627542e88eadb6c06d203)), closes [#34](https://github.com/asepharyana/TeleUploader/issues/34) [#39](https://github.com/asepharyana/TeleUploader/issues/39)
+* **test:** stop vite from eating BASE_URL, which made the S3 suites untargetable ([9ee5dfd](https://github.com/asepharyana/TeleUploader/commit/9ee5dfd1df88d9099eb35f064b08e74f90464a7b))
+
 ## [1.3.2](https://github.com/asepharyana/TeleUploader/compare/v1.3.1...v1.3.2) (2026-10-09)
 
 
