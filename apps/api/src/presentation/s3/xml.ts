@@ -291,6 +291,21 @@ export interface CompletePart {
 	etag: string;
 }
 
+/**
+ * Decode the XML entities a client may use inside an element.
+ *
+ * Only the ones an etag can actually contain, and only the quoting ones — an etag is
+ * a hex digest (or digest-N), so nothing else is expected. Kept narrow on purpose:
+ * a general entity decoder would silently accept input the S3 surface has no other
+ * reason to accept.
+ */
+const decodeXmlQuoting = (value: string): string =>
+	value
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&#34;/g, '"')
+		.replace(/&#39;/g, "'");
+
 export const parseCompleteMultipartBody = (body: string): CompletePart[] => {
 	const parts: CompletePart[] = [];
 	const partRegex = /<Part>[\s\S]*?<\/Part>/g;
@@ -298,11 +313,25 @@ export const parseCompleteMultipartBody = (body: string): CompletePart[] => {
 
 	for (const partXml of partMatch) {
 		const numMatch = partXml.match(/<PartNumber>(\d+)<\/PartNumber>/);
-		const etagMatch = partXml.match(/<ETag>"?([^"<\s]+)"?<\/ETag>/);
+		// The capture has to tolerate `&quot;`, which is how the AWS SDK (and every
+		// AWS-compatible client) sends a quoted etag. The old character class
+		// excluded `"` and so swallowed the whole entity: `&quot;abc&quot;` was
+		// captured verbatim, and because it contains no literal quote the
+		// surrounding `.replace(/^"/, "")` cleanup had nothing to remove.
+		//
+		// Symptom, found by running s3-sdk.test.ts against production (item 8):
+		// `InvalidPart ... The etag or part number does not match.` on EVERY
+		// multipart completion, because the stored value is the bare digest and the
+		// received value was the escaped literal.
+		//
+		// Anything up to the closing tag is fine here: the value is decoded and
+		// validated by CompletePartSchema, and an etag is a digest, so greediness
+		// costs nothing and keeps this parser as permissive as it was.
+		const etagMatch = partXml.match(/<ETag>([\s\S]*?)<\/ETag>/);
 		if (numMatch && etagMatch) {
 			parts.push({
 				partNumber: Number.parseInt(numMatch[1], 10),
-				etag: etagMatch[1].replace(/^"/, "").replace(/"$/, ""),
+				etag: decodeXmlQuoting(etagMatch[1]).replace(/^"/, "").replace(/"$/, ""),
 			});
 		}
 	}
