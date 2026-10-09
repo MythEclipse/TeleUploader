@@ -174,10 +174,77 @@ Docker registry pushes would OOM on a buffered multi-GB body. It is a real
 guard that was pointed at a dead route table and has been re-aimed at the live
 app path.
 
-It has been re-aimed and proven to still bite — but a **real** registry push
-against production has never run.
+**Re-aimed and proven to still bite** — negative control, by injecting
+`streamBodyToTemp(await req.arrayBuffer())` into the real
+`s3-object-write.ts:119` and running the quarantined suite:
+
+```
+FAIL  test/s3-docker-registry.test.ts > S3 Streaming Upload Safety >
+      uses streaming instead of req.arrayBuffer() for PUT body
+AssertionError: expected '…' not to match /req\.arrayBuffer\(\)/
+      Tests  1 failed | 9 passed (10)
+```
+
+Restored afterwards; the failure named the sabotaged line, not a collection
+error — which is what distinguishes a guard that bites from a file that merely
+failed to load.
+
+**What has still never run:** a real registry push against production.
 
 **Needs:** item 3.
+
+---
+
+### `[ ]` 10. `web-api-controller` — the DELETE catch-all shadows reserved segments
+
+Found by P4's inspect lane, verified against a real database. **Data-loss
+class, unfixed.**
+
+`handleWebApiV1` checks `DELETE` on `{bucket}/{key}` before the `/download`,
+`/objects`, `/upload` and `/copy` branches, and the delete branch excludes
+nothing (`web-api-controller.ts:466-470`). A file named `download/…`,
+`objects`, `upload` or `copy` at a bucket root is therefore deleted by a
+stray DELETE:
+
+```
+DELETE /api/v1/buckets/probe/download/keepme.txt -> 200 {"success":true}
+DB afterwards: download/keepme.txt | t   <- soft-deleted by a request meant to DOWNLOAD it
+DELETE /api/v1/buckets/probe/objects            -> 200 {"success":true}
+DELETE /api/v1/buckets/probe/upload             -> 200 {"success":true}
+DELETE /api/v1/buckets/probe/copy               -> 200 {"success":true}
+```
+
+Two independent defects in the same handler:
+
+- **Reserved-segment shadowing** (above). The fix is to reject reserved
+  segments in the delete branch, or to order the dispatch so the specific
+  handlers win.
+- **`{"success": true}` is unconditional.** Deleting a key that does not
+  exist also returns 200; whole-key `%2F`-encoded deletes return 200 without
+  deleting anything. The P4 SPA works around this by re-reading the listing
+  after a delete (`assertDeleted`) rather than trusting the response — the
+  server still lies.
+
+**Neither is fixed.** The SPA workaround means the UI is honest, but the API
+is not. Needs a regression test per branch before the fix, not after.
+
+---
+
+### `[ ]` 11. `GET /api/v1/buckets` is public
+
+By design `GET /api/v1/*` is registered bare and only writes are wrapped in
+`requireAuth` (`app.ts:296-299`). That means **every bucket name and object
+count is world-readable** to an unauthenticated caller:
+
+```
+GET /api/v1/buckets   (no cookie) -> 200 {"buckets":[{"id":"…","name":"…"}]}
+```
+
+This is a deliberate part of the "GET-public / writes-protected" contract from
+the migration plan, so it is listed here rather than fixed. It is a security
+decision, not an oversight — but bucket names are not obviously public
+information, and the plan never asked. **Confirm this is intended before
+cutover.**
 
 ---
 
@@ -185,25 +252,25 @@ against production has never run.
 
 Deferred to P6, deliberately sequenced after the cutover rather than before it.
 
-### `[ ]` 10. Rewrite `CLAUDE.md`
+### `[ ]` 12. Rewrite `CLAUDE.md`
 
 Currently mandates Bun (`bun test`, `Bun.serve()`, `don't use pg`, `bun build`)
 while the repo is pnpm + Node + esbuild + Vitest, and cites files deleted during
 the migration. **Actively wrong** — it will misdirect the next agent or
 contributor.
 
-### `[ ]` 11. Dockerfile and docker-compose.yml
+### `[ ]` 13. Dockerfile and docker-compose.yml
 
 Both are `oven/bun`-based. `deploy.sh` deliberately does not Dockerize — the
 systemd unit runs `/usr/bin/node dist/index.js`. They describe a runtime this
 project no longer has.
 
-### `[ ]` 12. Biome style switch (kana: tabs, double quotes, `asNeeded`)
+### `[ ]` 14. Biome style switch (kana: tabs, double quotes, `asNeeded`)
 
 Must be its **own final commit** so the S3 files' `git blame` stays auditable.
 Doing it earlier would rewrite 2,900 lines of untouched hand-rolled code and
 destroy the one piece of history that explains why it is that way.
 
-### `[ ]` 13. `REDIS_URL` / `BETTER_AUTH_*` in `.env.example`
+### `[ ]` 15. `REDIS_URL` / `BETTER_AUTH_*` in `.env.example`
 
 Lands with item 6.

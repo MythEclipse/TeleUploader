@@ -382,7 +382,9 @@ the regression guard.
 `test/s3-routing.test.ts` green with only the credential seam changed; `/api/upload` and
 `/f/:public_id` demonstrably still public.
 
-### P4 — React SPA (restores the currently-500ing dashboard)
+### P4 — React SPA (restores the currently-500ing dashboard) — ✅ DONE (`a828d58`, `7972da8`)
+
+Built from scratch: `apps/web` did not exist. React 19 + Vite + TanStack Router.
 
 Five routes per the kana layout: `__root.tsx` → `index.tsx` → `_authenticated/` (login, org
 select) → `$orgSlug.tsx` → `$orgSlug/{dashboard,$bucketName}.tsx`. Per skill §3.1 these are
@@ -401,6 +403,40 @@ Put the bucket/prefix in **search params** (`?bucket=x&prefix=a/b/`), not compon
 
 **Gate:** local `pnpm dev` against the local API — bucket list, breadcrumb, upload-with-progress,
 delete, download, create-bucket, credentials modal all work; GET-public/writes-protected still holds.
+
+**Verified:** 36 files / 327 passed / 16 skipped · lint 0 errors · typecheck 24 (P0 baseline) ·
+SPA `tsc` + `vite build` clean · `deploy.sh --check` 7/7 · migrations green on a scratch
+database · `/health`, `/`, `/docs`, `/swagger.json` all 200 with correct content-types.
+
+> **Four findings, three of them found by execution rather than by reading.**
+>
+> 1. **`OpenAPIHandler` does not exist.** The plan named it as the mechanism for restoring
+>    `/docs`. It is in neither `@orpc/server@1.15.5` nor `@orpc/openapi@1.15.5` — every
+>    "OpenAPI" string in the installed package is a JSDoc `see` link. The plan was checked
+>    against `package.json`, not `node_modules`. `@orpc/openapi` exports `OpenAPIGenerator`
+>    (`.generate(router) → Promise<OpenAPI.Document>`), not an HTTP handler. Spec generation
+>    is hand-wired, and merges the non-oRPC public paths — a generator alone would have
+>    **deleted** `/api/upload`, `/f/{public_id}` and `/file/{public_id}/info` from the docs,
+>    which are public **by decision**.
+> 2. **`/assets/*` returned 404 while `/` returned 200 HTML.** A white screen behind a
+>    healthy-looking deploy: every health check passes and the dashboard is blank. No test
+>    had requested an asset, only `/`.
+> 3. **`home.html` had a confirmed stored XSS.** It interpolated the raw object key into
+>    `onclick="downloadObject('...')"`, and its `escapeHtml` (textContent → innerHTML) does
+>    not escape quotes — one apostrophe in a key breaks out. React event props make it
+>    unrepresentable; proven by rendering the real component with the exact payload.
+> 4. **`WEB_DIST_PATH` had to stay optional.** `env.ts` throws at import time on a missing
+>    REQUIRED var, and `index.ts` imports it transitively before `serve()` binds the port —
+>    so a required `WEB_DIST_PATH` breaks every backend-only deploy. `deploy.sh` exports it
+>    only when a `web/` dir was actually installed.
+
+Two further plan claims were contradicted by the real behaviour, so the SPA was built around
+what exists instead: `isTruncated` is structurally **always false** (the `maxKeys + 1` probe
+row is consumed by delimiter folding before the controller sees it) and
+`nextContinuationToken` is always null, so the paginator this plan describes is not
+buildable — the UI reports truncation from an observable condition instead. And the DELETE
+route returns `{"success": true}` unconditionally, including for keys that do not exist, so
+the UI re-reads the listing after a delete and reports honestly.
 
 ### P5 — Cutover, split so DDL and binary never ship together
 
@@ -486,11 +522,16 @@ Add `REDIS_URL`/`BETTER_AUTH_*` to `.env.example`.
    `deploy.sh` now applies migrations, ships `drizzle/`, and ships **and runs the
    seeder** between migrate and restart — the seed was a second, silent gap that would
    have 403'd every S3 client (see the P5 note above).
-   *Lesson, now with seven instances rather than three: the stale `dist`, the dropped
+   *Lesson, now with ten instances rather than three: the stale `dist`, the dropped
    `/docs`, the false "deploy.sh runs it", the oRPC placeholders, the mocks more correct
-   than the code, the vakuous DB tests, and the harness proving more than production did.
-   Every one came from writing a claim and trusting it downstream instead of executing
-   the thing.*
+   than the code, the vakuous DB tests, the harness proving more than production did,
+   the `OpenAPIHandler` that exists in no installed package, the always-false
+   `isTruncated` the plan told us to build a paginator on, and the `/assets/*` 404 behind
+   a healthy-looking `/`. Every one came from writing a claim and trusting it downstream
+   instead of executing the thing.*
+   *The tenth is the cheapest to catch and the easiest to miss: it was found by asking for
+   an asset URL, not by any gate. A suite that only ever requests `/` cannot see a
+   dashboard that serves `/` perfectly and nothing else.*
 
 1. **No PR CI + auto-deploy on `main` is the dominant risk.** P0 exists solely to offset it.
 2. **`test/deploy-config.test.ts` is a trip-wire** — it asserts the literal text of `deploy.sh`
