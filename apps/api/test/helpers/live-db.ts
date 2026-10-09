@@ -35,6 +35,8 @@
  * because only the former makes vitest print `skipped`.
  */
 
+import { OFFLINE_DATABASE_URL } from './setup-env';
+
 /**
  * Result of the one-shot reachability probe.
  *
@@ -57,20 +59,17 @@ export type LiveDbStatus =
  * so "set in the environment" has to be judged on that seeded value, not merely
  * on the key being present.
  */
-const databaseUrl = process.env.DATABASE_URL?.trim() ?? '';
-
-/**
- * The placeholder setup-env.ts installs. It is a redacted DSN for a host
- * (100.121.180.82) that does not exist in CI, so a run using it has not really
- * been pointed at a test database — treating it as "unconfigured" is what lets
- * the offline case skip honestly rather than fail on every laptop.
- */
-const PLACEHOLDER_HOSTS = ['asephs:***@100.121.180.82', 'asephs@100.121.180.82'];
+// Read lazily, not captured at module scope: setup-env.ts assigns the placeholder
+// during import, so a value captured here can be the pre-setup `undefined`
+// depending on import order. Resolving on each call makes that ordering
+// irrelevant.
+const databaseUrl = (): string => process.env.DATABASE_URL?.trim() ?? '';
 
 /** True when the environment really asks for a live database. */
 export const liveDatabaseRequested = (): boolean => {
-  if (databaseUrl === '') return false;
-  return !PLACEHOLDER_HOSTS.some((host) => databaseUrl.includes(host));
+  const url = databaseUrl();
+  if (url === '') return false;
+  return url !== OFFLINE_DATABASE_URL;
 };
 
 /**
@@ -101,7 +100,7 @@ export const probeLiveDatabase = async (probe: () => Promise<void>): Promise<Liv
     // would turn a broken CI database into a green build that proves nothing.
     // Thrown at module scope, this aborts collection and vitest exits non-zero.
     throw new Error(
-      `DATABASE_URL is set to ${redact(databaseUrl)} but the database is NOT usable. ` +
+      `DATABASE_URL is set to ${redact(databaseUrl())} but the database is NOT usable. ` +
         'These suites FAIL rather than skip in that case, because a skipped suite and a ' +
         'passing suite look identical in the summary and only one of them proves anything. ' +
         'If you meant to run offline, unset DATABASE_URL. Underlying error: ' +

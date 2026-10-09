@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
+import { OFFLINE_DATABASE_URL } from './helpers/setup-env';
 
 /**
  * Guards the test suite's own integrity.
@@ -212,4 +213,90 @@ test('mirror-gitea.yml mirrors by explicit refspec, never --mirror (TODO item 5)
   // The reasoning stays in the file so the next person does not "simplify" it back.
   expect(file, 'must document the deleted refs').toMatch(/refs\/pull/);
   expect(file, 'must document the deleted refs').toMatch(/refs\/notes/);
+});
+
+test('the offline database placeholder can never name a real host', () => {
+  const setupEnv = readFileSync(join(testDir, 'helpers/setup-env.ts'), 'utf8');
+  const liveDb = readFileSync(join(testDir, 'helpers/live-db.ts'), 'utf8');
+
+  // The DSN setup-env.ts installs when the environment supplies none.
+  const assigns = setupEnv.match(/process\.env\.DATABASE_URL\s*\|\|=\s*([^;]+);/);
+  expect(
+    assigns,
+    'setup-env.ts must still install a DATABASE_URL — src/env.ts throws at import without one',
+  ).not.toBeNull();
+  const installed = (assigns?.[1] ?? '').trim();
+
+  // From ONE exported definition, which live-db.ts also imports. Two literals
+  // here is how the previous pair drifted apart.
+  expect(installed, 'the placeholder must come from OFFLINE_DATABASE_URL, not a literal').toBe(
+    'OFFLINE_DATABASE_URL',
+  );
+  expect(setupEnv, 'OFFLINE_DATABASE_URL must be exported for live-db.ts to import').toMatch(
+    /export const OFFLINE_DATABASE_URL/,
+  );
+
+  // Build the DSN the same way the code does — by IMPORTING it, not by
+  // re-parsing the source. A regex reconstruction would have to know about the
+  // `${'place'}holder` split, and would silently check a different string than
+  // the one the suite actually installs.
+  const dsn = OFFLINE_DATABASE_URL;
+
+  // It has to be unresolvable, and unreachable-by-construction rather than by
+  // accident. A private/loopback address satisfies the first; the loopback form
+  // also fails INSTANTLY instead of hanging on a network that silently drops
+  // the packets, which is what cost deploy.yml's lint job its 15s-per-test
+  // timeouts (GitHub runners have no route into 100.64.0.0/10).
+  const host = new URL(dsn).hostname;
+  expect(
+    ['127.0.0.1', 'localhost', '::1', '[::1]'],
+    `the offline placeholder must be on loopback, but it points at ${host}`,
+  ).toContain(host);
+
+  // live-db.ts FAILS (rather than skips) when DATABASE_URL is set to something
+  // unusable, so that a broken CI database can never read as a green skip. It
+  // recognises the offline case by comparing against the exported constant, so
+  // there is a single definition and nothing to drift.
+  const usesSharedConstant = liveDb.includes('OFFLINE_DATABASE_URL');
+  expect(
+    usesSharedConstant,
+    'live-db.ts must classify the offline placeholder via OFFLINE_DATABASE_URL, ' +
+      'not a duplicated literal or a host-only match — a host-only match swallows ' +
+      'a mistyped port and downgrades a broken database to a green skip',
+  ).toBe(true);
+
+  // Prove the host-only mistake is still rejected, since that is the specific
+  // regression this guards: 127.0.0.1 with the WRONG port is a real intent, and
+  // matching on the host would classify it as "unconfigured". The classification
+  // must be an equality against the one exported DSN, never a host test.
+  const liveDbCode = liveDb.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  expect(
+    liveDbCode,
+    'live-db.ts must compare the whole DSN, not its host — a host-only match turns ' +
+      'a mistyped port into a silent skip',
+  ).toMatch(/url\s*!==\s*OFFLINE_DATABASE_URL/);
+  expect(
+    liveDbCode,
+    'live-db.ts must not branch on the loopback host to decide "unconfigured"',
+  ).not.toMatch(/hostname[\s\S]{0,40}OFFLINE|startsWith\('127|includes\('127/);
+
+  // And neither file may reintroduce a routable address in CODE. Comments are
+  // stripped first, and deliberately so: these files explain the failure by
+  // quoting the address that caused it, so a naive whole-file scan fails on the
+  // very prose documenting the fix.
+  const codeOnly = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  for (const [name, source] of [
+    ['setup-env.ts', setupEnv],
+    ['live-db.ts', liveDb],
+  ] as const) {
+    expect(codeOnly(source), `${name} must not hardcode a routable address`).not.toMatch(
+      /\b(?:10|172|192\.168)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
+    );
+  }
+
+  // The same reasoning applies to the loopback assertion above: a DSN mentioning
+  // a private address inside a comment is documentation, not configuration.
+  expect(codeOnly(setupEnv)).toMatch(/127\.0\.0\.1|localhost|\[::1\]/);
 });
