@@ -213,7 +213,6 @@ describe('path traversal is refused', () => {
     // deleted — vacuously green. This one plants a marker file one level ABOVE
     // the SPA root, so it can only stay green while the guard holds.
     const parent = mkdtempSync(join(tmpRoot, 'spa-parent-'));
-    const root = buildFakeSpa();
     const siblingSecret = join(parent, 'outside-secret.json');
     writeFileSync(siblingSecret, '{"marker":"OUTSIDE-THE-SPA-ROOT"}');
     // Re-root the fake SPA inside `parent` so `../outside-secret.json` is a real,
