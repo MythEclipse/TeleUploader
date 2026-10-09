@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/asepharyana/TeleUploader/compare/v1.3.0...v1.3.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **test:** stop the offline DSN from reaching a real host, which hung CI ([99ca94e](https://github.com/asepharyana/TeleUploader/commit/99ca94e7160b3f1879bcedbba56b4a0c17c1adbb))
+
 # [1.3.0](https://github.com/asepharyana/TeleUploader/compare/v1.2.9...v1.3.0) (2026-10-09)
 
 
