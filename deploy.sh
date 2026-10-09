@@ -44,6 +44,14 @@
 # path against a scratch database and is wired into CI as its own job against a real
 # PostgreSQL service.
 #
+# The SPA (P4). `apps/web/dist/` ships the same way drizzle/ does: as a NAMED
+# SUBDIRECTORY (`$STAGE/web` → `$DIST_DIR/web`), installed whole and rolled back whole.
+# It is BUILT by CI, not here — this script is invoked as `./deploy.sh --no-build` from
+# deploy.yml, so the `if $DO_BUILD` block below never runs on the only path that reaches
+# production. Both the --check list and the remote preflight name the sentinel FILE
+# `apps/web/dist/index.html`, never the directory, because `[ -e dir ]` is true for an
+# empty directory and a failed vite build leaves exactly that.
+#
 # Prerequisites:
 #   - SSH access to the VPS
 #   - pnpm + Node on this machine (for the build step)
@@ -126,7 +134,18 @@ if $DO_CHECK; then
   # (the boot-time auto-migration was removed in the same commit that introduced
   # drizzle), so the entry asserted a deployment step that did not exist. The
   # migrations now travel as apps/api/drizzle/, which migrate.js actually reads.
-  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js apps/api/drizzle/meta/_journal.json; do
+  #
+  # The SPA entry names apps/web/dist/index.html, a SENTINEL FILE — never the bare
+  # `apps/web/dist` directory. `[ -e dir ]` is true for an EMPTY directory, so a
+  # failed or never-run `vite build` would report green here and scp would ship an
+  # empty folder, which serves a white screen at `/` with a 200 HTML response.
+  # Same convention as apps/api/drizzle/meta/_journal.json.
+  #
+  # Every path here is repo-root-relative and fully qualified. P1 moved the API
+  # build output to apps/api/dist while this script still read the root dist/, and
+  # the root leftover was shipped in total silence; `apps/web/dist` must never be
+  # shortened to `dist`.
+  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js apps/api/drizzle/meta/_journal.json apps/web/dist/index.html; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
   echo ""
@@ -180,16 +199,32 @@ if $DO_BUILD; then
   [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js not found after build"
   [ -f apps/api/dist/migrate.js ] || die "apps/api/dist/migrate.js not found after build"
   [ -f apps/api/dist/seed.js ] || die "apps/api/dist/seed.js not found after build — the S3 credential is adopted by the seeder, and there is no environment fallback"
+  # The SPA is built by CI (`pnpm --filter @teleuploader/web run build` in deploy.yml),
+  # not here: this script is invoked as `./deploy.sh --no-build` from CI, so the
+  # `if $DO_BUILD` block never executes on the only path that reaches production.
+  # Assert the sentinel FILE anyway, so a deploy run locally with a full build still
+  # refuses to ship a half-built SPA.
+  [ -f apps/web/dist/index.html ] || die "apps/web/dist/index.html not found — build the SPA first (pnpm --filter @teleuploader/web run build)"
   ok "Build complete (index.js: $(wc -c < apps/api/dist/index.js | numfmt --to=iec) — migrate.js: $(wc -c < apps/api/dist/migrate.js | numfmt --to=iec) — seed.js: $(wc -c < apps/api/dist/seed.js | numfmt --to=iec))"
 else
   log "Skipping build (--no-build)"
   [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js missing — run without --no-build first"
 
+  # The SPA is not built by this branch either. Assert the sentinel FILE, not the
+  # directory: `[ -d apps/web/dist ]` is true for an empty folder, which is exactly
+  # what a failed `vite build` leaves behind, and shipping it serves a white screen
+  # at `/` behind a 200 HTML response.
+  [ -f apps/web/dist/index.html ] || die "apps/web/dist/index.html missing — build the SPA first (pnpm --filter @teleuploader/web run build)"
+
   # --no-build ships whatever is on disk, so refuse to ship a stale bundle.
   # P1 moved the build output to apps/api/dist while this script still read the
   # repo-root dist/, leaving two directories: the root one was a pre-move leftover,
   # gitignored, and a deploy would have shipped it in total silence.
-  NEWEST_SRC=$(find apps/api/src apps/api/drizzle -type f -newer apps/api/dist/index.js 2>/dev/null | head -1)
+  #
+  # apps/web/src is in the `find` list too: without it the API bundle's freshness
+  # said nothing about the SPA's, so a stale SPA shipped silently on every CI deploy
+  # while the JS bundle was correctly guarded.
+  NEWEST_SRC=$(find apps/api/src apps/api/drizzle apps/web/src -type f -newer apps/api/dist/index.js 2>/dev/null | head -1)
   if [ -n "$NEWEST_SRC" ]; then
     die "apps/api/dist/index.js is older than $NEWEST_SRC — refusing to ship a stale build. Re-run without --no-build."
   fi
@@ -211,7 +246,21 @@ scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed
 # "drizzle migrations folder not found". Ship it, and ship it as a directory so the
 # remote install/rollback loops below can treat it as one atomic unit.
 scp -r $SSH_OPTS apps/api/drizzle "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp of drizzle/ failed"
-ok "Build + drizzle/ migrations shipped"
+
+# The SPA build is shipped as a NAMED SUBDIRECTORY `$STAGE/web`, never flattened into
+# `$STAGE` root. The install loop below globs `"$STAGE"/*.js`; dumping Vite's hashed
+# chunks (index-<hash>.js) into the stage root would sweep them into $DIST_DIR's top
+# level, where the per-file install would place them, and where restore() — which
+# copies files that exist in $PREV and never prunes — would leave them behind
+# permanently. Measured on a real restore() run: dist/index.js was correctly OLD
+# while dist/index-a1b2c3.js was still the NEW release's asset.
+#
+# The explicit destination `${STAGE_REMOTE}/web` (rather than letting scp infer the
+# name) removes the other root-dist/ vs apps/api/dist/ confusion class entirely:
+# the source is the literal path `apps/web/dist` and the destination is the literal
+# path `$STAGE/web`.
+scp -r $SSH_OPTS apps/web/dist "${SSH_DEST}:${STAGE_REMOTE}/web" > /dev/null || die "scp of SPA dist/ failed"
+ok "Build + drizzle/ migrations + SPA dist/ shipped"
 
 # dist/seed.js is NOT optional. The S3 surface resolves credentials through
 # makeSecretResolver() (s3-router.ts:101-112), which reads s3_credentials and has
@@ -239,6 +288,10 @@ boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }
 # its journal without meta/_journal.json, and otherwise this is discovered only after
 # the new bundle is already on disk.
 [ -f "$STAGE/drizzle/meta/_journal.json" ] || boom "staged drizzle/meta/_journal.json not found in $STAGE — migrations would be a no-op"
+# Same sentinel-file rule as the local --check: an empty staged web/ would serve a
+# white screen at `/` with a 200 HTML response, so fail HERE rather than after the
+# new bundle is already on disk.
+[ -f "$STAGE/web/index.html" ] || boom "staged web/index.html not found in $STAGE — the SPA would ship as an empty directory"
 command -v systemctl > /dev/null 2>&1 || boom "systemctl not found"
 command -v curl > /dev/null 2>&1 || boom "curl not found"
 # The migration runs under bws-exec because migrate.js imports env.ts, which throws
@@ -300,6 +353,25 @@ restore() {
     # would pair an old migrate.js with a journal of migrations it never shipped.
     as_root rm -rf "$DIST_DIR/drizzle"
     say "removed drizzle/ (previous release shipped no migrations folder)"
+  fi
+
+  # The SPA directory must roll back with the binary, and the revert must be
+  # UNCONDITIONAL — the identical trap that already bit drizzle/ above, and the
+  # first P4 deploy is exactly the case that fires it: release N-1 shipped no web/,
+  # so guarding on `[ -d "$PREV/web" ]` would skip the branch and leave the NEW SPA
+  # serving next to the OLD binary.
+  #
+  # BOTH branches run. Restore the previous folder when there was one; otherwise
+  # REMOVE the new one. The removal branch is what makes the first P4 deploy leave
+  # the previous release exactly as it was.
+  if [ -d "$PREV/web" ]; then
+    as_root rm -rf "$DIST_DIR/web"
+    as_root cp -a "$PREV/web" "$DIST_DIR/web.restore"
+    as_root mv -f "$DIST_DIR/web.restore" "$DIST_DIR/web"
+    say "restored previous web/ SPA"
+  else
+    as_root rm -rf "$DIST_DIR/web"
+    say "removed web/ (previous release shipped no SPA directory)"
   fi
   as_root systemctl restart "$UNIT" || true
 }
@@ -374,6 +446,44 @@ if [ -d "$STAGE/drizzle" ]; then
   as_root mv -f "$DIST_DIR/drizzle.new" "$DIST_DIR/drizzle"
   as_root rm -rf "$DIST_DIR/drizzle.old"
   say "installed drizzle/ migrations"
+fi
+
+# The SPA is swapped in as a whole directory, for the same reason drizzle/ is: a
+# half-copied asset tree would serve a mixture of two releases' hashed chunks.
+# `mv` on a directory is atomic within a filesystem, same as the JS per-file
+# renames above. Installed BEFORE the migration and BEFORE the restart, so the unit
+# never restarts into a state where it would serve a half-installed SPA.
+if [ -d "$STAGE/web" ]; then
+  as_root rm -rf "$DIST_DIR/web.old"
+  if [ -d "$DIST_DIR/web" ]; then
+    as_root mv -f "$DIST_DIR/web" "$DIST_DIR/web.old"
+  fi
+  as_root cp -a "$STAGE/web" "$DIST_DIR/web.new"
+  as_root mv -f "$DIST_DIR/web.new" "$DIST_DIR/web"
+  as_root rm -rf "$DIST_DIR/web.old"
+  say "installed web/ SPA"
+
+  # TELL THE RUNNING PROCESS WHERE THE SPA IS.
+  #
+  # Installing the SPA is necessary but not sufficient: `spa-controller` reads
+  # `WEB_DIST_PATH`, and `resolveSpaRoot()` returns null when it is unset — every
+  # SPA route then falls through to the pre-P4 404 while the deploy still reports
+  # success. `grep -rn WEB_DIST_PATH` across deploy.sh, .github/ and
+  # docker-compose.yml returned NOTHING, so a deploy could ship apps/web/dist,
+  # install it here, restart, and serve 404 at `/` with every shipping assertion
+  # still green.
+  #
+  # Exported AFTER the install above and BEFORE the restart, so the unit never
+  # starts pointed at a directory that is not there yet. `$DIST_DIR` is exactly
+  # where the `mv` above put it.
+  export WEB_DIST_PATH="$DIST_DIR/web"
+  say "WEB_DIST_PATH=$WEB_DIST_PATH"
+else
+  # Rollback removed web/ because the previous release shipped none. The unit must
+  # not keep pointing at a directory that is no longer there — resolveSpaRoot()
+  # would warn on every boot and serve the API without the dashboard.
+  export WEB_DIST_PATH=""
+  say "no web/ in this release — WEB_DIST_PATH unset (backend-only)"
 fi
 
 # ── Apply migrations (P5) ───────────────────────────────────────────────────
@@ -455,6 +565,33 @@ if [ -n "$port" ]; then
   say "health-check $url"
   body="$(curl -fsS -m 5 --retry 15 --retry-delay 2 --retry-connrefused --retry-all-errors "$url")"
   say "health: $body"
+
+  # ── site root probe — the dashboard half of the deploy ─────────────────────
+  # /health proves the API is alive. It says NOTHING about the dashboard: a unit
+  # that migrated, seeded, restarted, served /health perfectly and answered 404 at
+  # `/` was reported as a SUCCESSFUL deploy — which is exactly the P4 shipping
+  # failure this probe exists to catch.
+  #
+  # Only run when a SPA was actually installed. On a backend-only release
+  # WEB_DIST_PATH is empty and 404 at `/` is the CORRECT pre-P4 answer, so
+  # demanding 200 there would fail every backend-only deploy.
+  if [ -n "$WEB_DIST_PATH" ]; then
+    root_url="http://127.0.0.1:${port}/"
+    say "site root probe $root_url"
+    # -w writes the status and content-type AFTER the body, so both are captured
+    # in one request. Status alone is not enough: the S3 catch-all answers 200 for
+    # some paths, and what proves the DASHBOARD answered is the HTML content-type.
+    root_meta="$(curl -fsS -m 5 --retry 15 --retry-delay 2 --retry-connrefused --retry-all-errors \
+      -o /tmp/${APP_NAME}-root-probe.body -w '%{http_code} %{content_type}' "$root_url")" \
+      || boom "site root probe failed: $root_url did not answer 200"
+    case "$root_meta" in
+      200*text/html*) say "site root: $root_meta" ;;
+      *) boom "site root probe got '$root_meta', expected 200 with text/html — the SPA is installed but WEB_DIST_PATH is not reaching the unit" ;;
+    esac
+    rm -f /tmp/${APP_NAME}-root-probe.body
+  else
+    say "site root probe skipped — no web/ in this release (backend-only)"
+  fi
 else
   # systemd already says active, but name the miss loudly instead of passing silently.
   say "WARNING: no listening socket found for pid $pid — $HEALTH_PATH not probed"

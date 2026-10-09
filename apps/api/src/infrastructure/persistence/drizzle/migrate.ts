@@ -33,10 +33,19 @@ const BASELINE_ENTRY = { tag: '0000_baseline' };
 const resolveMigrationsFolder = (): string | null => {
   const dir = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(dir, '../../../../drizzle'), // from dist/
+    // `./drizzle` is THE deployed layout and the only candidate that can resolve
+    // on the VPS: deploy.sh scp's drizzle/ next to migrate.js precisely because
+    // `node dist/migrate.js` bundles no data. It is checked FIRST because it is
+    // the one that is load-bearing in production.
+    join(dir, './drizzle'), // next to the module — THE deployed layout
+    // The rest are dev/source-tree shapes. Note what the first of them is NOT:
+    // `../../../../drizzle` does NOT mean "from dist/". From dist/ it resolves
+    // to `/drizzle` (four levels above apps/api/dist is the filesystem root),
+    // and it resolves in neither layout. It is retained only so the error message
+    // below can honestly list every path that was tried.
+    join(dir, '../../../../drizzle'), // four levels above the module — never resolves in either layout
     join(dir, '../../drizzle'), // from src/infrastructure/persistence/drizzle/
     join(dir, '../../../drizzle'), // from src/infrastructure/persistence/
-    join(dir, './drizzle'), // next to the module
     join(process.cwd(), 'drizzle'), // run from apps/api
     join(process.cwd(), 'apps/api/drizzle'), // run from the repo root
   ];
@@ -107,24 +116,26 @@ const runBaseline = async (sql: postgres.Sql, journalFolder: string): Promise<vo
  * session-scoped advisory lock can be released on a different pooled connection
  * mid-migration.
  *
- * ⚠️ THIS RUNNER IS CURRENTLY ORPHANED — read before assuming deploy.sh calls it.
+ * This runner is INVOKED BY THE DEPLOY — deploy.sh runs it, and the ordering is
+ * asserted by executable-shape tests in deploy-config.test.ts.
  *
- * P2a deleted the boot-time auto-migration and replaced it with this file, on the
- * stated assumption that "deploy.sh runs `node dist/migrate.js` over SSH". That
- * assumption was WRONG and was caught by an adversarial review, not by a test.
- * Verified: `deploy.sh` mentions migrate.js in exactly three places — the
- * `--check` list, the post-build existence assertion, and the `scp` — and never
- * EXECUTES it.
+ * History worth keeping, because it is the exact shape of defect this phase exists
+ * to close. P2a deleted the boot-time auto-migration and replaced it with this
+ * file, on the stated assumption that "deploy.sh runs `node dist/migrate.js` over
+ * SSH". That assumption was WRONG and was caught by an adversarial review, not by
+ * a test: deploy.sh mentioned migrate.js only in the `--check` list, the
+ * post-build existence assertion and the `scp`, and never EXECUTED it.
  *
- * So today there is NO code path that applies migrations: not at boot (removed),
- * and not during deploy (never existed). Shipping a build containing migrations
- * 0001-0003 would leave production on the pre-P3a schema while the new binary
- * runs org-scoped code, and 0002's precondition guard would RAISE on any deploy
- * that did try to run it.
+ * P5 closed it. deploy.sh now runs
+ *   as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/migrate.js"
+ * AFTER the bundle and its drizzle/ folder are installed and BEFORE
+ * `systemctl restart` — the migrator resolves the journal relative to
+ * dist/migrate.js, so the folder must already be in place, and the P3b binary
+ * selects on columns 0001-0003 introduce, so a restart without them crash-loops.
  *
- * P5 must add the invocation to deploy.sh, immediately before `systemctl restart`
- * and AFTER the binary is installed. Until then, `pnpm db:migrate` must be run by
- * hand. Do not delete the boot-time call without adding the deploy-time one.
+ * Do not delete the deploy-time invocation and do not reintroduce the boot-time
+ * call without it: the two must move together, and the tests that pin the order
+ * are the only thing standing between them.
  */
 export const runMigration = async (): Promise<void> => {
   const migrationsFolder = resolveMigrationsFolder();

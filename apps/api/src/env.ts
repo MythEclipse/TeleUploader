@@ -36,6 +36,16 @@ interface AppConfig {
   s3DefaultRegion: string;
   proxyS3Get: boolean;
   s3VhostDomains: string[];
+  /**
+   * Absolute path to the built SPA directory. OPTIONAL.
+   *
+   * Deliberately NOT in `requiredEnv`: this module throws at import time and
+   * `src/index.ts` imports it before `serve()`, so a required value would stop
+   * every backend-only deploy, every test run, and every dev session that has
+   * not built the dashboard. Empty means "no SPA" and the API behaves exactly
+   * as it did before P4.
+   */
+  webDistPath: string;
 }
 
 // Validate bot tokens: BOT_TOKENS (new) or fallback to BOT_TOKEN + ADDITIONAL_BOT_TOKENS
@@ -221,6 +231,7 @@ export const config: AppConfig = {
     process.env.S3_VHOST_DOMAINS ||
       'upload.asepharyana.my.id,asepharyana.web.id,upload.asepharyana.web.id',
   ),
+  webDistPath: process.env.WEB_DIST_PATH || '',
 };
 
 // Debug-level: every import of env.ts would otherwise dump the full config

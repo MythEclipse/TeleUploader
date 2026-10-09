@@ -1,0 +1,206 @@
+/* Base styles for the dashboard SPA.
+ *
+ * Deliberately minimal: the SPA lane owns the visual design. These rules exist
+ * so `main.tsx` has something to import and so the page does not render as
+ * unstyled markup before any stylesheet loads.
+ */
+
+:root {
+  --fd-bg: #ffffff;
+  --fd-fg: #16191d;
+  --fd-muted: #5b6470;
+  --fd-border: #d8dee6;
+  --fd-accent: #2563eb;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fd-bg: #14171a;
+    --fd-fg: #e8ecf1;
+    --fd-muted: #9aa4b2;
+    --fd-border: #2b3138;
+    --fd-accent: #60a5fa;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--fd-bg);
+  color: var(--fd-fg);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+/* ── App shell ────────────────────────────────────────────────────────────────
+ * Styles for the shared chrome owned by `src/lib/layout/`. The file browser,
+ * dashboard and credentials routes own their own markup; these rules cover only
+ * the top bar, org switcher, auth controls and the two empty/error states that
+ * every route shares. Tokens mirror `home.html`'s `:root` so the port reads the
+ * same in light and dark.
+ */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: color-mix(in srgb, var(--fd-bg) 92%, var(--fd-border));
+  border-bottom: 1px solid var(--fd-border);
+}
+
+.topbar .logo {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 4px;
+}
+
+.topbar nav a {
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--fd-muted);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.topbar nav a:hover {
+  background: var(--fd-border);
+  color: var(--fd-fg);
+}
+
+/* `activeProps` sets aria-current; style off the attribute so the visual state
+ * can never drift from the accessibility state. */
+.topbar nav a[aria-current='page'] {
+  background: var(--fd-accent);
+  color: #fff;
+}
+
+.topbar .spacer {
+  flex: 1;
+}
+
+/* Visible to screen readers, removed from the visual flow. Needed because the
+ * org switcher's <select> has no visible label of its own. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.org-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.org-switcher select,
+.topbar button,
+.topbar .button {
+  padding: 6px 12px;
+  border: 1px solid var(--fd-border);
+  border-radius: 8px;
+  background: var(--fd-bg);
+  color: var(--fd-fg);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.org-switcher select:disabled {
+  color: var(--fd-muted);
+  cursor: not-allowed;
+}
+
+.org-count {
+  color: var(--fd-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.readonly-badge {
+  padding: 4px 10px;
+  border: 1px solid var(--fd-border);
+  border-radius: 999px;
+  color: var(--fd-muted);
+  font-size: 0.75rem;
+}
+
+.auth-status {
+  color: var(--fd-muted);
+  font-size: 0.875rem;
+}
+
+.content {
+  flex: 1;
+  padding: 16px 24px;
+}
+
+.empty-state,
+.error-state {
+  padding: 48px 24px;
+  color: var(--fd-muted);
+  text-align: center;
+}
+
+.empty-state h2,
+.error-state h1 {
+  margin-bottom: 8px;
+  color: var(--fd-fg);
+  font-size: 1.2rem;
+}
+
+.error-message {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.error-state .buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.error-state .buttons button,
+.error-state .buttons a {
+  padding: 8px 16px;
+  border: 1px solid var(--fd-border);
+  border-radius: 8px;
+  background: var(--fd-bg);
+  color: var(--fd-fg);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}

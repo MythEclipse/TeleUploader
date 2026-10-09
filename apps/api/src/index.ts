@@ -15,9 +15,21 @@ import { startBot } from './presentation/telegram/handler';
 // plus schema.sql were two sources of truth. `pnpm db:migrate` (migrate.ts, using
 // drizzle's migrator) is now the only migration path.
 //
-// NOT YET WIRED INTO DEPLOY. As of P3b, deploy.sh still does not invoke
-// migrate.js, so a deploy does NOT apply migrations — this comment previously
-// claimed it did, which is how the P5 gap stayed hidden. Fixing that is P5.
+// WIRED INTO DEPLOY (P5). deploy.sh stages `dist/migrate.js` together with the
+// `drizzle/` journal folder and runs it over `bws-exec`, after the new bundle is
+// installed and before `systemctl restart` — deploy.sh:536. That ordering is
+// load-bearing and is asserted in apps/api/test/deploy-config.test.ts.
+//
+// WHY THIS NOTE EXISTS. An earlier revision of this comment read "NOT YET WIRED
+// INTO DEPLOY. As of P3b, deploy.sh still does not invoke migrate.js". It was
+// true when written, then it was silently out of date once P5 landed, and
+// nobody re-read it. A false claim sitting in the most-read file in the repo is
+// worse than no comment: it is the exact defect shape this migration has now
+// hit eight times — a claim written in one place and TRUSTED downstream instead
+// of re-checked. That is why every finding in a Build-lane report must cite a
+// command actually run plus its real output, or be labelled UNVERIFIED, and why
+// the deploy wiring is a trip-wire test instead of a comment. If you change the
+// deploy path, re-run the commands; do not trust this paragraph.
 
 // ─── Tenant scoping is verified BEFORE anything starts serving ─────────────
 //

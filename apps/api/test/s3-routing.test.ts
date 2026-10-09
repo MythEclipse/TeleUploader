@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { IBucketRepository } from '../src/domain/ports/bucket-repository';
 
 process.env.NODE_ENV = 'test';
@@ -127,67 +127,135 @@ const AWS_AUTH =
   'AWS4-HMAC-SHA256 Credential=filedrop-admin/20260101/us-east-1/s3/aws4_request, ' +
   'SignedHeaders=host;x-amz-date, Signature=abc123';
 
-describe('S3 routing (routes table)', () => {
-  let routes: typeof import('../src/presentation/http/routes/index').routes;
+/**
+ * P2b — S3 vs. site routing, asserted against the REAL application.
+ *
+ * This suite used to import the `{ routes }` table from
+ * `src/presentation/http/routes/index.ts` and call `routes['/'].GET(...)`
+ * directly. That table is dead code: nothing imports it at runtime, so every
+ * assertion here was proving properties of an object the server never
+ * consults. Hono (`createApp`) replaced it in P2b.
+ *
+ * These tests now drive `createApp().request(...)`, the same entry point the
+ * production server uses (`src/index.ts` serves `createApp()` via
+ * `@hono/node-server`), so a routing regression fails here for the reason it
+ * would fail in production.
+ *
+ * `hono-routing.test.ts` overlaps on two points and covers them with MOCKED
+ * controllers, so it cannot make the content-type claims made below. What is
+ * unique HERE, and nowhere else in the suite:
+ *
+ *   1. GET / with SigV4 returns XML (proves the REAL S3 controller ran, not a
+ *      mock — `hono-routing.test.ts` only asserts a mock was called).
+ *   2. GET / without SigV4 is served by the site root and never answers with
+ *      S3 XML (a mocked `handleHome`/`spaIndex` returns a canned string and
+ *      proves nothing).
+ *   3. HEAD/DELETE/POST on `/` → 404. `hono-routing.test.ts` covers only
+ *      GET / and PUT / on the root.
+ *   4. OPTIONS on the `/*` CATCH-ALL, both with and without SigV4 headers.
+ *      `hono-routing.test.ts` tests OPTIONS on `/` only.
+ *
+ * Deliberately NOT mocked: `shouldHandleS3` (the real S3 arbiter) and the S3
+ * controller itself (so its XML content-type is the real one).
+ */
+const { createApp } = await import('../src/presentation/http/app');
 
-  beforeAll(async () => {
-    ({ routes } = await import('../src/presentation/http/routes/index'));
-  });
+const req = () => createApp().request;
 
+describe('S3 routing (live app)', () => {
   afterAll(() => {
     vi.restoreAllMocks();
   });
 
   it('routes GET / with AWS4 auth headers to S3 (not the home page)', async () => {
-    const res = await routes['/'].GET(
-      new Request('http://localhost:4000/', {
-        headers: { authorization: AWS_AUTH },
-      }),
-    );
+    const res = await req()('/', { headers: { authorization: AWS_AUTH } });
     const contentType = res.headers.get('content-type') || '';
     // S3 answers with XML; the home page would be text/html.
     expect(contentType).toContain('application/xml');
   });
 
-  it('serves GET / without S3 headers as the home page (HTML 200)', async () => {
-    const res = await routes['/'].GET(new Request('http://localhost:4000/'));
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/html');
-    expect(await res.text()).toContain('FileDrop');
+  it('serves GET / without S3 headers as HTML, never as S3 XML', async () => {
+    const res = await req()('/');
+    // The claim under test is the ROUTING decision: a non-SigV4 root request is
+    // served by the site-root handler, NOT claimed by the S3 catch-all.
+    //
+    // With `WEB_DIST_PATH` unset (the unit-suite default) the site root is the
+    // SPA shell, which resolves to no SPA and falls back to 404 — that 404 is
+    // the site-root handler answering, which is why the discriminator below is
+    // "not the S3 404". S3's own 404 carries an `application/xml` body; this
+    // one is `text/plain`. Asserting on content-type rather than status keeps
+    // this test honest whether or not a SPA is built.
+    const contentType = res.headers.get('content-type') || '';
+    expect(contentType).not.toContain('application/xml');
+    if (res.status === 200) {
+      // A SPA (or home.html) is present: it must be HTML.
+      expect(contentType).toContain('text/html');
+    } else {
+      expect(res.status).toBe(404);
+      expect(contentType).toContain('text/plain');
+    }
   });
 
   it('answers OPTIONS /* without S3 headers as a generic 204 CORS preflight (not S3 XML)', async () => {
-    const res = await routes['/*'].OPTIONS(
-      new Request('http://localhost:4000/some/path', { method: 'OPTIONS' }),
-    );
+    const res = await req()('/some/path', { method: 'OPTIONS' });
     expect(res.status).toBe(204);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
   });
 
   it('routes OPTIONS /* with AWS4 auth headers to the S3 handler', async () => {
-    const res = await routes['/*'].OPTIONS(
-      new Request('http://localhost:4000/gitea/key', {
-        method: 'OPTIONS',
-        headers: { authorization: AWS_AUTH },
-      }),
-    );
+    const res = await req()('/gitea/key', {
+      method: 'OPTIONS',
+      headers: { authorization: AWS_AUTH },
+    });
     expect(res.status).toBe(204);
   });
 
   it('answers HEAD / without S3 headers as 404 (never S3-direct)', async () => {
-    const res = await routes['/'].HEAD(new Request('http://localhost:4000/', { method: 'HEAD' }));
+    const res = await req()('/', { method: 'HEAD' });
+    // Same caveat as GET /: with no SPA built the site root is 404 anyway, so
+    // the discriminator is that it is NOT the S3 handler answering.
+    //
+    // The status is no longer asserted unconditionally. It used to be, and it
+    // passed only because WEB_DIST_PATH is unset in CI: against a real dashboard
+    // build the same request answers 200 text/html and this test went red for a
+    // reason that had nothing to do with routing. Given the same if/else shape as
+    // its sibling at lines 183-192, it is honest in both environments.
+    expect(res.headers.get('content-type') || '').not.toContain('application/xml');
+    if (res.status === 200) {
+      expect(res.headers.get('content-type') || '').toContain('text/html');
+    } else {
+      expect(res.status).toBe(404);
+      expect(res.headers.get('content-type') || '').toContain('text/plain');
+    }
+  });
+
+  it('routes a SigV4 HEAD to the S3 handler, not to a dead HEAD registration', async () => {
+    // app.ts used to carry `app.on('HEAD', '/*', s3Or(notFound))` and
+    // `app.on(['HEAD', ...], '/', ...)`. Both were DEAD CODE: Hono re-dispatches
+    // every HEAD as GET before router.match, so a route registered with method
+    // "HEAD" can never be dispatched. HEAD is served by the app.get() routes, and
+    // it still reaches S3 because handleS3Request reads req.method off the raw
+    // Request — which is still "HEAD" — not off the matched route.
+    // Status, not content-type: Hono's c.text() helper labels its own body
+    // text/plain regardless of the content it holds, and the app.ts routes in
+    // play here answer 404 text/plain when no SPA is configured. What must be
+    // proven is that the HEAD is DISPATCHED AT ALL — a dead `app.on('HEAD', ...)`
+    // would leave it unrouted.
+    const res = await req()('/gitea/key.txt', {
+      method: 'HEAD',
+      headers: { authorization: AWS_AUTH },
+    });
     expect(res.status).toBe(404);
+    expect(res.headers.get('content-type') || '').not.toContain('text/html');
   });
 
   it('answers DELETE / without S3 headers as 404 (never S3-direct)', async () => {
-    const res = await routes['/'].DELETE(
-      new Request('http://localhost:4000/', { method: 'DELETE' }),
-    );
+    const res = await req()('/', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
 
   it('answers POST / without S3 headers as 404 (never S3-direct)', async () => {
-    const res = await routes['/'].POST(new Request('http://localhost:4000/', { method: 'POST' }));
+    const res = await req()('/', { method: 'POST' });
     expect(res.status).toBe(404);
   });
 });

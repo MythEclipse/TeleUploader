@@ -18,7 +18,7 @@ Default to using Bun instead of Node.js.
 - `WebSocket` is built-in. Don't use `ws`.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
-- Rate limiter lokal dinonaktifkan (`checkRateLimit` di `src/utils/rateLimit.ts` selalu mengembalikan `true`).
+- Rate limiter HTTP is ACTIVE, not disabled. `checkRateLimit` lives in `src/presentation/http/middleware/rate-limit.ts` (NOT `src/utils/rateLimit.ts`, which does not exist) and returns `false` once `config.rateLimitMaxRequests` is exceeded inside `config.rateLimitWindowMs`; `withRateLimit` then answers `429`. Verified by execution, not by reading: six calls with the limit set to 3 returned `[true,true,true,false,false,false]`. It is applied via `limited(...)` to `POST /api/v1/auth/login` and `POST /api/upload` only — never to the S3 surface, which must stay unthrottled for aws-cli, rclone and the Docker registry client.
 - Telegram API memiliki auto-retry otomatis jika mengembalikan error 429 (Too Many Requests) menggunakan pool Telegraf multi-bot di `src/utils/telegram.ts`.
 |- Multi-bot dikonfigurasi melalui `BOT_TOKENS` (koma terpisah) di `.env` — semua token bot digabung dalam satu variabel.
 - Menggunakan mekanisme rotasi instan jika ada bot yang terkena rate limit 429 sebelum memutuskan untuk sleep.

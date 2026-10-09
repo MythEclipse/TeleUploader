@@ -1,8 +1,19 @@
 name: Semantic Release
 
-# MIGRATION FREEZE: the `push: branches: [main]` trigger is disabled during the kana
-# migration so each phase merge does not publish a release. Restore in P5c.
+# The `push: branches: [main]` trigger is RESTORED (P5c). It was disabled for the whole
+# kana migration (P0-P5b) so each phase merge could not publish a release; the migration
+# is merged into integration/p3b, so the freeze has served its purpose.
+#
+# The BLOCK form is load-bearing, not stylistic: the freeze guard was
+# `/^\s{2}push:\s*$/m`, which only matches `push:` alone on a line at 2-space indent. An
+# inline `push: branches: [main]` on one line would have evaded it and left the freeze
+# asserted while the freeze was lifted.
+#
+# workflow_dispatch STAYS: .semrel/dispatch.mjs POSTs to a workflow dispatch endpoint,
+# and dropping it would break the release→deploy path.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

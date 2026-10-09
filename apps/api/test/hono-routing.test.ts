@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const handlers = vi.hoisted(() => ({
   health: vi.fn(() => new Response('{"status":"ok"}', { status: 200 })),
-  home: vi.fn(() => new Response('<html>home</html>', { status: 200 })),
+  spaIndex: vi.fn(() => Promise.resolve(null)),
   upload: vi.fn(() => new Response('{"ok":true}', { status: 200 })),
   fileRedirect: vi.fn((_req: Request) => new Response('redirected', { status: 302 })),
   fileInfo: vi.fn(() => new Response('{"file":{}}', { status: 200 })),
@@ -31,9 +31,17 @@ const handlers = vi.hoisted(() => ({
 vi.mock('../src/presentation/http/controllers/health-controller', () => ({
   handleHealth: handlers.health,
 }));
-vi.mock('../src/presentation/http/controllers/home-controller', () => ({
-  handleHome: handlers.home,
-  resolveHomeHtml: () => null,
+// P4: `home-controller` (handleHome/resolveHomeHtml) is no longer mounted by
+// app.ts — `GET /` is served by `spa-controller`. Mocking a module the app does
+// not import is a silent no-op, which is how this suite came to assert on a
+// handler that could not possibly be called. Mock what IS mounted instead.
+vi.mock('../src/presentation/http/controllers/spa-controller', () => ({
+  serveSpaIndex: handlers.spaIndex,
+  serveSpaFile: vi.fn(() => Promise.resolve(null)),
+  resolveSpaRoot: () => null,
+  contentTypeFor: () => 'application/octet-stream',
+  resolveWithinRoot: () => null,
+  resetSpaCache: vi.fn(),
 }));
 vi.mock('../src/presentation/http/controllers/upload-controller', () => ({
   handleUpload: handlers.upload,
@@ -104,6 +112,7 @@ test('route wrapping is decided at registration, not per request', () => {
   expect(wrapped).toContain(handlers.webApi);
   expect(wrapped).not.toContain(handlers.upload);
   expect(wrapped).not.toContain(handlers.fileRedirect);
+  expect(wrapped).not.toContain(handlers.fileInfo);
 });
 
 describe('Hono routing order', () => {
@@ -149,9 +158,18 @@ describe('Hono routing order', () => {
     await req()('/f/abc123');
     expect(handlers.fileRedirect).toHaveBeenCalled();
 
+    await req()('/file/abc123/info');
+    expect(handlers.fileInfo).toHaveBeenCalled();
+
     const wrapped = authWrappedHandlers();
     expect(wrapped).not.toContain(handlers.upload);
     expect(wrapped).not.toContain(handlers.fileRedirect);
+    // `GET /file/:public_id/info` is the THIRD public data-plane route and it was
+    // missing from this list, so auth-wrapping it — a hard-constraint-(h) regression
+    // on one of exactly three routes — passed the entire unit suite undetected.
+    // spa-static.test.ts:260 does not cover it either: that test only asserts the
+    // body is not HTML, which a 401 JSON body satisfies.
+    expect(wrapped).not.toContain(handlers.fileInfo);
   });
 
   test('path params reach the controller via req.params', async () => {
@@ -169,17 +187,45 @@ describe('Hono routing order', () => {
     expect(handlers.fileRedirect).not.toHaveBeenCalled();
   });
 
-  test('unauthenticated root serves the dashboard', async () => {
+  // P4: `GET /` no longer serves `home.html` via `home-controller`. It serves the
+  // React SPA shell via `spa-controller`, and returns 404 when WEB_DIST_PATH is
+  // unset (which is this suite's environment). What this test still owns, and
+  // what did NOT change with the SPA swap, is the routing decision: a non-S3
+  // root must not fall through to the S3 catch-all handler, and a SigV4 root
+  // must.
+  //
+  // The old assertion `expect(handlers.home).toHaveBeenCalled()` could not fail
+  // correctly here: it was already passing against a mock for a module app.ts
+  // stopped importing, which is why it went red instead of telling us anything
+  // useful. The assertion below names the module the app ACTUALLY mounts.
+  test('unauthenticated root is NOT claimed by the S3 catch-all', async () => {
+    handlers.s3.mockClear();
     const res = await req()('/');
-    expect(handlers.home).toHaveBeenCalled();
     expect(handlers.s3).not.toHaveBeenCalled();
-    expect(res.status).toBe(200);
+    // With no SPA configured this is the pre-P4 fallback: a bare 404, which is
+    // what `/` served before the SPA lane and must keep serving when
+    // WEB_DIST_PATH is unset (a backend-only deploy).
+    expect(res.status).toBe(404);
   });
 
-  test('SigV4 root is claimed by S3, not the dashboard', async () => {
-    await req()('/', { headers: SIGV4 });
+  test('the root fallback asks the SPA controller for the shell', async () => {
+    // The routing DECISION for `/`: the app consults the SPA controller before
+    // giving up, and only the S3 catch-all handler is skipped. Asserting the
+    // call — rather than only the resulting status — is what keeps a future
+    // refactor from replacing the SPA fallback with a hard 404 and reporting
+    // green when WEB_DIST_PATH happens to be unset in CI.
+    handlers.spaIndex.mockClear();
+    await req()('/');
+    expect(handlers.spaIndex).toHaveBeenCalled();
+  });
+
+  test('SigV4 root is claimed by S3, not the SPA shell', async () => {
+    handlers.s3.mockClear();
+    const res = await req()('/', { headers: SIGV4 });
     expect(handlers.s3).toHaveBeenCalled();
-    expect(handlers.home).not.toHaveBeenCalled();
+    // The S3 controller's XML body, not the SPA's HTML — proof the catch-all
+    // took the request and the SPA fallback never saw it.
+    expect(await res.text()).toContain('<ListAllMyBucketsResult/>');
   });
 
   test('SigV4 catch-all reaches S3 for arbitrary bucket/key paths', async () => {

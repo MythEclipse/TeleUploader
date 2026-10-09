@@ -64,11 +64,20 @@ const workflowFile = readFileSync(
 );
 
 test('deploy workflow builds with pnpm and ships over systemd (no Nix)', () => {
-  // MIGRATION FREEZE (P0–P5b): the push trigger is removed so no phase merge can
-  // deploy straight to production. `workflow_dispatch` must remain the only trigger —
-  // without it .semrel/dispatch.mjs has nothing to dispatch and the deploy path is
-  // unreachable. Restore the push trigger in P5c.
-  expect(workflowFile).not.toMatch(/^\s{2}push:\s*$/m);
+  // P5c UNFREEZE: the migration freeze (P0–P5b) is lifted, so a merge to main deploys.
+  // This assertion used to be `not.toMatch(/^\s{2}push:\s*$/m)` — the freeze guard. It is
+  // deliberately INVERTED rather than deleted, so a silent re-freeze fails here too.
+  //
+  // It matches the BLOCK form (`push:` alone on a line at 2-space indent), not an inline
+  // `push: branches: [main]`. That is deliberate and was called out in the contract: an
+  // inline form would have satisfied neither the old freeze guard nor this one, letting
+  // the freeze be lifted while still asserting it was in place.
+  expect(workflowFile).toMatch(/^\s{2}push:\s*$/m);
+  // ...and the trigger must actually be scoped to main, not every branch.
+  expect(workflowFile).toMatch(/^\s{2}push:\n\s{4}branches: \[main\]$/m);
+
+  // workflow_dispatch must ALSO remain: .semrel/dispatch.mjs POSTs to the deploy
+  // dispatch endpoint, and dropping it would break the release→deploy path.
   expect(workflowFile).toContain('workflow_dispatch');
   expect(workflowFile).toContain('uses: actions/checkout@v7');
   expect(workflowFile).toContain('uses: pnpm/action-setup@v4');
@@ -84,6 +93,31 @@ test('deploy workflow builds with pnpm and ships over systemd (no Nix)', () => {
   expect(workflowFile).not.toContain('magic-nix-cache');
   expect(workflowFile).not.toContain('nix-env');
   expect(workflowFile).not.toContain('oven-sh/setup-bun');
+});
+
+test('the SPA is built in CI, between the API build and the deploy', () => {
+  // WHERE THIS MUST LIVE. deploy.yml runs `./deploy.sh --no-build`, so deploy.sh's
+  // `if $DO_BUILD` block never executes in CI. A SPA build added inside deploy.sh
+  // would therefore be dead code on the only path that reaches production.
+  expect(workflowFile).toContain('pnpm --filter @teleuploader/web run build');
+
+  // And it must run BEFORE the deploy, because `./deploy.sh --no-build` asserts
+  // apps/web/dist/index.html exists and refuses to ship a stale SPA. Building it
+  // after the deploy step would fail every deploy outright.
+  //
+  // Both offsets are taken from the executable `run:` lines, NOT from `indexOf` on the
+  // bare command strings: the file's own comments quote both commands, and a bare
+  // indexOf would measure the comment's position instead of the step's. That is the
+  // same "a mention satisfies the assertion" defect class this file exists for.
+  const buildAt = workflowFile.indexOf('run: pnpm --filter @teleuploader/web run build');
+  const deployAt = workflowFile.indexOf('run: VPS_SSH_KEY="$HOME/.ssh/deploy_key" ./deploy.sh');
+  expect(buildAt, 'deploy.yml has no runnable SPA build step').toBeGreaterThan(-1);
+  expect(deployAt, 'deploy.yml never invokes deploy.sh').toBeGreaterThan(-1);
+  expect(buildAt, 'the SPA must be built BEFORE deploy.sh runs').toBeLessThan(deployAt);
+
+  // pnpm, not the Bun toolchain the repo's CLAUDE.md mandates — the assertion above
+  // already forbids a Bun setup action; forbid a Bun install here too.
+  expect(workflowFile).not.toContain('bun install');
 });
 
 test('deploy script drives the systemd unit and probes health', () => {
@@ -207,8 +241,14 @@ const runDeployFunctions = (
   };
 };
 
-/** Create a previous-release dist/ tree. `withDrizzle` is the first-P5-deploy case. */
-const seedPreviousRelease = (dir: string, withDrizzle: boolean): void => {
+/**
+ * Create a previous-release dist/ tree.
+ *
+ * `withDrizzle` / `withWeb` are the FIRST-deploy cases: release N-1 shipped no
+ * migrations folder (P5) and no SPA directory (P4). Those are the cases where a
+ * rollback guard written as `if [ -d "$PREV/<dir>" ]` silently does nothing.
+ */
+const seedPreviousRelease = (dir: string, withDrizzle: boolean, withWeb = true): void => {
   mkdirSync(join(dir, 'dist.previous'), { recursive: true });
   writeFileSync(join(dir, 'dist.previous', 'index.js'), 'OLD index');
   writeFileSync(join(dir, 'dist.previous', 'migrate.js'), 'OLD migrate');
@@ -216,16 +256,26 @@ const seedPreviousRelease = (dir: string, withDrizzle: boolean): void => {
     mkdirSync(join(dir, 'dist.previous', 'drizzle', 'meta'), { recursive: true });
     writeFileSync(join(dir, 'dist.previous', 'drizzle', 'meta', '_journal.json'), '{"old":true}');
   }
+  if (withWeb) {
+    mkdirSync(join(dir, 'dist.previous', 'web', 'assets'), { recursive: true });
+    writeFileSync(join(dir, 'dist.previous', 'web', 'index.html'), 'OLD SPA');
+    writeFileSync(join(dir, 'dist.previous', 'web', 'assets', 'index-old.js'), 'OLD asset');
+  }
 };
 
-/** Create the current dist/ tree: the newly installed release, journal included. */
-const seedCurrentRelease = (dir: string, withDrizzle = true): void => {
+/** Create the current dist/ tree: the newly installed release, journal and SPA included. */
+const seedCurrentRelease = (dir: string, withDrizzle = true, withWeb = true): void => {
   mkdirSync(join(dir, 'dist'), { recursive: true });
   writeFileSync(join(dir, 'dist', 'index.js'), 'NEW index');
   writeFileSync(join(dir, 'dist', 'migrate.js'), 'NEW migrate');
   if (withDrizzle) {
     mkdirSync(join(dir, 'dist', 'drizzle', 'meta'), { recursive: true });
     writeFileSync(join(dir, 'dist', 'drizzle', 'meta', '_journal.json'), '{"new":true}');
+  }
+  if (withWeb) {
+    mkdirSync(join(dir, 'dist', 'web', 'assets'), { recursive: true });
+    writeFileSync(join(dir, 'dist', 'web', 'index.html'), 'NEW SPA');
+    writeFileSync(join(dir, 'dist', 'web', 'assets', 'index-new.js'), 'NEW asset');
   }
 };
 
@@ -384,6 +434,64 @@ test('restore() still reverts drizzle/ when the previous release HAD one', () =>
   }
 });
 
+test('restore() removes a web/ SPA the previous release never had (DEFECT A, web arm)', () => {
+  // The SAME defect as DEFECT-A above, one directory over. The first deploy that ships
+  // `web/` is exactly the case that fires it: release N-1 has no SPA directory, so a
+  // guard written as `if [ -d "$PREV/web" ]` would skip the branch and leave the NEW
+  // SPA serving next to the OLD binary.
+  //
+  // Before P5c this was asserted for drizzle/ ONLY — `web/` appeared in neither of the
+  // two executable rollback tests, so a SPA restore that was wrong in EVERY shape
+  // (missing branch, guard-only branch, no removal branch) passed the suite green.
+  // Verified by EXECUTION against a simulated first-P4-deploy filesystem, because a
+  // string assertion cannot distinguish "removes it" from "does nothing".
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-webrestore-'));
+  try {
+    seedPreviousRelease(dir, true, false); // no web/ — release N-1, before P4
+    seedCurrentRelease(dir, true, true); // the new release, SPA installed
+
+    const { stdout } = runDeployFunctions(dir, ['restore'], [], ['restore']);
+
+    // The binaries revert...
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('OLD index');
+    expect(readFileSync(join(dir, 'dist', 'migrate.js'), 'utf8')).toBe('OLD migrate');
+    // ...and the SPA the previous release never had is GONE. Without this branch the
+    // previous release is left exactly as it was, which is the whole point of rollback.
+    expect(existsSync(join(dir, 'dist', 'web'))).toBe(false);
+    expect(stdout).toContain('removed web/');
+    expect(stdout).toContain('previous release shipped no SPA directory');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('restore() still reverts web/ when the previous release HAD one', () => {
+  // The mirror image, so the fix above cannot regress the ordinary case: a
+  // release-to-release rollback must restore the previous SPA's hashed assets too,
+  // not just index.html. An incomplete restore would leave the NEW index.html pointing
+  // at asset hashes that no longer exist on disk — a broken page, not a rollback.
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-webhasprev-'));
+  try {
+    seedPreviousRelease(dir, true, true);
+    seedCurrentRelease(dir, true, true);
+
+    const { stdout } = runDeployFunctions(dir, ['restore'], [], ['restore']);
+
+    expect(stdout).toContain('restored previous web/ SPA');
+    expect(stdout).not.toContain('removed web/');
+    expect(readFileSync(join(dir, 'dist', 'index.js'), 'utf8')).toBe('OLD index');
+    expect(readFileSync(join(dir, 'dist', 'web', 'index.html'), 'utf8')).toBe('OLD SPA');
+    expect(readFileSync(join(dir, 'dist', 'web', 'assets', 'index-old.js'), 'utf8')).toBe(
+      'OLD asset',
+    );
+    // The new release's asset must NOT survive: this is the flatten-into-$STAGE-root
+    // failure the subdirectory staging exists to prevent.
+    expect(existsSync(join(dir, 'dist', 'web', 'assets', 'index-new.js'))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the drizzle migrations folder is shipped, installed and rolled back', () => {
   // Shipping only *.js meant every one of resolveMigrationsFolder()'s six candidates
   // missed in the deployed layout — verified by running the real built dist/migrate.js
@@ -407,6 +515,130 @@ test('the drizzle migrations folder is shipped, installed and rolled back', () =
   // missing folder fails BEFORE the new bundle is on disk rather than after.
   expect(deployScript).toContain('apps/api/drizzle/meta/_journal.json');
   expect(deployScript).toContain('staged drizzle/meta/_journal.json not found');
+});
+
+test('the SPA is shipped as a named subdirectory, installed and rolled back', () => {
+  // Stage as `$STAGE/web`, NEVER flattened into the stage root. The install loop globs
+  // `"$STAGE"/*.js`; Vite's hashed `index-<hash>.js` chunks dumped into the root would be
+  // swept into $DIST_DIR's top level and — because restore() copies files that exist in
+  // $PREV and never prunes — would survive rollback permanently. Measured on a real
+  // restore() run: dist/index.js was correctly OLD while dist/index-a1b2c3.js was still
+  // the NEW release's asset.
+  expect(deployScript).toMatch(
+    /scp -r[^\n]*apps\/web\/dist "\$\{SSH_DEST\}:\$\{STAGE_REMOTE\}\/web"/,
+  );
+  // The destination must be the LITERAL name `web`, asserted with a regex rather than a
+  // bare string so biome's noTemplateCurlyInString does not read the shell expansion
+  // `${STAGE_REMOTE}/web` as a stray template placeholder (same reason the
+  // MIGRATION_APP assertion above is written without its `${...}` text). A refactor
+  // that drops the named destination and lets scp infer the name from the source would
+  // fail here instead of silently staging the contents.
+  expect(deployScript).toMatch(/\$\{STAGE_REMOTE\}\/web"/);
+
+  // Installed as a whole directory, mirroring drizzle, and BEFORE the restart.
+  expect(deployScript).toContain('say "installed web/ SPA"');
+  const installWeb = deployScript.search(
+    /^\s*as_root mv -f "\$DIST_DIR\/web\.new" "\$DIST_DIR\/web"\s*$/m,
+  );
+  const migrateAt = deployScript.search(
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/migrate\.js"\s*$/m,
+  );
+  const restartAt = deployScript.search(/^\s*as_root systemctl restart "\$UNIT"\s*$/m);
+  expect(installWeb, 'deploy.sh has no executable web/ install command').toBeGreaterThan(-1);
+  expect(installWeb, 'the SPA must be installed BEFORE the restart').toBeLessThan(restartAt);
+  expect(installWeb, 'the SPA must be installed BEFORE migrations').toBeLessThan(migrateAt);
+
+  // BOTH restore outcomes must be reachable, exactly as for drizzle/. The removal branch
+  // is the one that matters on the first P4 deploy.
+  expect(deployScript).toContain('say "restored previous web/ SPA"');
+  expect(deployScript).toContain('removed web/ (previous release shipped no SPA directory)');
+});
+
+test('the SPA sentinel is a FILE, never a bare directory', () => {
+  // `[ -e dir ]` is TRUE for an EMPTY directory, so listing a bare `apps/web/dist` in
+  // the --check list would report green after a failed or never-run `vite build`, and
+  // scp would ship an empty folder — which serves a WHITE SCREEN at `/` with a 200 HTML
+  // response. Same defect class as the old `schema.sql` entry.
+  //
+  // Scope the search to the `for f in ...` LIST ITSELF. Slicing from the "Files to
+  // deploy" heading to the end of the file also captures the scp source path further
+  // down, which is legitimately a bare `apps/web/dist` — the two are different things
+  // and conflating them fails the assertion for the wrong reason.
+  const checkList = /for f in ([^\n]*); do\n/.exec(deployScript);
+  expect(checkList, 'could not find the --check file list in deploy.sh').not.toBeNull();
+  expect(checkList?.[1]).toContain('apps/web/dist/index.html');
+  // No entry in the list may name the bare directory.
+  for (const entry of (checkList?.[1] ?? '').split(/\s+/).filter(Boolean)) {
+    expect(entry, `--check must name a sentinel FILE, not the bare directory: ${entry}`).not.toBe(
+      /^apps\/web\/dist$/,
+    );
+  }
+
+  // And the remote preflight must cover it, so a missing SPA fails BEFORE the new
+  // bundle is on disk.
+  expect(deployScript).toContain('staged web/index.html not found');
+
+  // The staleness guard must cover the SPA sources too: without apps/web/src in the
+  // `find` list, the API bundle's freshness says nothing about the SPA's and a stale
+  // SPA ships silently on every CI deploy.
+  expect(deployScript).toMatch(/find apps\/api\/src apps\/api\/drizzle apps\/web\/src/);
+});
+
+// THE LINK THIS FILE WAS MISSING. It asserts migration invocation, migration
+// ORDERING, hard-stop semantics and SPA rollback — the entire install→migrate→seed
+// →restart chain — and stopped exactly one link short: nothing anywhere asserted
+// that the SPA it installs is ever REACHABLE.
+//
+// `grep -rn WEB_DIST_PATH apps/api/test/` returned only COMMENTS (live-probe.ts,
+// hono-routing.test.ts, s3-routing.test.ts) and never an executable assertion. So
+// a deploy that ships apps/web/dist/index.html, installs it at $DIST_DIR/web,
+// restarts, and answers 404 at `/` passes this entire file — the mirror image of
+// the `toContain('migrate.js')` assertion that let the original P5 defect survive:
+// asserting a string is present when what matters is a wire-level behaviour.
+test('tells the running process where the installed SPA is', () => {
+  const envExample = readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8');
+
+  // (1) .env.example must document the variable, so the setting is discoverable and
+  // a deploy cannot omit it by ignorance.
+  expect(envExample).toContain('WEB_DIST_PATH');
+
+  // (2) deploy.sh must EXPORT it, in the same block that installs web/ — the unit
+  // inherits the environment from there. Without the export, spa-controller's
+  // resolveDistDir() returns null and every SPA route falls through to 404 while
+  // every other assertion in this file stays green.
+  expect(deployScript).toMatch(/export\s+WEB_DIST_PATH=/);
+
+  // (3) It must point at the directory deploy.sh actually installs. `$DIST_DIR/web`
+  // is the destination asserted above (`$DIST_DIR/web.new` → `$DIST_DIR/web`), so
+  // any other value would point the unit at a path that does not exist and
+  // resolveSpaRoot() would log its "no index.html is there" warning and 404.
+  expect(deployScript).toMatch(/WEB_DIST_PATH=["']?\$\{?DIST_DIR\}?\/web/);
+
+  // (4) The export must come AFTER the install, or the unit restarts into a state
+  // where it is told to serve a directory that is not there yet.
+  const installWeb = deployScript.search(
+    /^\s*as_root mv -f "\$DIST_DIR\/web\.new" "\$DIST_DIR\/web"\s*$/m,
+  );
+  const exportWebDist = deployScript.search(/export\s+WEB_DIST_PATH=/);
+  expect(installWeb, 'deploy.sh has no executable web/ install command').toBeGreaterThan(-1);
+  expect(exportWebDist, 'deploy.sh never exports WEB_DIST_PATH').toBeGreaterThan(-1);
+  expect(exportWebDist, 'WEB_DIST_PATH must be exported AFTER web/ is installed').toBeGreaterThan(
+    installWeb,
+  );
+});
+
+// The deploy-health probe proved the API was alive and nothing about the dashboard:
+// it stopped at /health. A unit that migrated, seeded, restarted, served /health
+// perfectly and answered 404 at `/` — the exact P4 shipping failure — was reported
+// as a successful deploy.
+test('the deploy health probe proves the SPA answers 200 HTML at the site root', () => {
+  // A second probe, run only when the port was resolved, hitting the site root.
+  expect(deployScript).toMatch(/site root probe/);
+
+  // It must assert BOTH status and content-type. A status-only check would accept
+  // the 200 that the S3 catch-all returns for an S3-shaped path, or any other
+  // 200 the API might serve; what proves the DASHBOARD answered is HTML.
+  expect(deployScript).toMatch(/text\/html/);
 });
 
 test('MIGRATED is set BEFORE the migration runs, not after it succeeds', () => {

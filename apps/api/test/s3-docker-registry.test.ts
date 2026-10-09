@@ -14,6 +14,14 @@ import { nanoid } from 'nanoid';
 import { describe, expect, it } from 'vitest';
 import { createFileSink } from '../src/application/shared/utils/file-sink';
 
+/**
+ * `createApp` is the routing object `src/index.ts` serves via
+ * `@hono/node-server`. The S3 dispatch guard at the bottom of this file is
+ * asserted against it rather than against the deleted
+ * `src/presentation/http/routes/index.ts` route table, which nothing imports.
+ */
+const { createApp } = await import('../src/presentation/http/app');
+
 // ─── streamBodyToTemp tests ──────────────────────────────────────
 
 describe('S3 Streaming Upload Safety', () => {
@@ -270,20 +278,101 @@ describe('S3 Route Rate Limiting', () => {
   /**
    * S3 routes are intentionally NOT wrapped in withRateLimit: Docker registry
    * clients retry on 5xx but abort on 4xx, so a 429 would break blob pushes.
-   * This asserts that the S3 dispatch path bypasses the rate limiter.
+   *
+   * ## Why the target changed from a source file to the live app
+   *
+   * This assertion used to `readFile('src/presentation/http/routes/index.ts')`
+   * and grep that dead route table for literal strings. Three of its four
+   * strings already failed against the live `app.ts` (verified:
+   * `return handleS3Request(req, getS3RouteBucket(req));` 0 hits,
+   * `withRateLimit(handleUpload)` 0 hits, `withRateLimit(handleFileRedirect)`
+   * 0 hits — `app.ts` wraps through the `limited()` helper instead), so the
+   * guard was pinned to a file nothing imports and encoded P2-era drift as if
+   * it were correct.
+   *
+   * It is re-aimed at `createApp()` — the object `src/index.ts` actually serves.
+   * The guarantee is unchanged and now behavioural rather than textual:
+   *
+   *   1. `POST /api/upload` IS rate limited — proven by exhausting the real
+   *      budget and getting a 429. This proves the limiter is actually armed,
+   *      so the negative assertion below is not vacuous.
+   *   2. A SigV4 S3 PUT dispatched by the SAME app is NOT rate limited — it
+   *      reaches the S3 controller (XML) instead of 429.
+   *
+   * Point 1 is the load-bearing half. A test that only asserts "S3 did not 429"
+   * passes trivially when the limiter is disabled or misconfigured; pairing it
+   * with a route that IS limited makes the guard bite.
    */
-  it('dispatches S3 requests without rate-limiting (direct path)', async () => {
-    const source = await readFile('src/presentation/http/routes/index.ts', 'utf8');
+  it('dispatches S3 requests without rate-limiting (live app path)', async () => {
+    const { config } = await import('../src/env');
+    const { clearRateLimitCache } = await import('../src/presentation/http/middleware/rate-limit');
 
-    // The S3 dispatcher intentionally bypasses the rate limiter.
-    expect(source).toContain('handleS3Direct');
-    expect(source).toContain('return handleS3Request(req, getS3RouteBucket(req));');
+    clearRateLimitCache();
 
-    // Non-S3 self-service routes ARE rate-limited (multipart-free /api/upload
-    // and file redirect/info). This proves withRateLimit is applied to the
-    // web routes while S3 dispatch stays direct.
-    expect(source).toContain('withRateLimit(handleUpload)');
-    expect(source).toContain('withRateLimit(handleFileRedirect)');
+    // ── 1. Prove the limiter is armed and reachable on a limited route ──────
+    // `POST /api/upload` is wrapped in `limited(...)` in app.ts.
+    let limitedStatus = 0;
+    for (let i = 0; i <= config.rateLimitMaxRequests; i++) {
+      const res = await createApp().request('/api/upload', { method: 'POST', body: 'x' });
+      limitedStatus = res.status;
+      if (res.status === 429) break;
+    }
+    expect(
+      limitedStatus,
+      'POST /api/upload must be rate limited — otherwise the S3 negative below proves nothing',
+    ).toBe(429);
+
+    // ── 2. The S3 PUT must bypass that same exhausted budget ───────────────
+    clearRateLimitCache();
+    // Re-exhaust the budget so the limiter is at its ceiling going into S3.
+    for (let i = 0; i <= config.rateLimitMaxRequests; i++) {
+      const res = await createApp().request('/api/upload', { method: 'POST', body: 'x' });
+      if (res.status === 429) break;
+    }
+
+    const s3Res = await createApp().request('/some-bucket/some/layer/blob', {
+      method: 'PUT',
+      headers: {
+        authorization:
+          'AWS4-HMAC-SHA256 Credential=filedrop-admin/20260101/us-east-1/s3/aws4_request, ' +
+          'SignedHeaders=host;x-amz-date, Signature=abc123',
+        'x-amz-date': '20260101T000000Z',
+        'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+      },
+      body: 'layer-bytes',
+      duplex: 'half',
+    });
+
+    expect(
+      s3Res.status,
+      'a rate-limited app must never 429 an S3 push (Docker aborts on 4xx)',
+    ).not.toBe(429);
+
+    // ── 3. And it genuinely reached the S3 controller ──────────────────────
+    // `createApp()` must claim the SigV4 PUT, not hand it to the non-S3
+    // fallback. The discriminator is environment-independent: this suite has
+    // no repository mocks, so the S3 controller fails on the database and
+    // answers 500, whereas the catch-all fallback answers 404 "Not Found".
+    // Measured: SigV4 PUT -> 500 text/plain "Internal Server Error";
+    // identical PUT with no SigV4 header -> 404 text/plain "Not Found".
+    //
+    // Asserting `not.toBe(429)` alone would pass even if S3 never claimed the
+    // path at all, so this half is what makes the guard bite.
+    const control = await createApp().request('/some-bucket/some/layer/blob', {
+      method: 'PUT',
+      body: 'layer-bytes',
+      duplex: 'half',
+    });
+    expect(
+      control.status,
+      'control: the same PUT without SigV4 must miss S3 and hit the fallback',
+    ).toBe(404);
+    expect(
+      s3Res.status,
+      'the SigV4 PUT must be claimed by the S3 controller, not the non-S3 fallback',
+    ).not.toBe(404);
+
+    clearRateLimitCache();
   });
 });
 

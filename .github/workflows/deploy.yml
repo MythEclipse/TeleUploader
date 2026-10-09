@@ -1,8 +1,17 @@
 name: Build & Deploy
 
-# MIGRATION FREEZE: the `push: branches: [main]` trigger is disabled during the kana
-# migration so each phase merge does not deploy straight to production. Restore in P5c.
+# The `push: branches: [main]` trigger is RESTORED (P5c). It was disabled for the whole
+# kana migration (P0-P5b) so each phase merge could not deploy straight to production;
+# the migration is merged into integration/p3b, so the freeze has served its purpose.
+#
+# The BLOCK form is load-bearing, not stylistic: the freeze guard was
+# `/^\s{2}push:\s*$/m`, which only matches `push:` alone on a line at 2-space indent. An
+# inline `push: branches: [main]` on one line would have evaded it and left the freeze
+# asserted while the freeze was lifted. deploy-config.test.ts now asserts the push
+# trigger is PRESENT, so a re-freeze or a silent removal is caught from both sides.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -68,6 +77,20 @@ jobs:
       - name: Build dist
         run: pnpm run build
 
+      # The SPA is built HERE, not in deploy.sh. deploy.yml invokes
+      # `./deploy.sh --no-build` (below), so deploy.sh's `if $DO_BUILD` block never
+      # executes in CI — a SPA build added there would be dead code on the only path
+      # that reaches production.
+      #
+      # It must sit BETWEEN `Build dist` and the deploy step: deploy.sh --no-build
+      # asserts apps/web/dist/index.html exists and refuses to ship a stale SPA whose
+      # sources are newer than the bundle, so building it later would fail the deploy.
+      #
+      # pnpm, not the Bun toolchain the repo's CLAUDE.md mandates: deploy-config.test.ts
+      # asserts this file contains neither a Bun setup action nor a Bun install.
+      - name: Build SPA
+        run: pnpm --filter @teleuploader/web run build
+
       - name: Setup SSH key
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -83,7 +106,8 @@ jobs:
       # or directory), which is why the old store copy died with
       # `error: cannot connect` on every run — there is no
       # /nix/var/nix/profiles/default/bin/nix-store left to talk to. deploy.sh
-      # ships dist/index.js plus apps/api/drizzle/ into /opt/teleuploader/dist,
+      # ships dist/index.js, apps/api/drizzle/ and apps/web/dist/ (as $STAGE/web)
+      # into /opt/teleuploader/dist,
       # applies pending migrations with `node dist/migrate.js`, runs
       # `systemctl restart teleuploader`, waits for `active`, and probes /health on
       # the port the running PID listens on.

@@ -15,8 +15,13 @@ import { members, organizations, s3Credentials } from '../persistence/drizzle/sc
  * migration fails on a fresh database.
  *
  * NOTE: nothing imports `runSeed` outside this file. It is invoked by
- * `pnpm db:seed`, and `migrate.ts` documents that it too is currently orphaned
- * (deploy.sh ships migrate.js but never runs it — see P5).
+ * `pnpm db:seed`, AND by deploy.sh — which runs seed.js immediately after
+ * migrate.js and before the restart, under the same bws-exec environment:
+ *   as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/seed.js"
+ * That deploy-time call is load-bearing, not a convenience: the S3 surface
+ * resolves credentials through s3_credentials with NO environment fallback, so a
+ * deploy that migrates and never seeds serves 403 to every S3 client while
+ * /health answers 200.
  *
  * That ordering is the whole reason this is not an ordinary post-migrate seed:
  * seeding afterwards would leave `migrate()` unable to complete.

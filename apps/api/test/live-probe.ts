@@ -58,21 +58,47 @@ const PROBES: { label: string; method: string; path: string; expect: number }[] 
     expect: 404,
   },
   { label: 'upload without body (4xx)', method: 'POST', path: '/api/upload', expect: 400 },
-  // 200 in dev because src/home.html sits next to the source. In production this
-  // is the known 500, because deploy.sh never ships home.html — the bug the P4
-  // React SPA fixes. Pinned as 200 here so the probe passes from a checkout.
-  { label: 'site root (dev home.html)', method: 'GET', path: '/', expect: 200 },
+  // P4: `/` is no longer `handleHome` reading `src/home.html`. It is the SPA
+  // shell from `spa-controller`, which returns null when WEB_DIST_PATH is unset
+  // and the route falls through to a bare 404.
+  //
+  // This used to pin `expect: 404` UNCONDITIONALLY, on the reasoning that "404 is
+  // the honest answer for an unconfigured SPA and is identical in both
+  // environments". That reasoning was the defect: the probe passed for the wrong
+  // reason by construction. A deployed unit that DOES configure WEB_DIST_PATH and
+  // still served 404 at `/` — the exact P4 shipping failure — was indistinguishable
+  // from a correct backend-only deploy, so the probe could never fail.
+  //
+  // It now branches on the environment, which is the one thing that differs
+  // between the two deployments. With WEB_DIST_PATH set the shell must be served;
+  // without it, the pre-P4 404 is correct. Either way the probe can fail, and
+  // `grep -rn WEB_DIST_PATH deploy.sh` is asserted executable in
+  // deploy-config.test.ts, so the "never configured" arm has a trip-wire too.
+  {
+    label: `site root (SPA ${process.env.WEB_DIST_PATH ? 'configured' : 'not configured'})`,
+    method: 'GET',
+    path: '/',
+    expect: process.env.WEB_DIST_PATH ? 200 : 404,
+  },
   { label: 'CORS preflight', method: 'OPTIONS', path: '/', expect: 204 },
   { label: 'root PUT without S3 (405)', method: 'PUT', path: '/', expect: 405 },
   { label: 'unknown path (404)', method: 'GET', path: '/definitely/not/a/route', expect: 404 },
-  // P2b REGRESSION, found while planning P4: porting the route table to Hono dropped
-  // /docs and /swagger.json, which routes/index.ts had served. swagger.test.ts still
-  // passed because it imports the handlers directly and never goes through the app —
-  // a test that cannot see a missing route registration. Pinned here at 404 so the
-  // current state is explicit; P4 restores them via oRPC's OpenAPIHandler and this
-  // expectation is flipped to 200 in the same commit that does it.
-  { label: 'swagger docs (dropped in P2b)', method: 'GET', path: '/docs', expect: 404 },
-  { label: 'swagger json (dropped in P2b)', method: 'GET', path: '/swagger.json', expect: 404 },
+  // P2b REGRESSION, now flipped. Porting the route table to Hono dropped /docs
+  // and /swagger.json, which routes/index.ts had served. swagger.test.ts kept
+  // passing because it imported the handlers directly and never went through the
+  // app. P4 re-registered both in app.ts and flipped these to 200.
+  //
+  // The trip-wire is still live in the other direction: these are checked over
+  // REAL HTTP on a real socket with the real handlers, so the next port that
+  // drops a registration fails here.
+  //
+  // (The old comment named oRPC's OpenAPIHandler as the mechanism. It does not
+  // exist in the installed packages — `Object.keys(require('@orpc/server/fetch'))`
+  // is BodyLimitPlugin, CompositeFetchHandlerPlugin, CompressionPlugin,
+  // FetchHandler, RPCHandler. The hand-written handlers were re-registered.)
+  { label: 'swagger docs (restored in P4)', method: 'GET', path: '/docs', expect: 200 },
+  { label: 'swagger json (restored in P4)', method: 'GET', path: '/swagger.json', expect: 200 },
+  { label: 'SPA asset with no SPA configured', method: 'GET', path: '/assets/x.js', expect: 404 },
 ];
 
 let failures = 0;

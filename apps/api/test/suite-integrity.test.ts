@@ -123,15 +123,51 @@ test('the semantic-release hooks referenced by .releaserc.json exist', () => {
   }
 });
 
-test('deploy stays frozen: no workflow pushes to main', () => {
-  // P0–P5b freeze. Every phase merge must not reach production; P5c restores it.
-  // This deliberately duplicates deploy-config.test.ts: if that file is deleted
-  // during the P5 cleanup, the freeze guard survives in a suite the glob cannot
-  // skip.
+test('the deploy and release workflows are UNFROZEN (P5c)', () => {
+  // P0–P5b froze these; P5c lifted the freeze, so a merge to main deploys again. This
+  // assertion is INVERTED rather than deleted, so a silent re-freeze fails here too.
+  // It deliberately duplicates deploy-config.test.ts: if that file is deleted, the
+  // trigger guard survives in a suite the glob cannot skip.
+  //
+  // The BLOCK form is the point. The freeze guard was `/^\s{2}push:\s*$/m`, matching only
+  // `push:` alone on a line at 2-space indent — an inline `push: branches: [main]` on
+  // one line would have matched neither the old guard nor this one, letting the freeze
+  // be lifted while still asserting it was in place.
   for (const wf of ['deploy.yml', 'release.yml']) {
     const file = readFileSync(join(repoRoot, '.github/workflows', wf), 'utf8');
-    expect(file, `${wf} must stay workflow_dispatch-only until P5c`).not.toMatch(
+    expect(file, `${wf} must trigger on push to main — the P5c unfreeze`).toMatch(
       /^\s{2}push:\s*$/m,
     );
+    // Scoped to main, not every branch.
+    expect(file, `${wf} push trigger must be scoped to main`).toMatch(
+      /^\s{2}push:\n\s{4}branches: \[main\]$/m,
+    );
+    // workflow_dispatch must ALSO survive: .semrel/dispatch.mjs POSTs to the deploy
+    // dispatch endpoint, so dropping it breaks the release→deploy path in production.
+    expect(file, `${wf} must keep workflow_dispatch for .semrel/dispatch.mjs`).toContain(
+      'workflow_dispatch',
+    );
   }
+});
+
+test('mirror-gitea.yml is unfrozen but its force-push risk is still documented', () => {
+  // mirror-gitea.yml runs `git push --mirror`, which deletes every ref the checkout
+  // lacks — including refs/pull/* and refs/notes/*, because actions/checkout fetches
+  // only refs/heads/*. The P5c unfreeze therefore re-arms a force push that would, on
+  // the first merge to main, delete every open PR ref on Gitea.
+  //
+  // The contract says to FLAG this, not silently decide it, so no refspec change is
+  // asserted here. What IS asserted is that the trigger is armed (the task) AND that the
+  // hazard is written down in the file — a silent re-freeze, or a future edit that drops
+  // the warning while keeping `--mirror`, both fail here.
+  const file = readFileSync(join(repoRoot, '.github/workflows/mirror-gitea.yml'), 'utf8');
+  expect(file, 'mirror-gitea.yml must trigger on push to main — the P5c unfreeze').toMatch(
+    /^\s{2}push:\s*$/m,
+  );
+  expect(file, 'mirror-gitea.yml must keep workflow_dispatch').toContain('workflow_dispatch');
+  // The unfixed hazard must remain visible to whoever merges next.
+  expect(file).toContain('git push --mirror');
+  expect(file).toMatch(/force push/i);
+  expect(file).toMatch(/refs\/pull/);
+  expect(file).toMatch(/refs\/notes/);
 });

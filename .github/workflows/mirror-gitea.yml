@@ -1,16 +1,48 @@
 name: Mirror to Gitea
 
-# MIGRATION FREEZE (P0–P5c): the `push` trigger is disabled during the kana
-# migration, matching deploy.yml and release.yml.
+# The `push` trigger is RESTORED (P5c), matching deploy.yml and release.yml. It was
+# disabled for the whole kana migration (P0-P5b) because the migration lived on a
+# branch that was pushed nowhere, so any merge to main would have made the mirror
+# delete that branch on Gitea. The migration is now merged into integration/p3b, so
+# that specific reason is gone.
 #
-# This one is the most dangerous of the three, which is why P0 missed it. It runs
-# `git push --mirror`, which is a FORCE push: it overwrites the remote's refs
-# wholesale. The whole migration lives on the branch `kana-migration`, which is
-# not pushed anywhere (the only remote is GitHub `origin`). While this workflow
-# is armed, any merge to main makes the mirror delete `kana-migration` on Gitea
-# and every phase commit with it. Restore the push trigger in P5c, once the
-# migration branch is merged and no longer load-bearing.
+# !!! READ THIS BEFORE MERGING ANYTHING TO main !!!
+#
+# ⚠️  THE `git push --mirror` BELOW IS STILL A FORCE PUSH AND THAT IS NOT FIXED.
+#    `--mirror` copies every ref the checkout holds and DELETES every ref it does
+#    not. `actions/checkout` fetches only `refs/heads/*` — never `refs/pull/*`,
+#    never `refs/notes/*` — so those refs are absent from the runner and `--mirror`
+#    removes them from Gitea.
+#
+#    Verified against a scratch remote (mktemp sandbox, dry-run):
+#      refs before: refs/heads/main, refs/notes/semantic-release-1.2.9,
+#                   refs/pull/1/head, refs/tags/v1.0.0
+#      $ git push --dry-run --mirror origin
+#        - [deleted]  refs/notes/semantic-release-1.2.9
+#        - [deleted]  refs/pull/1/head
+#    Verified that a divergent main is force-overwritten rather than rejected:
+#      $ git push --dry-run --mirror <remote>
+#        + fcd6195...7d61a70 main -> main (forced update)
+#
+#    So the FIRST merge to main after this trigger is restored will, in one step:
+#      1. delete every open PR ref on Gitea (`refs/pull/1..N/head`);
+#      2. delete the semantic-release notes refs;
+#      3. force-overwrite any branch someone pushed to Gitea directly.
+#
+#    RECOMMENDATION (a human must decide this — deliberately NOT applied here):
+#    replace the `--mirror` line with an explicit refspec push, which was verified
+#    to leave refs/pull/* and refs/notes/* untouched and to REJECT a divergent main
+#    instead of overwriting it:
+#        git push --force origin \
+#          'refs/heads/*:refs/heads/*' \
+#          'refs/tags/*:refs/tags/*'
+#    The contract offers the narrower `refs/heads/main` + `refs/tags/*` variant too,
+#    at the cost of no longer mirroring other branches.
+#
+#    Until that is decided, treat any merge to main as also mutating Gitea's refs.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +60,10 @@ jobs:
       - name: Mirror to Gitea
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        # See the ⚠️ block in the header before changing anything here: this is a
+        # force push that deletes refs/pull/* and refs/notes/* on Gitea. Replacing
+        # `--mirror` with an explicit refspec is the recommended fix and is left to a
+        # human decision.
         run: |
           git remote add gitea "https://oauth2:${GITEA_TOKEN}@git.imrnes.team/MythEclipse/TeleUploader.git"
           git push --mirror gitea
