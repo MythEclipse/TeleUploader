@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/asepharyana/TeleUploader/compare/v1.3.1...v1.3.2) (2026-10-09)
+
+
+### Bug Fixes
+
+* **api:** require auth on /api/v1 reads, keeping share links public (item 11) ([6774375](https://github.com/asepharyana/TeleUploader/commit/6774375b609dc1adc8ac9d98bac65e59eabbeb3b))
+
 ## [1.3.1](https://github.com/asepharyana/TeleUploader/compare/v1.3.0...v1.3.1) (2026-10-09)
 
 
