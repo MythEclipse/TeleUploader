@@ -47,8 +47,11 @@ vi.mock('../src/infrastructure/persistence/drizzle/migrate', () => ({
 vi.mock('../src/presentation/http/controllers/upload-controller', () => ({
   handleUpload: mockHandleUpload,
 }));
+const mockHandleFileRedirect = vi.fn(() =>
+  Promise.resolve(Response.json({ error: 'Not Found' }, { status: 404 })),
+);
 vi.mock('../src/presentation/http/controllers/file-controller', () => ({
-  handleFileRedirect: vi.fn(),
+  handleFileRedirect: mockHandleFileRedirect,
   handleFileInfo: vi.fn(),
 }));
 const mockHandleHealth = vi.fn();
@@ -166,19 +169,25 @@ describe('Bootstrap Server', () => {
     expect(await uploadRes.json()).toEqual({ ok: true });
     expect(mockHandleUpload).toHaveBeenCalledTimes(1);
 
-    // GET /api/v1/* is intentionally public (read endpoints need no auth) --
-    // it passes through to the raw handler (stubbed here to 404).
-    const publicRes = await fetchHandler(new Request('http://localhost/api/v1/files'));
+    // Item 11 changed which route demonstrates "an unauthenticated route
+    // reaches the raw handler". GET /api/v1/* is wrapped now, so it answers 401
+    // like the writes do and can no longer show the pass-through. The share-link
+    // route `/f/:public_id` is deliberately still public (that is the whole point
+    // of item 11 — hiding the listing while leaving live links working), so it is
+    // the route that exercises this property now. Stubbed to 404 here.
+    const publicRes = await fetchHandler(new Request('http://localhost/f/some-public-id'));
     expect(publicRes.status).toBe(404);
     expect(await publicRes.json()).toEqual({ error: 'Not Found' });
 
-    // Write endpoints are auth-guarded -- POST goes through requireAuth (401 here).
-    const protectedRes = await fetchHandler(
-      new Request('http://localhost/api/v1/files', { method: 'POST' }),
-    );
-
-    expect(protectedRes.status).toBe(401);
-    expect(await protectedRes.json()).toEqual({ error: 'Unauthorized' });
+    // Both verbs of /api/v1/* are auth-guarded: reads as of item 11, writes
+    // always.
+    for (const method of ['GET', 'POST'] as const) {
+      const protectedRes = await fetchHandler(
+        new Request('http://localhost/api/v1/files', { method }),
+      );
+      expect(protectedRes.status, `${method} /api/v1/* must require auth`).toBe(401);
+      expect(await protectedRes.json()).toEqual({ error: 'Unauthorized' });
+    }
   });
 
   it('the booted app serves the P4 documentation routes', async () => {

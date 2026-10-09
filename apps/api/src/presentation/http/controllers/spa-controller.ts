@@ -159,7 +159,11 @@ export const serveSpaFile = async (reqPath: string): Promise<Response | null> =>
   if (!root) return null;
 
   const filePath = resolveWithinRoot(root, reqPath);
-  if (!filePath || !filePath.startsWith(root + sep)) return null;
+  // `?.` rather than `!filePath || !filePath.startsWith(...)`: equivalent, because
+  // `!undefined` and `!''.startsWith(...)` are both true, so the traversal guard
+  // still rejects a missing path and anything outside the root. It was the only
+  // `error` in `biome check` and kept lint red.
+  if (!filePath?.startsWith(root + sep)) return null;
   if (!(await isFile(filePath))) return null;
 
   const body = await readFile(filePath);

@@ -68,13 +68,18 @@ const { createApp } = await import('../src/presentation/http/app');
 const req = () => createApp().request;
 
 describe('public read-only API routing', () => {
-  it('serves GET /api/v1/* without auth (read endpoints are public)', async () => {
-    // A real read path that needs no body and no session: bucket listing.
+  it('requires auth on GET /api/v1/* (item 11 — reads are no longer public)', async () => {
+    // This file used to assert the opposite — that GET was public — which was the
+    // item 11 question. The decision taken was to wrap GET as well, so the
+    // assertion is inverted here and the reasoning lives in
+    // `api-v1-read-auth.test.ts`, which covers the whole surface.
+    //
+    // A 401 is the auth refusal. The controller reaches the database, which is
+    // not provisioned in the unit suite, so a 500 would be the pass-through
+    // signature — and asserting "not 401" here is precisely what let the public
+    // read surface exist unnoticed until item 11 measured it against production.
     const res = await req()('/api/v1/buckets');
-    // The only failure that matters here is the auth refusal. The controller
-    // reaches the database, which is not provisioned in the unit suite, so a
-    // 500 is the pass-through signature and a 401 is the regression.
-    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(401);
   });
 
   it('protects write endpoints with auth (POST/DELETE/PUT)', async () => {

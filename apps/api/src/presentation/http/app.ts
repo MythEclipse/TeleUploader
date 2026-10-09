@@ -300,8 +300,26 @@ export const createApp = (): Hono => {
   // it would have replaced "anyone" with "any tenant" — still not a boundary.
   app.all('/rpc/*', rpcAuthenticated);
 
-  // ── Dashboard JSON API. GET public; writes require admin auth. ──────────
-  app.get('/api/v1/*', adapt(handleWebApiV1));
+  // ── Dashboard JSON API. Admin auth on every verb. ───────────────────────
+  //
+  // Item 11. GET used to be registered bare, on the reasoning that "reads are
+  // public, writes are protected". Measured against live production, that
+  // exposed more than the reads: an anonymous caller could list buckets
+  // (`gitea`, 170 objects), walk every object key, and then READ THE CONTENT —
+  // each listing entry carries a `downloadUrl` (/f/<public_id>) and those return
+  // 200 without a session. A share link is meant to grant one object; a public
+  // listing turns that into "everything", quietly subsuming the share-link
+  // decision.
+  //
+  // GET is therefore wrapped too. `/f/:public_id` and `/file/:public_id/info`
+  // above stay unwrapped on purpose: they are the share-link surface, and links
+  // already handed out must keep working. Hiding the LISTING while leaving the
+  // share links public is the point — possession of a link is the credential.
+  //
+  // The `/api/v1/auth/*` routes above are registered ahead of this wildcard and
+  // remain reachable unauthenticated: `auth/me` is the frontend's "am I an
+  // admin?" probe and answers 401 by design.
+  app.get('/api/v1/*', authenticated(handleWebApiV1));
   app.post('/api/v1/*', authenticated(handleWebApiV1));
   app.delete('/api/v1/*', authenticated(handleWebApiV1));
   app.put('/api/v1/*', authenticated(handleWebApiV1));

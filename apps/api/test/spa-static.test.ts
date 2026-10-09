@@ -463,7 +463,7 @@ describe('documentation endpoints', () => {
     expect(body.paths['/api/v1/buckets/{bucket}/objects']).toHaveProperty('get');
     expect(body.paths['/api/v1/buckets/{bucket}/copy']).toHaveProperty('post');
     // The requestBody proves a real schema was generated, not a placeholder.
-    const copy = body.paths['/api/v1/buckets/{bucket}/copy']['post'];
+    const copy = body.paths['/api/v1/buckets/{bucket}/copy'].post;
     expect(copy?.requestBody).toBeDefined();
   });
 });

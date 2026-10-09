@@ -108,7 +108,7 @@ const inputJsonSchemaOf = (envelope: OrpcEnvelope): JsonSchema | typeof NO_INPUT
 
 /** `{bucket}` -> `{ name: 'bucket', in: 'path', required: true, schema }`. */
 const pathParametersOf = (path: string, body: JsonSchema | typeof NO_INPUT): unknown[] => {
-  const properties = (body === NO_INPUT ? undefined : body['properties']) as
+  const properties = (body === NO_INPUT ? undefined : body.properties) as
     | Record<string, JsonSchema>
     | undefined;
   return [...path.matchAll(/\{(\w+)\}/g)].map((match) => {
@@ -174,7 +174,7 @@ export const buildRouterPaths = (
     };
 
     if (methodTakesBody(method) && body !== NO_INPUT) {
-      operation['requestBody'] = {
+      operation.requestBody = {
         required: true,
         content: { 'application/json': { schema: body } },
       };
