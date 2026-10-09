@@ -52,10 +52,21 @@ import type {
 // ─────── Buckets ───────
 
 /**
- * `GET /api/v1/buckets` — **public**, no auth required (`app.ts:149`).
+ * `GET /api/v1/buckets` — **admin** as of item 11.
  *
- * Leaks every bucket name plus its object count to an unauthenticated caller
- * (contract gotcha 9). The SPA inherits that; it is flagged, not fixed.
+ * This used to be public, and the leak was worse than "names and counts": each
+ * object listing entry carries a `downloadUrl` (`/f/<public_id>`) and those answer
+ * 200 unauthenticated, so a public listing meant anyone could read the content of
+ * every object. A share link is meant to grant ONE object; the listing handed out
+ * one per object and quietly subsumed that decision.
+ *
+ * GET is now wrapped like the writes. The client sends
+ * `credentials: 'same-origin'` on every call (see client.ts), so a logged-in
+ * session presents its cookie and this is transparent — the visible effect is that
+ * an anonymous visitor now gets 401 instead of a listing, which is the point.
+ *
+ * `/f/:public_id` itself is deliberately STILL public, so links already handed out
+ * keep working. Possession of a link is the credential.
  */
 export const listBuckets = (): Promise<BucketSummary[]> =>
   http.getJson<ListBucketsResponse>('/api/v1/buckets').then((d) => d.buckets);
@@ -77,12 +88,21 @@ export const deleteBucket = (bucket: string): Promise<SuccessResponse> =>
 // ─────── Objects ───────
 
 /**
- * `GET /api/v1/buckets/{bucket}/objects` — **public**.
+ * `GET /api/v1/buckets/{bucket}/objects` — **admin** as of item 11.
+ *
+ * Was public; see the note on {@link listBuckets} for why that mattered more than
+ * the route name suggests.
  *
  * `maxKeys` defaults to 200 here, matching `home.html`'s hardcoded
  * `max-keys=200`. The response's `isTruncated` is always `false` and
  * `nextContinuationToken` always `null` — see the note on
  * {@link ListObjectsResponse} — so this silently truncates rather than paging.
+ *
+ * One API quirk worth knowing when reading a listing: `delimiter` defaults to `/`
+ * server-side via `|| '/'`, so an EMPTY `delimiter=` cannot express "no
+ * delimiter" — the listing always rolls up one level into `prefixes`. The gitea
+ * bucket's keys are `packages/NN/xx/<sha256>`, so a flat recursive listing is not
+ * reachable through this endpoint; drill down via `prefix`.
  */
 export const listObjects = (
   bucket: string,
