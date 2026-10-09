@@ -6,9 +6,10 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js",
+    "build": "esbuild src/index.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js && esbuild src/infrastructure/db/seed.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/seed.js",
     "start": "NODE_ENV=production node dist/index.js",
     "db:migrate": "node dist/migrate.js",
+    "db:seed": "node dist/seed.js",
     "verify:migrations": "tsx ../../scripts/verify-migrations.ts",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run --config vitest.config.ts",
@@ -19,8 +20,7 @@
     "test:s3": "vitest run --config vitest.config.ts test/s3-auth.test.ts test/s3-auth-edge.test.ts test/s3-operations.test.ts test/s3-routing.test.ts test/s3-range.test.ts test/s3-object-stream.test.ts test/object-stream-parallel.test.ts test/s3-helpers-edge.test.ts test/s3-bucket-config.test.ts test/web-api.test.ts",
     "lint": "biome check src test",
     "format": "biome format --write src test",
-    "typecheck": "tsc --noEmit",
-    "db:seed": "tsx src/infrastructure/db/seed.ts"
+    "typecheck": "tsc --noEmit"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

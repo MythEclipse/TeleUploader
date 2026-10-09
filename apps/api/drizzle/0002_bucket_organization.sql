@@ -45,9 +45,24 @@ END $$;
 --
 -- ON CONFLICT DO NOTHING keeps it idempotent: if seed.ts already created the
 -- organization, this is a no-op and the backfill uses the existing row.
+--
+-- NO CONFLICT TARGET, deliberately. `organizations.name` is UNIQUE as well as
+-- `organizations.slug` (schema.ts), and targeting only the slug let a database
+-- that already held an organization NAMED 'TeleUploader' under a DIFFERENT
+-- slug abort this statement with:
+--
+--   ERROR: duplicate key value violates unique constraint "organizations_name_unique"
+--
+-- Verified by execution, not by reading: with such a row present the migration
+-- exited 3, leaving buckets.organization_id still nullable and every bucket
+-- still unattached. That is a fail-STOP, which is the safe direction — the NOT
+-- NULL step below had not run, and re-running the migration recovered cleanly
+-- once the collision was removed. A bare ON CONFLICT DO NOTHING tolerates
+-- EITHER unique index, so the migration inserts the bootstrap org when neither
+-- is taken and reuses the existing row when either is.
 INSERT INTO "organizations" ("name", "slug")
 VALUES ('TeleUploader', 'default')
-ON CONFLICT ("slug") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 -- Backfill every existing bucket to the bootstrap organization.
 UPDATE "buckets"

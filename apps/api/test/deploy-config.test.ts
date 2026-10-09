@@ -501,3 +501,60 @@ test('the migration verification harness is WIRED, not just present', () => {
     ciFile.indexOf('verify:migrations --allow-writes'),
   );
 });
+
+test('the deploy seeds between migrate and restart, not after', () => {
+  // WHY THIS EXISTS — the gap this pins was found by running the pieces, not by
+  // reading them. scripts/verify-migrations.ts runs migrate AND seed, so the CI job
+  // proved a sequence the deploy never performed: deploy.sh invoked migrate.js and
+  // stopped. Nothing in CI could see that, because the harness was doing more than
+  // production did.
+  //
+  // The consequence was silent and total. makeSecretResolver()
+  // (apps/api/src/presentation/http/controllers/s3/s3-router.ts:101-112) resolves
+  // S3 credentials from s3_credentials and has NO environment fallback — verified:
+  // `grep s3AccessKey src/presentation/s3/auth.ts` matches only a comment. seed.ts is
+  // the only thing that adopts the existing S3_ACCESS_KEY / S3_SECRET_KEY pair into
+  // the bootstrap organization. So a deploy that migrates but never seeds leaves a
+  // healthy-looking dashboard and a 403 for every S3 client: aws-cli, rclone, and
+  // the Docker registry push path.
+  //
+  // Asserted as real statement ordering, so deleting the seed invocation — or moving
+  // it after the restart — breaks this test. A toContain on the string 'seed.js'
+  // would not: it proves the name is in the file, not that anything ran.
+  const migrateAt = deployScript.search(
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/migrate\.js"\s*$/m,
+  );
+  const seedAt = deployScript.search(
+    /^\s*as_root bws-exec "\$MIGRATION_APP" -- "\$NODE_BIN" "\$DIST_DIR\/seed\.js"\s*$/m,
+  );
+  const restartAt = deployScript.search(/^\s*as_root systemctl restart "\$UNIT"\s*$/m);
+
+  expect(migrateAt, 'deploy.sh never invokes the migration runner').toBeGreaterThan(-1);
+  expect(
+    seedAt,
+    'deploy.sh never invokes the seeder — S3 has no environment fallback',
+  ).toBeGreaterThan(-1);
+  expect(restartAt, 'deploy.sh never restarts the unit').toBeGreaterThan(-1);
+
+  expect(seedAt, 'the seed must run AFTER the migrations it depends on').toBeGreaterThan(migrateAt);
+  expect(
+    seedAt,
+    'the seed must run BEFORE the restart, or the unit serves without it',
+  ).toBeLessThan(restartAt);
+
+  // The bundle has to be shipped, pre-flighted and asserted, like migrate.js. A
+  // missing seed.js on the VPS would otherwise fail at the last possible moment.
+  expect(deployScript).toMatch(/scp[^\n]*apps\/api\/dist\/seed\.js/);
+  expect(deployScript).toContain('apps/api/dist/seed.js');
+  expect(deployScript).toMatch(/\[ -f apps\/api\/dist\/seed\.js \] \|\| die/);
+
+  // And it must be a real bundle, not a tsx invocation: deploy.sh ships dist/ only,
+  // never src/, so `tsx src/.../seed.ts` cannot run there. Verified: the VPS receives
+  // exactly index.js, migrate.js, seed.js and drizzle/.
+  const apiPackageJson = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { scripts: Record<string, string>; devDependencies?: Record<string, string> };
+  expect(apiPackageJson.scripts['db:seed']).toBe('node dist/seed.js');
+  expect(apiPackageJson.scripts['db:seed']).not.toMatch(/\btsx\b/);
+  expect(apiPackageJson.scripts.build).toContain('dist/seed.js');
+});

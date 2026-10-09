@@ -126,7 +126,7 @@ if $DO_CHECK; then
   # (the boot-time auto-migration was removed in the same commit that introduced
   # drizzle), so the entry asserted a deployment step that did not exist. The
   # migrations now travel as apps/api/drizzle/, which migrate.js actually reads.
-  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/drizzle/meta/_journal.json; do
+  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js apps/api/drizzle/meta/_journal.json; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
   echo ""
@@ -179,7 +179,8 @@ if $DO_BUILD; then
 
   [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js not found after build"
   [ -f apps/api/dist/migrate.js ] || die "apps/api/dist/migrate.js not found after build"
-  ok "Build complete (index.js: $(wc -c < apps/api/dist/index.js | numfmt --to=iec) — migrate.js: $(wc -c < apps/api/dist/migrate.js | numfmt --to=iec))"
+  [ -f apps/api/dist/seed.js ] || die "apps/api/dist/seed.js not found after build — the S3 credential is adopted by the seeder, and there is no environment fallback"
+  ok "Build complete (index.js: $(wc -c < apps/api/dist/index.js | numfmt --to=iec) — migrate.js: $(wc -c < apps/api/dist/migrate.js | numfmt --to=iec) — seed.js: $(wc -c < apps/api/dist/seed.js | numfmt --to=iec))"
 else
   log "Skipping build (--no-build)"
   [ -f apps/api/dist/index.js ] || die "apps/api/dist/index.js missing — run without --no-build first"
@@ -200,7 +201,7 @@ log "Staging build at ${STAGE_REMOTE}..."
 vps "rm -rf '${STAGE_REMOTE}' && mkdir -p '${STAGE_REMOTE}'"
 
 log "Shipping dist to VPS..."
-scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
+scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp failed"
 
 # The drizzle migrations folder is DATA, not code: esbuild bundles only the JS, so
 # `node dist/migrate.js` cannot find it unless the folder is shipped next to the
@@ -211,6 +212,15 @@ scp $SSH_OPTS apps/api/dist/index.js apps/api/dist/migrate.js "${SSH_DEST}:${STA
 # remote install/rollback loops below can treat it as one atomic unit.
 scp -r $SSH_OPTS apps/api/drizzle "${SSH_DEST}:${STAGE_REMOTE}/" > /dev/null || die "scp of drizzle/ failed"
 ok "Build + drizzle/ migrations shipped"
+
+# dist/seed.js is NOT optional. The S3 surface resolves credentials through
+# makeSecretResolver() (s3-router.ts:101-112), which reads s3_credentials and has
+# NO environment fallback — verified: `grep s3AccessKey src/presentation/s3/auth.ts`
+# returns only a comment. seed.ts is what adopts the existing S3_ACCESS_KEY /
+# S3_SECRET_KEY pair into the bootstrap organization, so without it every S3 client
+# (aws-cli, rclone, the Docker registry push path) gets 403 on the first signed
+# request. Shipping migrate.js without seed.js would leave the S3 API dark while
+# the dashboard looked perfectly healthy.
 
 # ── 4. Install + restart + verify (runs on the VPS) ───────────────────────────
 # Fed through stdin so the whole remote transaction — atomic install, restart,
@@ -414,6 +424,15 @@ fi
 say "applying database migrations"
 MIGRATED=1
 as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/migrate.js"
+
+# Seed IMMEDIATELY after migrate, still before the restart, still under the same
+# bws-exec env. Order matters: 0002 backfills existing buckets from the bootstrap
+# organization, and seed.ts is what adopts the S3 credential into it. Running it
+# later — or never — leaves a deploy that migrates cleanly and then serves 403 to
+# every S3 client. Idempotent by construction (lookup-then-insert), so running it on
+# every deploy is safe and is what keeps a newly rotated credential in the table.
+say "seeding bootstrap organization and S3 credential"
+as_root bws-exec "$MIGRATION_APP" -- "$NODE_BIN" "$DIST_DIR/seed.js"
 
 say "restarting $UNIT"
 as_root systemctl restart "$UNIT"
