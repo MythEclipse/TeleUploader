@@ -150,24 +150,66 @@ test('the deploy and release workflows are UNFROZEN (P5c)', () => {
   }
 });
 
-test('mirror-gitea.yml is unfrozen but its force-push risk is still documented', () => {
-  // mirror-gitea.yml runs `git push --mirror`, which deletes every ref the checkout
-  // lacks — including refs/pull/* and refs/notes/*, because actions/checkout fetches
-  // only refs/heads/*. The P5c unfreeze therefore re-arms a force push that would, on
-  // the first merge to main, delete every open PR ref on Gitea.
+test('mirror-gitea.yml mirrors by explicit refspec, never --mirror (TODO item 5)', () => {
+  // `git push --mirror` deletes every ref the checkout lacks, and actions/checkout
+  // fetches only refs/heads/*. Verified against a scratch remote, not assumed:
   //
-  // The contract says to FLAG this, not silently decide it, so no refspec change is
-  // asserted here. What IS asserted is that the trigger is armed (the task) AND that the
-  // hazard is written down in the file — a silent re-freeze, or a future edit that drops
-  // the warning while keeping `--mirror`, both fail here.
+  //   GITEA before: refs/heads/main, refs/heads/feature-x, refs/notes/…, refs/pull/1/head, refs/tags/v1.0.0
+  //   RUNNER has:   refs/remotes/origin/main, refs/remotes/origin/feature-x, refs/tags/v1.0.0
+  //   $ git push --dry-run --mirror origin
+  //      - [deleted]  feature-x
+  //      - [deleted]  main                  <-- the branch it exists to mirror
+  //      - [deleted]  refs/notes/semantic-release-1.2.9
+  //      - [deleted]  refs/pull/1/head
+  //
+  // `[deleted] main` is the one that is easy to miss: the runner's copy lives under
+  // refs/remotes/origin/*, a DIFFERENT namespace from the remote's refs/heads/*, so
+  // --mirror had nothing to push there and deleted it instead.
+  //
+  // This test used to ASSERT the hazard was still present (`toContain('git push
+  // --mirror')`), because fixing it was a human decision. The decision is made:
+  // the refspecs below are what ships, so the assertions flip. A future edit that
+  // restores --mirror now fails here instead of quietly re-arming the deletion.
   const file = readFileSync(join(repoRoot, '.github/workflows/mirror-gitea.yml'), 'utf8');
+
   expect(file, 'mirror-gitea.yml must trigger on push to main — the P5c unfreeze').toMatch(
     /^\s{2}push:\s*$/m,
   );
   expect(file, 'mirror-gitea.yml must keep workflow_dispatch').toContain('workflow_dispatch');
-  // The unfixed hazard must remain visible to whoever merges next.
-  expect(file).toContain('git push --mirror');
-  expect(file).toMatch(/force push/i);
-  expect(file).toMatch(/refs\/pull/);
-  expect(file).toMatch(/refs\/notes/);
+
+  // THE ASSERTION THAT MATTERS: --mirror must not appear in the PUSH COMMAND.
+  // Matching is anchored to a shell invocation — an optional `git`, then `push`,
+  // then flags — so the file's own prose about why --mirror is gone (which
+  // necessarily contains the token, including a quoted `$ git push --dry-run
+  // --mirror origin` transcript) cannot satisfy or break this.
+  const pushCommand = /^\s*(?:\$?\s*)?git\s+push\b[^\n]*$/gm;
+  const commands = file.match(pushCommand) ?? [];
+  for (const command of commands) {
+    expect(command, 'the push must not use --mirror').not.toContain('--mirror');
+  }
+  // At least one push must exist, or the loop above is vacuously green.
+  expect(commands.length, 'the mirror must actually push something').toBeGreaterThan(0);
+
+  // Branches and tags are mirrored explicitly and exhaustively; anything not named
+  // (refs/pull/*, refs/notes/*) is therefore left alone.
+  expect(file, 'must mirror branches').toContain('refs/heads/*:refs/heads/*');
+  expect(file, 'must mirror tags').toContain('refs/tags/*:refs/tags/*');
+
+  // `--force` would defeat the fast-forward check: it force-overwrites a main that
+  // was pushed to Gitea directly. `--force-if-includes` refuses unless the remote's
+  // ref is an ancestor of what we push, so a rewritten remote branch is rejected
+  // rather than clobbered. Verified: it rejects a divergent main exactly as the
+  // no-force case does.
+  for (const command of commands) {
+    expect(command, 'a bare --force would clobber a branch pushed to Gitea directly').not.toMatch(
+      /(?:^|\s)--force(?:\s|$)/,
+    );
+  }
+  expect(file, 'must guard the mirror with --force-if-includes').toMatch(
+    /git\s+push[^\n]*--force-if-includes/,
+  );
+
+  // The reasoning stays in the file so the next person does not "simplify" it back.
+  expect(file, 'must document the deleted refs').toMatch(/refs\/pull/);
+  expect(file, 'must document the deleted refs').toMatch(/refs\/notes/);
 });

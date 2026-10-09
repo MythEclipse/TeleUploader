@@ -62,7 +62,7 @@ const MOCK_MEMBERSHIPS: Record<string, string> = {
 
 vi.mock('../src/infrastructure/persistence/repositories/bucket-repository', () => ({
   DrizzleBucketRepository: class implements IBucketRepository {
-    list = (organizationId: string) => Promise.resolve([]);
+    list = () => Promise.resolve([]);
     findByName = (name: string, organizationId: string) =>
       Promise.resolve(
         name === BUCKET && organizationId === MOCK_ORG

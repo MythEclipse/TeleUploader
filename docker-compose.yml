@@ -1,6 +1,47 @@
-# ⚠️ LEGACY — Docker/Traefik sudah DIHAPUS dari VPS produksi (orangevps).
-# Deploy sekarang pnpm + systemd (deploy.sh + .github/workflows/deploy.yml) dengan
-# Caddy reverse proxy. Berkas ini hanya dipertahankan sebagai referensi historis.
+# ⚠️ NOT THE PRODUCTION DEPLOY. Docker and Traefik were removed from the
+# production VPS (orangevps) and this file is retained for reference only.
+#
+# Production is: pnpm build -> scp -> systemd unit, orchestrated by ./deploy.sh
+# (driven by .github/workflows/deploy.yml) behind a Caddy reverse proxy.
+# There is no container, no registry and no compose stack in that path.
+#
+# WHAT WAS WRONG WITH THE PREVIOUS VERSION, AND WHY EACH PART CHANGED
+#
+#   1. It ran `bun` in the healthcheck, over a hardcoded port 4000, while
+#      PORT is injected at run time (it has already moved once, 4189 -> 4000).
+#      A healthcheck that hardcodes the port is a healthcheck that eventually
+#      reports a healthy service as unhealthy. deploy.sh avoids this by probing
+#      /health from OUTSIDE, on the port the running PID is listening on.
+#      The check below uses $PORT.
+#
+#   2. Every Traefik label below assumed an external network
+#      (`app-shared-net`) and the Traefik Docker provider. Neither exists on
+#      the production host, and a stack that references them cannot start. They
+#      are removed rather than commented out: commented config reads like
+#      documentation and behaves like a trap.
+#
+#   3. The `read_only: true` + tmpfs arrangement is retained because it is
+#      correct and cheap — the service writes only to /tmp (streamed upload
+#      spool) and to logs.
+#
+# IF YOU ACTIVATE THIS
+#
+# The container is NOT equivalent to the systemd unit. Three steps the real
+# deploy performs have no equivalent here, and each fails in a way that looks
+# healthy:
+#
+#   - migrations: dist/migrate.js + dist/drizzle must be applied before start
+#   - seeding:    dist/seed.js adopts S3_ACCESS_KEY/S3_SECRET_KEY into the
+#                 bootstrap organization. Without it every S3 client gets 403
+#                 while /health answers 200 — the S3 surface has NO environment
+#                 fallback.
+#   - the SPA:    WEB_DIST_PATH must point at a directory containing index.html
+#                 or every dashboard route 404s while the deploy reports success.
+#
+# Run them from wherever the environment lives (systemd uses bws-exec; a
+# container needs an env_file or a secrets mount) and verify /health, / and a
+# signed `s3api list-buckets` before treating this as production-equivalent.
+
 services:
   app:
     build: .
@@ -8,23 +49,26 @@ services:
     restart: always
     environment:
       - BOT_TOKENS=${BOT_TOKENS}
-      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_TOKEN=${BOT_TOKEN:-}
       - ADDITIONAL_BOT_TOKENS=${ADDITIONAL_BOT_TOKENS:-}
       - STORAGE_CHANNEL_ID=${STORAGE_CHANNEL_ID}
       - BASE_URL=${BASE_URL}
       - DATABASE_URL=${DATABASE_URL}
-      - PORT=4000
+      # PORT is no longer pinned here. It is read from the environment so the
+      # healthcheck below and the process agree, and so the value has one source
+      # of truth (the secret store / systemd) instead of two that can drift.
+      - PORT=${PORT:-4000}
       - NODE_ENV=production
       - LOG_LEVEL=info
       - TRUST_PROXY=true
       - BATCH_MAX_ITEMS=${BATCH_MAX_ITEMS:-20}
       - BATCH_MAX_SIZE_BYTES=${BATCH_MAX_SIZE_BYTES:-524288000}
       - MAX_REQUEST_BODY_BYTES=${MAX_REQUEST_BODY_BYTES:-2147483648}
-      - TELEGRAM_CHUNK_SIZE_BYTES=${TELEGRAM_CHUNK_SIZE_BYTES:-20971520}
+      - TELEGRAM_CHUNK_SIZE_BYTES=${TELEGRAM_CHUNK_SIZE_BYTES:-19922944}
       - COMPRESS_CHUNKED_UPLOADS=${COMPRESS_CHUNKED_UPLOADS:-true}
       - CHUNK_COMPRESSION_MIN_SIZE_BYTES=${CHUNK_COMPRESSION_MIN_SIZE_BYTES:-4096}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
-      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-30}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-150}
       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-}
       - SESSION_COOKIE_NAME=${SESSION_COOKIE_NAME:-tu_session}
       - SESSION_COOKIE_MAX_AGE_SECONDS=${SESSION_COOKIE_MAX_AGE_SECONDS:-86400}
@@ -32,6 +76,9 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_DEFAULT_REGION=${S3_DEFAULT_REGION:-us-east-1}
       - S3_VHOST_DOMAINS=${S3_VHOST_DOMAINS:-upload.asepharyana.my.id,asepharyana.web.id}
+      # Absolute path inside the image, matching where the Dockerfile installs
+      # the SPA beside the bundle. Unset, the API serves without the dashboard.
+      - WEB_DIST_PATH=/usr/src/app/dist/web
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -47,29 +94,17 @@ services:
           cpus: '0.5'
           memory: 512M
     healthcheck:
+      # `node`, not `bun` — the image is node:24-alpine and ships no bun binary,
+      # so the old check could only ever fail. The port comes from $PORT, which
+      # compose resolves from the same value the process reads.
+      #
+      # `-e` gives the status to stdout and the shell exits non-zero when it is
+      # not 200, so the failure is visible in `docker inspect` rather than being
+      # swallowed by a body that is never inspected.
       test:
         - CMD-SHELL
-        - "bun -e \"fetch('http://localhost:4000/health').then(r => r.status === 200 ? process.exit(0) : process.exit(1))\""
+        - 'node -e "fetch(`http://127.0.0.1:${PORT:-4000}/health`).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"'
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
-    networks:
-      - app-shared-net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.filedrop.rule=Host(`upload.asepharyana.my.id`) || Host(`upload.asepharyana.web.id`) || Host(`asepharyana.web.id`) || HostRegexp(`{subhost:[a-z0-9][a-z0-9.-]+}.asepharyana.web.id`)"
-      - "traefik.http.routers.filedrop.entrypoints=websecure"
-      - "traefik.http.routers.filedrop.tls=true"
-      - "traefik.http.routers.filedrop.tls.certresolver=cloudflare"
-      - "traefik.http.services.filedrop.loadbalancer.server.port=4000"
-      - "traefik.http.middlewares.filedrop-rl.ratelimit.average=300"
-      - "traefik.http.middlewares.filedrop-rl.ratelimit.burst=100"
-      - "traefik.http.middlewares.filedrop-rl.ratelimit.period=1m"
-      - "traefik.http.middlewares.filedrop-buf.buffering.maxRequestBodyBytes=2147483648"
-      - "traefik.http.routers.filedrop.middlewares=filedrop-rl@docker,filedrop-buf@docker"
-
-networks:
-  app-shared-net:
-    name: app-shared-net
-    external: true

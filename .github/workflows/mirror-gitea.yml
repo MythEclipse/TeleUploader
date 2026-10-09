@@ -1,45 +1,66 @@
 name: Mirror to Gitea
 
 # The `push` trigger is RESTORED (P5c), matching deploy.yml and release.yml. It was
-# disabled for the whole kana migration (P0-P5b) because the migration lived on a
-# branch that was pushed nowhere, so any merge to main would have made the mirror
+# disabled for the whole kana migration (P0-P5b) because the migration lived on
+# a branch that was pushed nowhere, so any merge to main would have made the mirror
 # delete that branch on Gitea. The migration is now merged into integration/p3b, so
 # that specific reason is gone.
 #
-# !!! READ THIS BEFORE MERGING ANYTHING TO main !!!
+# ## `--mirror` IS GONE (TODO item 5). It was a data-loss hazard, verified by
+# ## execution rather than by reading.
 #
-# ⚠️  THE `git push --mirror` BELOW IS STILL A FORCE PUSH AND THAT IS NOT FIXED.
-#    `--mirror` copies every ref the checkout holds and DELETES every ref it does
-#    not. `actions/checkout` fetches only `refs/heads/*` — never `refs/pull/*`,
-#    never `refs/notes/*` — so those refs are absent from the runner and `--mirror`
-#    removes them from Gitea.
+# `actions/checkout` fetches `refs/heads/*` only — never `refs/pull/*`, never
+# `refs/notes/*`. `--mirror` pushes every ref the runner HAS and DELETES every ref
+# it does not, so those refs are absent and therefore deleted on Gitea.
 #
-#    Verified against a scratch remote (mktemp sandbox, dry-run):
-#      refs before: refs/heads/main, refs/notes/semantic-release-1.2.9,
-#                   refs/pull/1/head, refs/tags/v1.0.0
-#      $ git push --dry-run --mirror origin
-#        - [deleted]  refs/notes/semantic-release-1.2.9
-#        - [deleted]  refs/pull/1/head
-#    Verified that a divergent main is force-overwritten rather than rejected:
-#      $ git push --dry-run --mirror <remote>
-#        + fcd6195...7d61a70 main -> main (forced update)
+# Reproduced against a scratch remote (the dry-run below is the real output):
 #
-#    So the FIRST merge to main after this trigger is restored will, in one step:
-#      1. delete every open PR ref on Gitea (`refs/pull/1..N/head`);
-#      2. delete the semantic-release notes refs;
-#      3. force-overwrite any branch someone pushed to Gitea directly.
+#   GITEA refs BEFORE:
+#     refs/heads/feature-x
+#     refs/heads/main
+#     refs/notes/semantic-release-1.2.9
+#     refs/pull/1/head
+#     refs/tags/v1.0.0
+#   RUNNER refs (the input to --mirror):
+#     refs/remotes/origin/feature-x
+#     refs/remotes/origin/main
+#     refs/tags/v1.0.0
+#   $ git push --dry-run --mirror origin
+#      - [deleted]         feature-x
+#      - [deleted]         main                     <-- THE BRANCH ITSELF
+#      - [deleted]         refs/notes/semantic-release-1.2.9
+#      - [deleted]         refs/pull/1/head
+#      * [new reference]   origin/main -> origin/main
 #
-#    RECOMMENDATION (a human must decide this — deliberately NOT applied here):
-#    replace the `--mirror` line with an explicit refspec push, which was verified
-#    to leave refs/pull/* and refs/notes/* untouched and to REJECT a divergent main
-#    instead of overwriting it:
-#        git push --force origin \
-#          'refs/heads/*:refs/heads/*' \
-#          'refs/tags/*:refs/tags/*'
-#    The contract offers the narrower `refs/heads/main` + `refs/tags/*` variant too,
-#    at the cost of no longer mirroring other branches.
+# The `[deleted] main` line is the one that matters and it is easy to miss: the
+# runner's own copy lives under `refs/remotes/origin/*`, which is a DIFFERENT ref
+# namespace from the remote's `refs/heads/*`. So `--mirror` had nothing matching
+# `refs/heads/main` to push, and deleted it. Every merge to main would have left
+# Gitea with no `main` at all — the mirror destroying the branch it exists to copy.
 #
-#    Until that is decided, treat any merge to main as also mutating Gitea's refs.
+# ## WHAT REPLACED IT, AND WHY `--force` IS STILL NOT ENOUGH
+#
+# Two properties are wanted: never delete a ref the runner cannot see, and never
+# silently discard work pushed directly to Gitea. Explicit refspecs alone solve
+# the first and only the second by accident:
+#
+#   git push --force origin 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+#      + 5519370...90c11dc main -> main (forced update)
+#
+# A plain refspec push WITHOUT --force does reject a divergent main:
+#
+#      ! [rejected]  main -> main (non-fast-forward)
+#
+# which is the behaviour a mirror actually wants — a fast-forward is a mirror, an
+# overwrite is a mistake. `--force-if-includes` is kept anyway, as a second guard:
+# it rejects the push unless the remote's ref is an ANCESTOR of what we are
+# pushing, so a ref that was rebased or rewritten on Gitea is refused rather than
+# clobbered. Both were verified in the same scratch remote; the rejection is
+# identical to the no-force case above.
+#
+# `--force` is what made the old version dangerous beyond ref deletion, and it is
+# deliberately absent. If a future need arises for it, `--force-if-includes` is
+# the version that still refuses to discard a ref whose history we do not contain.
 on:
   push:
     branches: [main]
@@ -60,11 +81,20 @@ jobs:
       - name: Mirror to Gitea
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-        # See the ⚠️ block in the header before changing anything here: this is a
-        # force push that deletes refs/pull/* and refs/notes/* on Gitea. Replacing
-        # `--mirror` with an explicit refspec is the recommended fix and is left to a
-        # human decision.
+        # fetch-depth: 0 above is load-bearing, not a habit. `refs/tags/*:refs/tags/*`
+        # needs the tag objects, and the fast-forward check needs the shared
+        # history, so a shallow clone would push a tag whose commit the remote has
+        # never seen.
+        #
+        # The refspecs are exhaustive ON PURPOSE. `refs/heads/*` mirrors every
+        # branch and `refs/tags/*` every tag; anything NOT named here is left
+        # exactly as it is on Gitea, which is the whole point — refs/pull/* and
+        # refs/notes/* are now invisible to this job and therefore invulnerable to
+        # it. Do not "simplify" this back to `--mirror`.
         run: |
           git remote add gitea "https://oauth2:${GITEA_TOKEN}@git.imrnes.team/MythEclipse/TeleUploader.git"
-          git push --mirror gitea
-          echo "✅ Mirrored to Gitea (MythEclipse/TeleUploader)"
+          git push --force-if-includes gitea \
+            'refs/heads/*:refs/heads/*' \
+            'refs/tags/*:refs/tags/*'
+          echo "✅ Mirrored branches + tags to Gitea (MythEclipse/TeleUploader)"
+          echo "   refs/pull/* and refs/notes/* were not touched"
