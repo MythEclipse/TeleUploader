@@ -577,6 +577,49 @@ reachable — `git log --follow` on that file shows `57817fa` (P3b tenancy),
 lost, only the line-level attribution. `git blame -w` and `git log -S` both cut
 through the reformat. Recorded rather than papered over.
 
-### `[ ]` 15. `REDIS_URL` / `BETTER_AUTH_*` in `.env.example`
+### `[x]` 15. `REDIS_URL` / `BETTER_AUTH_*` in `.env.example`
 
 Lands with item 6.
+
+
+**DONE for the part that does not depend on item 6 — 8 real variables, plus the
+item-6 ones marked honestly.**
+
+Item 6 has not landed (no `better-auth`, no redis client in any `package.json`),
+so `REDIS_URL` and `BETTER_AUTH_*` **cannot be made real here**. They are
+documented inside a clearly marked `NOT YET IMPLEMENTED` block that states
+setting them has no effect today. That is the useful half: the gap is now visible
+to the next operator instead of having to be rediscovered.
+
+The durable half was the actual drift. `.env.example` had fallen **8 variables**
+behind `env.ts`, and nothing fails when a variable is undocumented — the code
+reads it, the operator never sets it, the default silently applies. Now covered:
+
+| Variable | Effect |
+| --- | --- |
+| `BATCH_MAX_ITEMS` / `BATCH_MAX_SIZE_BYTES` | batch upload limits |
+| `MAX_REQUEST_BODY_BYTES` | ceiling bounding a single request stream |
+| `TELEGRAM_BOT_CONCURRENCY` | pool concurrency across `BOT_TOKENS` |
+| `PROXY_S3_GET` | redirect `GET Object` instead of streaming the body |
+| `BOT_TOKEN` | single-token fallback when `BOT_TOKENS` is unset |
+| `ADDITIONAL_BOT_TOKENS` | appended to the pool for 429 rotation |
+| `BOOTSTRAP_ADMIN_ID` | bootstrap org id — see below |
+
+`BOOTSTRAP_ADMIN_ID` is the one that mattered. `env.ts` reads it and
+`resolveAdminOrganizationId()` depends on it, and it is set **nowhere** in the
+repository. Its comment says explicitly not to set it by hand to "fix" it — that
+missing membership is exactly what a false session-scoped comment once hid
+(defect #3 in item 6).
+
+**Guard:** `test/env-example-fidelity.test.ts` asserts `.env.example` documents
+every `process.env.X` in `env.ts`, documents nothing `env.ts` never reads, and
+keeps `REDIS_URL`/`BETTER_AUTH_*` out of the live set. It throws at module scope
+if the `NOT YET IMPLEMENTED` block is ever deleted, because silently counting
+those three as live configuration would be the exact lie the block exists to
+prevent.
+
+The test found a bug in itself while being written: the first version counted the
+pending block as live, so the stale-entry assertion flagged precisely the three
+variables it was meant to exclude. Fixed by splitting the block off before
+scanning. Three negative controls observed failing — remove a documented
+variable, delete the pending block, append an unknown variable.
