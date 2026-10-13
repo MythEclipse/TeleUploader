@@ -160,8 +160,23 @@ jobs:
       # The 5 quarantined suites hit the live production endpoint and create/destroy
       # real buckets, so they stay opt-in via workflow_dispatch rather than running
       # on every PR.
+      #
+      # GATED ON THE SECRETS ACTUALLY EXISTING, not on the event alone. The suites
+      # need ADMIN_API_TOKEN and S3_SECRET_KEY, and this repository has neither, so
+      # `workflow_dispatch` previously guaranteed a red run: the step turned on and
+      # then failed 12 tests against production with empty credentials. A maintainer
+      # dispatching CI to "check the repo" got a failure that says nothing about the
+      # commit under test.
+      #
+      # Tested by comparing the secret to an empty string, which GitHub permits in
+      # an `if` (a bare `secrets.X` reference is not allowed there). With the secrets
+      # absent the step is skipped and the run reports green, which is the truth:
+      # the quarantined suites were never exercised.
       - name: Quarantined suites (live network — opt-in)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: >-
+          ${{ github.event_name == 'workflow_dispatch'
+              && secrets.ADMIN_API_TOKEN != ''
+              && secrets.S3_SECRET_KEY != '' }}
         run: pnpm run test:quarantine
         env:
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
