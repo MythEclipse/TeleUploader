@@ -84,20 +84,22 @@ jobs:
       DATABASE_URL: postgresql://filedrop:filedrop@127.0.0.1:5432/filedrop_test
 
       # `apps/api/src/env.ts` throws at import on any missing required variable, and
-      # the Drizzle migrator imports it while reading nothing but `databaseUrl`.
-      # That coupling meant this job needed Telegram credentials to create a table,
-      # and it had none, so `pnpm --filter filedrop exec tsx
+      # both the Drizzle migrator and the unit suites import it while reading nothing
+      # but `databaseUrl`. That coupling meant this job needed Telegram credentials
+      # to create a table, and it had none, so `pnpm --filter filedrop exec tsx
       # src/infrastructure/persistence/drizzle/migrate.ts` failed with "Missing
       # environment variables: BOT_TOKENS" and EVERY run of this job was red.
       #
-      # BOT_TOKENS is genuinely no longer required at import (env.ts warns instead
-      # of throwing; the Telegram handler enforces it at start), but these three
-      # remain mandatory, so the job supplies harmless non-secret placeholders.
-      # They are asserted nowhere and reach no network: the suite that talks to
-      # Telegram is quarantined behind workflow_dispatch.
-      STORAGE_CHANNEL_ID: "-1001234"
-      BASE_URL: http://127.0.0.1:4311
-      PORT: "4311"
+      # BOT_TOKENS is genuinely no longer required at import (env.ts warns instead of
+      # throwing; the Telegram handler enforces it at start), but these three remain
+      # mandatory, so the steps that import the config supply harmless non-secret
+      # placeholders.
+      #
+      # SCOPED PER STEP, NOT JOB-WIDE, and BASE_URL especially so: the quarantined
+      # suite reads BASE_URL and defaults to the REAL production endpoint
+      # (https://upload.asepharyana.my.id). A job-wide placeholder silently
+      # redirected it at 127.0.0.1:4311, where nothing listens, turning an opt-in
+      # live-network run into 11 connection failures that looked like product bugs.
 
     steps:
       - name: Checkout
@@ -140,9 +142,20 @@ jobs:
           set -euo pipefail
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f apps/api/schema.sql
           pnpm --filter filedrop exec tsx src/infrastructure/persistence/drizzle/migrate.ts
+        env:
+          # env.ts throws at import on these; migrate.ts imports it for
+          # `databaseUrl` alone. Placeholders only — nothing here is asserted or
+          # dialled.
+          STORAGE_CHANNEL_ID: "-1001234"
+          BASE_URL: http://127.0.0.1:4311
+          PORT: "4311"
 
       - name: Unit tests (vitest, 34 files)
         run: pnpm run test:unit
+        env:
+          STORAGE_CHANNEL_ID: "-1001234"
+          BASE_URL: http://127.0.0.1:4311
+          PORT: "4311"
 
       # The 5 quarantined suites hit the live production endpoint and create/destroy
       # real buckets, so they stay opt-in via workflow_dispatch rather than running
