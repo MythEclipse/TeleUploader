@@ -1,3 +1,10 @@
+## [1.3.9](https://github.com/asepharyana/TeleUploader/compare/v1.3.8...v1.3.9) (2026-10-13)
+
+
+### Bug Fixes
+
+* stop a data-only migration from requiring Telegram credentials ([31740f6](https://github.com/asepharyana/TeleUploader/commit/31740f6a1a9d8bf75ed874d29f2bcdc1a21da5fc))
+
 ## [1.3.8](https://github.com/asepharyana/TeleUploader/compare/v1.3.7...v1.3.8) (2026-10-13)
 
 
