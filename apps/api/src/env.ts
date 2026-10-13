@@ -49,16 +49,33 @@ interface AppConfig {
 }
 
 // Validate bot tokens: BOT_TOKENS (new) or fallback to BOT_TOKEN + ADDITIONAL_BOT_TOKENS
+//
+// NOT REQUIRED AT IMPORT TIME. This module throws on any missing variable, and it
+// is imported by things that need nothing from Telegram — most importantly the
+// Drizzle migrator, which only reads `config.databaseUrl` and then opens a
+// database connection.
+//
+// Making the token mandatory meant a data-only migration could not run without
+// Telegram credentials, and CI has no reason to hold a bot token. The symptom
+// was `Error: Missing environment variables: BOT_TOKENS` from
+// `apps/api/src/env.ts` inside `pnpm --filter filedrop exec tsx
+// src/infrastructure/persistence/drizzle/migrate.ts`, which failed EVERY run of
+// the `test` job and left the repository permanently red.
+//
+// The invariant that actually matters is enforced where it belongs: a Telegram
+// handler cannot start without a token, because `new Telegraf(undefined)` fails
+// loudly at startup. An empty pool is a valid state for every non-Telegram
+// caller, so the config carries it and the consumers check it.
 const botTokensRaw =
 	process.env.BOT_TOKENS ||
 	[process.env.BOT_TOKEN, process.env.ADDITIONAL_BOT_TOKENS].filter(Boolean).join(",");
 
 if (!botTokensRaw) {
-	logger.error(
-		"Missing required environment variables: BOT_TOKENS (or BOT_TOKEN + ADDITIONAL_BOT_TOKENS)"
-	);
-	throw new Error(
-		"Missing environment variables: BOT_TOKENS (or BOT_TOKEN + ADDITIONAL_BOT_TOKENS)"
+	// A warning, not a throw. NOISY ON PURPOSE: a deployment that really does need
+	// Telegram should be visibly misconfigured rather than silently inert.
+	logger.warn(
+		"No bot tokens configured (BOT_TOKENS / BOT_TOKEN / ADDITIONAL_BOT_TOKENS). " +
+			"Telegram handlers will refuse to start; database and HTTP paths are unaffected."
 	);
 }
 

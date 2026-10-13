@@ -83,6 +83,22 @@ jobs:
       # missing or wrong database went unnoticed.
       DATABASE_URL: postgresql://filedrop:filedrop@127.0.0.1:5432/filedrop_test
 
+      # `apps/api/src/env.ts` throws at import on any missing required variable, and
+      # the Drizzle migrator imports it while reading nothing but `databaseUrl`.
+      # That coupling meant this job needed Telegram credentials to create a table,
+      # and it had none, so `pnpm --filter filedrop exec tsx
+      # src/infrastructure/persistence/drizzle/migrate.ts` failed with "Missing
+      # environment variables: BOT_TOKENS" and EVERY run of this job was red.
+      #
+      # BOT_TOKENS is genuinely no longer required at import (env.ts warns instead
+      # of throwing; the Telegram handler enforces it at start), but these three
+      # remain mandatory, so the job supplies harmless non-secret placeholders.
+      # They are asserted nowhere and reach no network: the suite that talks to
+      # Telegram is quarantined behind workflow_dispatch.
+      STORAGE_CHANNEL_ID: "-1001234"
+      BASE_URL: http://127.0.0.1:4311
+      PORT: "4311"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7

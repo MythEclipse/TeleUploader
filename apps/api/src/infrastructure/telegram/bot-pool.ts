@@ -65,6 +65,22 @@ export class BotPool implements ITelegramService {
 
 	constructor() {
 		const tokens = Array.from(new Set(config.botTokens));
+		// Fail loudly HERE rather than at import time in env.ts. env.ts is imported
+		// by the migrator and the HTTP server, neither of which needs Telegram, so
+		// a missing token must not stop them.
+		//
+		// Deliberately a warning, NOT a throw: `botPool` is a module-level singleton
+		// that the HTTP controllers (s3 object read/write, multipart, file) import, so
+		// throwing here would take down the whole API in any deployment without a
+		// token — reintroducing the very coupling this change removes. The token
+		// invariant is enforced where Telegram is actually started, in
+		// presentation/telegram/handler.ts.
+		if (tokens.length === 0) {
+			logger.warn(
+				"BotPool constructed with no bot tokens; Telegram delivery is inert. " +
+					"Set BOT_TOKENS before starting the Telegram handler."
+			);
+		}
 		this.bots = tokens.map((token, index) => ({
 			index,
 			token,

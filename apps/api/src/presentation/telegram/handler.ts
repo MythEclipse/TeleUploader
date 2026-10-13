@@ -91,6 +91,19 @@ export async function startBot(
 	const telegramSvc = deps.telegramService ?? telegramService;
 	const fileRepo = deps.fileRepo ?? fileRepository;
 
+	// The token invariant is enforced HERE, not in env.ts. env.ts throws on missing
+	// variables at import, and it is imported by the Drizzle migrator and the HTTP
+	// server — neither of which touches Telegram — so requiring a bot token there
+	// made a data-only migration fail with "Missing environment variables:
+	// BOT_TOKENS" and kept the repo permanently red. Starting the Telegram handler
+	// genuinely requires a token, so this is where refusing to start is correct.
+	if (!config.botTokens[0]) {
+		throw new Error(
+			"Cannot start the Telegram handler: no bot token configured. " +
+				"Set BOT_TOKENS (or BOT_TOKEN / ADDITIONAL_BOT_TOKENS)."
+		);
+	}
+
 	try {
 		const bot = new Telegraf(config.botTokens[0]);
 
