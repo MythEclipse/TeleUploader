@@ -1,0 +1,9 @@
+{
+  "images": [
+    {
+      "package": "teleuploader",
+      "context": ".",
+      "file": "Dockerfile"
+    }
+  ]
+}

@@ -24,7 +24,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "node ./.semrel/prepare.mjs '${nextRelease.version}' && pnpm exec biome check package.json CHANGELOG.md 2>/dev/null || true",
-        "successCmd": "node ./.semrel/dispatch.mjs '${nextRelease.version}'"
+        "successCmd": "node ./.semrel/dispatch.mjs '${nextRelease.version}' && echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
       }
     ],
     [
