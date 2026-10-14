@@ -1,3 +1,11 @@
+## [1.3.14](https://github.com/asepharyana/TeleUploader/compare/v1.3.13...v1.3.14) (2026-10-14)
+
+
+### Bug Fixes
+
+* **ci:** cap the release body, which GitHub limits to 125,000 chars ([341a354](https://github.com/asepharyana/TeleUploader/commit/341a354dfeeedcf247574b688dfa60cf10b2e81e))
+* **ci:** make the semantic-release install directory match its PATH entry ([e8983d3](https://github.com/asepharyana/TeleUploader/commit/e8983d322d20b6c13ccc393c291efcd0ca40900a))
+
 ## [1.3.13](https://github.com/asepharyana/TeleUploader/compare/v1.3.12...v1.3.13) (2026-10-14)
 
 ## [1.3.12](https://github.com/asepharyana/TeleUploader/compare/v1.3.11...v1.3.12) (2026-10-13)
