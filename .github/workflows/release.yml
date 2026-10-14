@@ -54,11 +54,15 @@ jobs:
 
       - name: Install semantic-release (isolated, no package.json pollution)
         run: |
-          npm install --prefix /tmp/sr-tools \
+          npm install --prefix "$RUNNER_TEMP/sr" --no-save \
             semantic-release@^24 \
             @semantic-release/changelog@^6 \
             @semantic-release/exec@^6 \
             @semantic-release/git@^10
+          # This PATH line must name the SAME directory as the --prefix above.
+          # They diverged here once (/tmp/sr-tools vs $RUNNER_TEMP/sr) and the
+          # only symptom was `semantic-release: command not found` — the install
+          # step reported success, because it really did install somewhere.
           echo "$RUNNER_TEMP/sr/node_modules/.bin" >> "$GITHUB_PATH"
           # @semantic-release/release-notes-generator loads the writer with
           # `require`, so it must be CommonJS even though the generator package
