@@ -20,6 +20,11 @@ permissions:
   contents: write
   actions: write
   id-token: write
+  # The image push needs this and nothing else in this list provides it. Without
+  # it the build succeeds and the push fails at the last step with
+  #   denied: installation not allowed to Create organization package
+  # which reads like a registry or token problem rather than a missing scope.
+  packages: write
 
 concurrency:
   group: release
