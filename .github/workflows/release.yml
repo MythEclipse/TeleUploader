@@ -59,7 +59,12 @@ jobs:
             @semantic-release/changelog@^6 \
             @semantic-release/exec@^6 \
             @semantic-release/git@^10
-          echo "/tmp/sr-tools/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/sr/node_modules/.bin" >> "$GITHUB_PATH"
+          # @semantic-release/release-notes-generator loads the writer with
+          # `require`, so it must be CommonJS even though the generator package
+          # itself is ESM. The .cjs extension is what makes that work.
+          test -f scripts/release-notes-writer.cjs \
+            || { echo "::error::scripts/release-notes-writer.cjs is missing — the release fails on a module resolution error"; exit 1; }
 
       - name: Run semantic-release
         id: publish
