@@ -1,3 +1,10 @@
+## [1.3.15](https://github.com/asepharyana/TeleUploader/compare/v1.3.14...v1.3.15) (2026-10-14)
+
+
+### Bug Fixes
+
+* **ci:** grant packages: write so the GHCR push is authorized ([da39e48](https://github.com/asepharyana/TeleUploader/commit/da39e48e43c5555f093acc2750ecc5292fca3924))
+
 ## [1.3.14](https://github.com/asepharyana/TeleUploader/compare/v1.3.13...v1.3.14) (2026-10-14)
 
 
