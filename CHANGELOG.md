@@ -1,3 +1,12 @@
+## [1.3.21](https://github.com/asepharyana/TeleUploader/compare/v1.3.20...v1.3.21) (2026-10-16)
+
+
+### Bug Fixes
+
+* auto-fix code quality [skip ci] ([d6cf5de](https://github.com/asepharyana/TeleUploader/commit/d6cf5de79fb51744450fc78257168895be9cc995))
+* auto-fix code quality [skip ci] ([182dba5](https://github.com/asepharyana/TeleUploader/commit/182dba5bf457b0eb93f4cf82ef8d319783162ed0))
+* auto-fix code quality [skip ci] ([0bfdd9d](https://github.com/asepharyana/TeleUploader/commit/0bfdd9d78b92e6a777b09d68b2c605a8809ac09a))
+
 ## [1.3.20](https://github.com/asepharyana/TeleUploader/compare/v1.3.19...v1.3.20) (2026-10-16)
 
 ## [1.3.19](https://github.com/asepharyana/TeleUploader/compare/v1.3.18...v1.3.19) (2026-10-15)
