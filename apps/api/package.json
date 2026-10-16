@@ -22,11 +22,6 @@
     "format": "biome format --write src test",
     "typecheck": "tsc --noEmit"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@orpc/client": "^1.15.6",
