@@ -22,34 +22,29 @@
     "format": "biome format --write src test",
     "typecheck": "tsc --noEmit"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "dependencies": {
-    "@hono/node-server": "^2.1.4",
-    "@orpc/client": "^1.15.5",
-    "@orpc/server": "^1.15.5",
+    "@hono/node-server": "^2.1.5",
+    "@orpc/client": "^1.15.6",
+    "@orpc/server": "^1.15.6",
     "@prisma/engines": "^7.8.0",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.13",
     "nanoid": "^6.0.1",
-    "p-queue": "^9.3.5",
+    "p-queue": "^10.0.0",
     "pg": "^8.11.0",
     "postgres": "^3.4.9",
     "telegraf": "^4.15.0",
     "winston": "^3.11.0",
-    "zod": "^4.6.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3.1149.0",
+    "@aws-sdk/client-s3": "^3.1150.0",
     "@biomejs/biome": "^2.4.15",
     "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",
     "tsx": "^4.20.3",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   }
 }
