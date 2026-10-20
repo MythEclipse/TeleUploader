@@ -142,6 +142,7 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 					sizeBytes: input.sizeBytes,
 					fileType,
 					uploaderId: input.uploaderId ?? 0,
+					uploaderUserId: input.uploaderUserId ?? null,
 					bucketId: input.bucketId,
 					s3Key: input.s3Key,
 				});
@@ -173,6 +174,7 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 					fileType,
 					storageBackend: "telegram",
 					uploaderId: input.uploaderId,
+					uploaderUserId: input.uploaderUserId ?? null,
 					fileHash: input.fileHash,
 					bucketId: input.bucketId,
 					s3Key: input.s3Key,

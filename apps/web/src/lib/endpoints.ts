@@ -1,39 +1,36 @@
 /**
- * Typed wrappers for every endpoint the dashboard inventory needs.
+ * Typed wrappers for every endpoint the dashboard needs.
  *
- * Each function is a 1:1 transcription of one branch of
- * `handleWebApiV1` (`web-api-controller.ts:424-484`), so the routing table here
- * and the dispatch table there can be compared line by line.
+ * Each function is a 1:1 transcription of one branch of `handleWebApiV1`
+ * (`web-api-controller.ts`), so the routing table here and the dispatch table there
+ * can be compared line by line.
  *
  * **No `any` anywhere.** Input and output types come from `./types`; the only
  * assertion is `as T` on a parsed JSON body, which is unavoidable at an HTTP
  * boundary and is narrowed by the caller picking the right wrapper.
  *
- * ## The delete endpoint used to lie — fixed in TODO item 10
+ * ## Organization scoping is a parameter on every call
  *
- * `handleDeleteObjectV1` returned `{success:true}` **unconditionally** and
- * discarded `softDelete()`'s boolean: a key that matched no row, or a
- * mis-encoded key, still reported success. `assertDeleted` was written as the
- * workaround — the caller re-listed the prefix and checked the key was gone.
+ * Multi-user means every bucket operation happens inside ONE organization, and the
+ * server needs to know which. Each wrapper therefore takes an optional `org` slug
+ * that becomes `?org=<slug>` (see `./keys.ts`).
  *
- * That defect is FIXED: the handler now answers 404 when the delete changed no
- * row, so the status carries the information. `assertDeleted` survives as an
- * independent cross-check rather than as the only trustworthy confirmation.
- *
- * The second half of that defect — the DELETE catch-all shadowing the reserved
- * `download` / `objects` / `upload` / `copy` segments, so a request meant to
- * DOWNLOAD a file deleted it — was fixed in the same change, in the router's
- * dispatch order. Both branches are pinned by
- * `apps/api/test/web-api-delete-reserved-segments.test.ts`.
+ * It is optional because the server has a sane default: no slug means "the caller's
+ * own organization". That keeps scripts and the first page load working without the
+ * client having resolved a slug yet. A slug the caller is NOT a member of is a 403 —
+ * never a silent fallback — so passing the wrong one fails visibly instead of
+ * quietly reading another tenant.
  */
 
 import { ApiError, http } from './client';
 import {
   bucketUrl,
+  bucketsUrl,
   copyUrl,
   downloadUrl,
   objectUrl,
   objectsUrl,
+  organizationsUrl,
   uploadUrl,
 } from './keys';
 import type {
@@ -44,133 +41,161 @@ import type {
   ListBucketsResponse,
   ListObjectsQuery,
   ListObjectsResponse,
-  LoginResponse,
+  ListOrganizationsResponse,
   SuccessResponse,
   UploadObjectResponse,
 } from './types';
 
+// ─────── Organizations ───────
+
+/**
+ * `GET /api/v1/organizations` — every organization the caller belongs to.
+ *
+ * Served from `members`, scoped to the authenticated user. There is no endpoint that
+ * lists organizations globally, and its absence is deliberate: one would be a
+ * cross-tenant directory.
+ *
+ * @returns The memberships, ordered by name.
+ * @throws {ApiError} `401` when there is no session.
+ */
+export const listOrganizations = (): Promise<ListOrganizationsResponse> =>
+  http.getJson<ListOrganizationsResponse>(organizationsUrl());
+
 // ─────── Buckets ───────
 
 /**
- * `GET /api/v1/buckets` — **admin** as of item 11.
+ * `GET /api/v1/buckets` — requires a session.
  *
- * This used to be public, and the leak was worse than "names and counts": each
- * object listing entry carries a `downloadUrl` (`/f/<public_id>`) and those answer
- * 200 unauthenticated, so a public listing meant anyone could read the content of
- * every object. A share link is meant to grant ONE object; the listing handed out
- * one per object and quietly subsumed that decision.
- *
- * GET is now wrapped like the writes. The client sends
- * `credentials: 'same-origin'` on every call (see client.ts), so a logged-in
- * session presents its cookie and this is transparent — the visible effect is that
- * an anonymous visitor now gets 401 instead of a listing, which is the point.
+ * This used to be public. The leak was worse than "names and counts": each object
+ * listing entry carries a `downloadUrl` (`/f/<public_id>`) and those answer 200
+ * unauthenticated, so a public listing meant anyone could read the content of every
+ * object. A share link is meant to grant ONE object; the listing handed out one per
+ * object and quietly subsumed that decision.
  *
  * `/f/:public_id` itself is deliberately STILL public, so links already handed out
  * keep working. Possession of a link is the credential.
+ *
+ * @param org - Organization slug to scope to.
  */
-export const listBuckets = (): Promise<BucketSummary[]> =>
-  http.getJson<ListBucketsResponse>('/api/v1/buckets').then((d) => d.buckets);
-
-/** `POST /api/v1/buckets` — admin. `201` on success, `409` if the name is taken. */
-export const createBucket = (name: string): Promise<CreateBucketResponse> =>
-  http.postJson<CreateBucketResponse, { name: string }>('/api/v1/buckets', { name });
+export const listBuckets = (org?: string): Promise<BucketSummary[]> =>
+  http.getJson<ListBucketsResponse>(bucketsUrl(org)).then((d) => d.buckets);
 
 /**
- * `DELETE /api/v1/buckets/{bucket}` — admin.
+ * `POST /api/v1/buckets` — requires a session.
+ *
+ * `201` on success, `409` if the name is taken WITHIN this organization. Bucket names
+ * are unique per organization, not globally, so two accounts can each own a bucket
+ * called `photos`.
+ *
+ * @param name - The bucket name.
+ * @param org - Organization slug to create it in.
+ */
+export const createBucket = (name: string, org?: string): Promise<CreateBucketResponse> =>
+  http.postJson<CreateBucketResponse, { name: string }>(bucketsUrl(org), { name });
+
+/**
+ * `DELETE /api/v1/buckets/{bucket}` — requires a session.
  *
  * Unlike the object delete this one IS honest: `handleDeleteBucketV1` checks
- * existence (`404`) and emptiness (`409`) and `bucketRepository.delete` only
- * runs after both pass, so `{success:true}` here does mean the bucket is gone.
+ * existence (`404`) and emptiness (`409`) and `bucketRepository.delete` only runs
+ * after both pass, so `{success:true}` here does mean the bucket is gone.
+ *
+ * @param bucket - The bucket name.
+ * @param org - Organization slug it belongs to.
  */
-export const deleteBucket = (bucket: string): Promise<SuccessResponse> =>
-  http.deleteJson<SuccessResponse>(bucketUrl(bucket));
+export const deleteBucket = (bucket: string, org?: string): Promise<SuccessResponse> =>
+  http.deleteJson<SuccessResponse>(bucketUrl(bucket, org));
 
 // ─────── Objects ───────
 
 /**
- * `GET /api/v1/buckets/{bucket}/objects` — **admin** as of item 11.
+ * `GET /api/v1/buckets/{bucket}/objects` — requires a session.
  *
- * Was public; see the note on {@link listBuckets} for why that mattered more than
- * the route name suggests.
- *
- * `maxKeys` defaults to 200 here, matching `home.html`'s hardcoded
- * `max-keys=200`. The response's `isTruncated` is always `false` and
- * `nextContinuationToken` always `null` — see the note on
- * {@link ListObjectsResponse} — so this silently truncates rather than paging.
+ * `maxKeys` defaults to 200, matching `home.html`'s hardcoded `max-keys=200`. The
+ * response's `isTruncated` is always `false` and `nextContinuationToken` always
+ * `null` — see {@link ListObjectsResponse} — so this silently truncates rather than
+ * paging.
  *
  * One API quirk worth knowing when reading a listing: `delimiter` defaults to `/`
- * server-side via `|| '/'`, so an EMPTY `delimiter=` cannot express "no
- * delimiter" — the listing always rolls up one level into `prefixes`. The gitea
- * bucket's keys are `packages/NN/xx/<sha256>`, so a flat recursive listing is not
- * reachable through this endpoint; drill down via `prefix`.
+ * server-side via `|| '/'`, so an EMPTY `delimiter=` cannot express "no delimiter" —
+ * the listing always rolls up one level into `prefixes`. Drill down via `prefix`.
+ *
+ * @param bucket - The bucket name.
+ * @param query - Prefix / delimiter / page size.
+ * @param org - Organization slug it belongs to.
  */
 export const listObjects = (
   bucket: string,
   query: ListObjectsQuery = {},
+  org?: string,
 ): Promise<ListObjectsResponse> =>
   http.getJson<ListObjectsResponse>(
-    objectsUrl(bucket, { delimiter: '/', maxKeys: 200, ...query }),
+    objectsUrl(bucket, { delimiter: '/', maxKeys: 200, ...query }, org),
   );
 
 /**
- * `POST /api/v1/buckets/{bucket}/copy` — admin.
+ * `POST /api/v1/buckets/{bucket}/copy` — requires a session.
  *
- * `501` for a chunked source (`handleCopyObjectV1` does not implement it), so
- * callers should surface that distinctly rather than as a generic failure.
+ * `501` for a chunked source (`handleCopyObjectV1` does not implement it), so callers
+ * should surface that distinctly rather than as a generic failure.
+ *
+ * @param bucket - Source bucket name.
+ * @param body - Source key, destination key, optional destination bucket.
+ * @param org - Organization slug.
  */
 export const copyObject = (
   bucket: string,
   body: CopyObjectRequest,
+  org?: string,
 ): Promise<CopyObjectResponse> =>
-  http.postJson<CopyObjectResponse, CopyObjectRequest>(copyUrl(bucket), body);
+  http.postJson<CopyObjectResponse, CopyObjectRequest>(copyUrl(bucket, org), body);
 
 /**
- * `DELETE /api/v1/buckets/{bucket}/{key}` — admin.
+ * `DELETE /api/v1/buckets/{bucket}/{key}` — requires a session.
  *
- * Key is encoded per segment (`./keys.ts`).
+ * Key is encoded per segment (`./keys.ts`). The response is trustworthy: the handler
+ * reports 404 when the delete changed no row, so a 200 means a row really was
+ * soft-deleted.
  *
- * The response is now TRUSTWORTHY: the handler reports 404 when the delete
- * changed no row, so a 200 means a row really was soft-deleted (TODO item 10).
- * `assertDeleted` remains available as an independent cross-check, but a caller
- * no longer depends on it to know whether anything happened.
+ * @param bucket - The bucket name.
+ * @param key - The object key.
+ * @param org - Organization slug.
  */
-export const deleteObject = (bucket: string, key: string): Promise<SuccessResponse> =>
-  http.deleteJson<SuccessResponse>(objectUrl(bucket, key));
+export const deleteObject = (bucket: string, key: string, org?: string): Promise<SuccessResponse> =>
+  http.deleteJson<SuccessResponse>(objectUrl(bucket, key, org));
 
 /**
  * Re-lists `prefix` and returns whether `key` is genuinely gone.
  *
- * An INDEPENDENT cross-check, not a workaround: since TODO item 10 the delete
- * response itself reports 404 when nothing was deleted, so this is no longer the
- * only trustworthy confirmation. It is still useful where a caller cares about a
- * key vanishing from a specific window rather than about the delete call's
- * status.
+ * An INDEPENDENT cross-check, not a workaround: the delete response itself reports
+ * 404 when nothing was deleted. It is still useful where a caller cares about a key
+ * vanishing from a specific window rather than about the delete call's status.
  *
- * It deliberately re-uses the caller's `prefix`/`maxKeys` so the check is made
- * against the exact window the user is looking at; a key that fell outside the
- * truncated window reads as "deleted" either way, which is why the UI pairs this
- * with the "results are truncated" notice rather than presenting it as proof.
+ * @param bucket - The bucket name.
+ * @param key - The key that should be gone.
+ * @param query - Page-size override.
+ * @param org - Organization slug.
  */
 export const assertDeleted = async (
   bucket: string,
   key: string,
   query: Omit<ListObjectsQuery, 'prefix'> = {},
+  org?: string,
 ): Promise<boolean> => {
   const prefix = key.includes('/') ? `${key.slice(0, key.lastIndexOf('/') + 1)}` : '';
-  const after = await listObjects(bucket, { ...query, prefix });
+  const after = await listObjects(bucket, { ...query, prefix }, org);
   return !after.objects.some((o) => o.key === key);
 };
 
 /**
- * Absolute URL of the download proxy. Not fetched — handed to `window.open` or
- * the clipboard, so the browser follows it with the cookie jar (and the CORS
- * headers `handleDownloadObjectV1` emits).
+ * Absolute URL of the download proxy. Not fetched — handed to `window.open` or the
+ * clipboard, so the browser follows it with the cookie jar.
  *
- * Must be built with `encodeKey`, never `encodeURIComponent(key)`: the whole-key
- * form returns `404 {"error":"Object not found"}` for any nested key.
+ * Must be built with `encodeKey`, never `encodeURIComponent(key)`: the whole-key form
+ * returns `404 {"error":"Object not found"}` for any nested key.
  */
-export const objectDownloadUrl = (bucket: string, key: string): string =>
-  http.absolute(downloadUrl(bucket, key));
+export const objectDownloadUrl = (bucket: string, key: string, org?: string): string =>
+  http.absolute(downloadUrl(bucket, key, org));
 
 /**
  * Absolute URL of the public share link already returned by the API as
@@ -185,38 +210,35 @@ export const shareUrl = (publicDownloadUrl: string): string =>
 export type UploadProgress = (loaded: number, total: number | null) => void;
 
 /**
- * `POST /api/v1/buckets/{bucket}/upload` — admin. Multipart `file` + `key`.
+ * `POST /api/v1/buckets/{bucket}/upload` — requires a session. Multipart `file` + `key`.
  *
  * ## Raw `XMLHttpRequest`, not `fetch`
  *
- * `fetch` has no upload progress event. `home.html:343` used
- * `xhr.upload.onprogress` and the contract mandates keeping that (§1.6).
+ * `fetch` has no upload progress event. `xhr.upload.onprogress` is the only way to
+ * report bytes sent.
  *
  * ## What the progress bar actually measures
  *
- * `xhr.upload.onprogress` reports **bytes handed to the server**, not bytes
- * stored. `handleUploadObjectV1` buffers the *entire* body to `/tmp` via
- * `streamToTemp` before its first Telegram call (`web-api-controller.ts:202`),
- * so the bar reaches 100% and then sits there for the whole upload-to-Telegram
- * phase. That gap exists today and is not fixable from the client: no server
- * progress channel exists. The callback therefore reports `total: null` and a
- * phase label once `upload.onprogress` completes, so the UI can say
- * "transferring…" instead of sitting at a misleading 100%.
+ * `xhr.upload.onprogress` reports **bytes handed to the server**, not bytes stored.
+ * `handleUploadObjectV1` buffers the *entire* body to `/tmp` via `streamToTemp` before
+ * its first Telegram call, so the bar reaches 100% and then sits there for the whole
+ * upload-to-Telegram phase. No server progress channel exists, so the callback
+ * reports `total: null` once the transfer completes and the UI switches to a phase
+ * label rather than sitting at a misleading 100%.
  *
- * There is also no size cap on this route (`web-api-controller.ts:201` calls
- * `streamToTemp` without `maxSizeBytes`, unlike public `/api/upload`), so the
- * SPA does not pre-validate size — a client-side limit would be a fiction the
- * server does not enforce.
- *
- * @param key Object key. **Unvalidated server-side** (`formData.get('key')` is
- *   taken verbatim at `web-api-controller.ts:201`), so it is never rendered as
+ * @param bucket - The bucket name.
+ * @param file - The file to upload.
+ * @param key - Object key. Unvalidated server-side, so it is never rendered as
  *   anything but a React text child.
+ * @param onProgress - Progress callback.
+ * @param org - Organization slug.
  */
 export const uploadObject = (
   bucket: string,
   file: File,
   key: string,
   onProgress?: UploadProgress,
+  org?: string,
 ): Promise<UploadObjectResponse> =>
   new Promise<UploadObjectResponse>((resolve, reject) => {
     const form = new FormData();
@@ -225,8 +247,7 @@ export const uploadObject = (
 
     const xhr = new XMLHttpRequest();
     // The session cookie is HttpOnly, so XHR must be told to send the jar.
-    // `same-origin` (not `include`): the SPA is served from the API's own
-    // origin and there is no cross-origin credential exchange.
+    // `withCredentials` is required for that on the XHR path specifically.
     xhr.withCredentials = true;
 
     xhr.upload.onprogress = (event: ProgressEvent) => {
@@ -242,8 +263,8 @@ export const uploadObject = (
         }
         return;
       }
-      // Reuse the API's `{error}` envelope rather than `statusText`, which is
-      // empty for XHR.
+      // Reuse the API's `{error}` envelope rather than `statusText`, which is empty
+      // for XHR.
       let message = xhr.statusText || `HTTP ${xhr.status}`;
       try {
         const body: unknown = JSON.parse(xhr.responseText);
@@ -260,17 +281,6 @@ export const uploadObject = (
     xhr.onerror = () => reject(new ApiError(0, 'Upload failed — network error'));
     xhr.onabort = () => reject(new ApiError(0, 'Upload aborted'));
 
-    xhr.open('POST', uploadUrl(bucket));
+    xhr.open('POST', uploadUrl(bucket, org));
     xhr.send(form);
   });
-
-// ─────── Auth endpoints ───────
-
-/**
- * `POST /api/v1/auth/login` — **rate limited** (`app.ts:126`).
- *
- * Thin re-export; prefer `login()` from `./auth`, which wraps this and then
- * re-probes `/auth/me` to catch the `Secure`-over-http cookie drop.
- */
-export const postLogin = (token: string): Promise<LoginResponse> =>
-  http.postJson<LoginResponse, { token: string }>('/api/v1/auth/login', { token });

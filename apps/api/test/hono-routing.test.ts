@@ -20,8 +20,10 @@ const handlers = vi.hoisted(() => ({
 	fileRedirect: vi.fn((_req: Request) => new Response("redirected", { status: 302 })),
 	fileInfo: vi.fn(() => new Response('{"file":{}}', { status: 200 })),
 	webApi: vi.fn(() => new Response('{"buckets":[]}', { status: 200 })),
-	login: vi.fn(() => new Response('{"ok":true}', { status: 200 })),
+	googleStart: vi.fn(() => new Response(null, { status: 302 })),
+	googleCallback: vi.fn(() => new Response(null, { status: 302 })),
 	logout: vi.fn(() => new Response('{"ok":true}', { status: 200 })),
+	logoutAll: vi.fn(() => new Response('{"ok":true}', { status: 200 })),
 	me: vi.fn(() => new Response('{"user":null}', { status: 200 })),
 	s3: vi.fn(() => new Response("<ListAllMyBucketsResult/>", { status: 200 })),
 	requireAuth: vi.fn((handler: (req: Request) => Promise<Response>) => handler),
@@ -61,8 +63,10 @@ vi.mock("../src/presentation/http/controllers/web-api-controller", () => ({
 	handleDownloadObjectV1: handlers.webApi,
 }));
 vi.mock("../src/presentation/http/controllers/auth-controller", () => ({
-	handleLogin: handlers.login,
+	handleGoogleStart: handlers.googleStart,
+	handleGoogleCallback: handlers.googleCallback,
 	handleLogout: handlers.logout,
+	handleLogoutAll: handlers.logoutAll,
 	handleMe: handlers.me,
 }));
 vi.mock("../src/presentation/http/controllers/s3-controller", () => ({
@@ -130,13 +134,23 @@ describe("Hono routing order", () => {
 	});
 
 	test("exact auth routes win over the /api/v1/* wildcard", async () => {
-		await req()("/api/v1/auth/login", { method: "POST" });
-		expect(handlers.login).toHaveBeenCalled();
+		await req()("/api/v1/auth/google/start");
+		expect(handlers.googleStart).toHaveBeenCalled();
+		expect(handlers.webApi).not.toHaveBeenCalled();
+
+		await req()("/api/v1/auth/google/callback?code=c&state=s");
+		expect(handlers.googleCallback).toHaveBeenCalled();
 		expect(handlers.webApi).not.toHaveBeenCalled();
 
 		await req()("/api/v1/auth/me");
 		expect(handlers.me).toHaveBeenCalled();
 		expect(handlers.webApi).not.toHaveBeenCalled();
+
+		// The old token form is gone, so the POST must fall through to the wildcard
+		// rather than being claimed by a handler that no longer exists.
+		handlers.webApi.mockClear();
+		await req()("/api/v1/auth/login", { method: "POST" });
+		expect(handlers.webApi).toHaveBeenCalled();
 	});
 
 	test("dashboard reads are public but writes go through requireAuth", async () => {

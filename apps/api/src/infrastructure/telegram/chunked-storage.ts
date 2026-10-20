@@ -73,6 +73,14 @@ export interface ChunkedFileInput {
 	fileType: string;
 	/** Telegram user ID of the uploader */
 	uploaderId: number;
+	/**
+	 * The dashboard user who uploaded this (`users.id`), or null.
+	 *
+	 * Threaded through so a chunked (large-file) upload is attributed the same way a
+	 * single-message one is. Separate from {@link uploaderId}, which is Telegram's
+	 * numeric sender id.
+	 */
+	uploaderUserId?: string | null;
 	/** S3 bucket ID if the file is also tracked in S3, or null */
 	bucketId?: string | null;
 	/** S3 object key if the file is also tracked in S3, or null */
@@ -202,6 +210,7 @@ export class ChunkedStorage {
 				fileType: input.fileType,
 				storageBackend: "chunked",
 				uploaderId: input.uploaderId,
+				uploaderUserId: input.uploaderUserId ?? null,
 				fileHash: upload.fileHash,
 				bucketId: input.bucketId,
 				s3Key: input.s3Key,

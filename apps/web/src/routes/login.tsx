@@ -1,316 +1,139 @@
 /**
- * `/login` — the admin token form.
+ * `/login` — Sign in with Google.
  *
- * ## What the wire actually does
+ * ## What the wire actually does now
  *
- * `POST /api/v1/auth/login` takes `{token}` and answers one of five things, and
- * this page renders each differently because they are NOT the same failure:
+ * There is no token form any more. `POST /api/v1/auth/login` is gone; the route was
+ * removed in the same change that introduced per-user tenancy, because a single
+ * shared token cannot identify a person and every dashboard request now resolves its
+ * tenant from a real session.
  *
- * | Result | Cause | What the user is told |
- * |---|---|---|
- * | `200 {"username":"admin"}` | token correct — but see the `Secure` trap below | success |
- * | `400 {"error":"Token is required"}` | body failed `LoginBodySchema` | paste the token |
- * | `401 {"error":"Invalid token"}` | token wrong | try again |
- * | `429 {"error":"Rate limit exceeded"}` | `limited()` wrapped login (`app.ts:248`) | wait — **do not** retry |
- * | `404 {"error":"Not found"}` | `isAuthEnabled()` is false — auth is OFF | nothing to log into |
+ * The flow is a browser navigation:
  *
- * `429` is rate limited but `GET /api/v1/*` reads are NOT (`app.ts:296` is
- * registered bare while `:248` is wrapped), so a 429 here means only "you are
- * logging in too fast", not "the deployment is throttling you" — the browser
- * still works. That is why it gets its own message and no auto-retry: retrying
- * a 429 is the one thing guaranteed to keep the window exhausted.
+ *   1. this page links to `/api/v1/auth/google/start?redirect=<path>`;
+ *   2. the server mints `state` + PKCE, persists them, and 302s to Google;
+ *   3. Google 302s back to `/api/v1/auth/google/callback?code=…&state=…`;
+ *   4. the server verifies the ID token, upserts the user, provisions their personal
+ *      organization, sets the HttpOnly session cookie, and 302s to `redirect`;
+ *   5. the SPA loads, `refreshAuth()` probes `/auth/me`, and the shell renders signed
+ *      in.
  *
- * ## The `Secure`-over-http trap — why a 200 is not success
+ * ## Why this is an `<a href>` and not a `fetch`
  *
- * `createSessionCookie` sets `HttpOnly; SameSite=Lax; Secure` UNCONDITIONALLY
- * (`middleware/auth.ts:108-109`). Over plain `http://localhost` the browser
- * accepts the `Set-Cookie` header and then discards the cookie, and
- * `handleLogin` still answers `200 {"username":"admin"}`.
+ * The cookie is `HttpOnly` and set by the API origin at the END of a cross-origin
+ * redirect chain. Fetching the start URL would follow the 302s inside an XHR, land on
+ * Google's HTML, and never store the cookie. A real navigation is the only thing that
+ * works, so `beginSignIn` assigns `window.location`.
  *
- * So `signIn()` does not trust the POST: it re-probes `GET /api/v1/auth/me`
- * (`lib/auth.ts:102-116`) and throws `ApiError(401, …)` naming the cause when
- * the cookie did not land. **This page surfaces that message verbatim.** It is
- * the only explanation the user will get for why their writes then 401, and
- * replacing it with a generic "Login failed" reproduces exactly the confusion
- * `home.html` had.
+ * ## Where "onward" goes, and why `?redirect` is validated on BOTH sides
  *
- * ## The three-state probe, not a boolean
+ * `validateSearch` accepts an optional `redirect` so any page can send the user here
+ * and back. It is constrained to a same-origin **path** — a value containing `://`, a
+ * scheme-relative `//`, or a backslash is discarded rather than forwarded.
  *
- * `/auth/me` returns `200` (admin), `401` (read-only) or — when
- * `ADMIN_API_TOKEN` is empty — `404`, which means `requireAuth` is a
- * pass-through and the caller is *effectively* admin. That arm is why this page
- * redirects away from `/login` in the `auth-disabled` state: there is nothing
- * to log into, and `AuthControls` already hides the Login button there
- * (contract §1.2).
+ * The server validates the same value again before writing it into a `Location`
+ * header on the callback (`safeRedirectPath`). Two checks for one value is deliberate:
+ * this page's check protects the browser from being sent somewhere odd, and the
+ * server's protects against a hand-crafted request that never touched this page. Only
+ * the second is a real trust boundary.
  *
- * ## Where "onward" goes, and why `?redirect` is validated
- *
- * `validateSearch` accepts an optional `redirect` so any page can send the user
- * here and back. It is constrained to a same-origin **path** only — a value
- * containing `://` or a scheme-relative `//` is discarded rather than handed to
- * `window.location.assign`. Without that guard `/login?redirect=https://evil`
- * is an open redirect, and this is the one page that would act on it.
- *
- * Relative imports, NOT `@/`: `tsconfig.json` declares the alias but
- * `vite.config.ts` has no `resolve.alias`, so `@/…` typechecks and then fails
- * the Rollup build. See `__root.tsx` for the full statement.
+ * Relative imports, NOT `@/`: `tsconfig.json` declares the alias but `vite.config.ts`
+ * has no `resolve.alias`, so `@/…` typechecks and then fails the Rollup build.
  */
 
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
-import { ApiError } from '../lib/client';
-import { refreshAuth, signIn, useAuthState } from '../lib/auth-store';
-import type { AuthState } from '../lib/auth';
-
-/** Where the user lands when `?redirect` is absent or rejected. */
-const DEFAULT_DESTINATION = '/';
+import { createFileRoute } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { useAuthState, refreshAuth } from '../lib/auth-store';
+import { AppLink } from '../lib/layout/AppLink';
 
 /**
- * The empty search every navigation to `/` must carry.
+ * Constrains `?redirect` to a same-origin path.
  *
- * `routes/index.tsx` validates `search` into `{bucket, prefix}` — both
- * REQUIRED, no `?` — so TanStack types `navigate({to: '/'})` as a missing-
- * property error. Repeating the empty pair here rather than reaching into the
- * index route's types keeps this file decoupled: if the index route's search
- * shape changes, the fix lands in one place per file instead of silently
- * breaking every cross-route link.
+ * @param raw - The untrusted search value.
+ * @returns A safe path, defaulting to `/`.
  */
-const HOME_SEARCH = { bucket: '', prefix: '' } as const;
-
-/** What the user is told, derived from the thrown error rather than hardcoded. */
-interface LoginFailure {
-  /** Verbatim server message where one exists. */
-  message: string;
-  /** Extra guidance that is true for this specific failure and no other. */
-  hint?: string;
-  /** Whether trying the same token again could plausibly work. */
-  retryable: boolean;
-}
-
-/**
- * Maps a rejected login onto a message worth reading.
- *
- * `429` is separated from `401` on purpose: "wrong token" invites a retry and
- * "rate limited" must not, so giving them the same copy produces the exact
- * failure this page exists to avoid — a user mashing Login until the window
- * stays exhausted long after their token was right.
- *
- * Note the shared `401` arm: `login()` reuses 401 to report a successful login
- * whose cookie the browser refused to store, and that message is the single
- * most useful sentence on this page. It is passed through whole rather than
- * being flattened into "Login failed".
- */
-const explain = (error: unknown): LoginFailure => {
-  if (!(error instanceof ApiError)) {
-    return { message: 'Could not reach the server.', retryable: true };
-  }
-  switch (error.status) {
-    case 429:
-      return {
-        message: 'Too many login attempts.',
-        hint: `${error.message}. Wait for the current window to expire, then try once — retrying now only keeps the window open.`,
-        retryable: false,
-      };
-    case 404:
-      return {
-        message: 'This deployment has authentication turned off.',
-        hint: 'ADMIN_API_TOKEN is empty, so the server accepts every request as admin. There is nothing to log into.',
-        retryable: false,
-      };
-    case 400:
-      return { message: error.message, hint: 'Paste the admin API token.', retryable: true };
-    default:
-      // Covers 401 (wrong token, and the Secure-cookie drop) plus any status
-      // this page has no special handling for.
-      return { message: error.message || `HTTP ${error.status}`, retryable: false };
-  }
+export const safeRedirect = (raw: unknown): string => {
+  if (typeof raw !== 'string' || raw.length === 0) return '/';
+  if (!raw.startsWith('/')) return '/';
+  if (raw.startsWith('//')) return '/';
+  if (raw.includes('\\')) return '/';
+  if (raw.includes('://')) return '/';
+  return raw;
 };
 
-/**
- * One-line summary of the current probe, shown above the form.
- *
- * Mirrors `AuthControls`' table: `auth-disabled` is reported as fully writable
- * because the server would accept writes, and `unknown` is described without
- * claiming read-only — an unanswered probe must never be presented as a
- * permission decision.
- */
-const statusLine = (state: AuthState): string | null => {
-  switch (state.kind) {
-    case 'admin':
-      return 'You are signed in.';
-    case 'auth-disabled':
-      return 'Authentication is disabled on this server — everything is already writable.';
-    case 'readonly':
-      return 'Not signed in. Reading files is still available.';
-    case 'unknown':
-      return 'Could not determine your access. Reading files may still work.';
-  }
-};
+export const Route = createFileRoute('/login')({
+  validateSearch: (search: Record<string, unknown>): { redirect: string } => ({
+    redirect: safeRedirect(search.redirect),
+  }),
+  component: LoginPage,
+});
 
 function LoginPage(): React.JSX.Element {
-  const state = useAuthState();
   const { redirect } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  const auth = useAuthState();
 
-  const [token, setToken] = useState('');
-  const [failure, setFailure] = useState<LoginFailure | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  /**
-   * The initial probe is fired by `__root.tsx`, but this route can also be
-   * entered directly (deep link, refresh). Re-probing here is idempotent and
-   * de-duplicated inside the store, so StrictMode's double effect does not
-   * issue two requests.
-   */
   useEffect(() => {
+    // The probe may not have run yet on a cold load of this route.
     void refreshAuth();
   }, []);
 
-  /**
-   * Already admin, or auth is off — nothing to do on this page.
-   *
-   * `auth-disabled` is included deliberately: it counts as admin
-   * (`canWrite`), and a login form there would offer a control that cannot
-   * work. `goHome` is declared below and referenced here; the effect body runs
-   * after render, so the `const` is assigned by then.
-   */
+  // Already signed in: this page has nothing to offer. `replace` so the back button
+  // does not bounce between here and the destination.
   useEffect(() => {
-    if (state.kind === 'admin' || state.kind === 'auth-disabled') goHome();
-    // `goHome` is recreated each render; depending on it would re-run this on
-    // every keystroke. `redirect` is the only value it actually reads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.kind, redirect]);
-
-  /**
-   * Hands control back to the browser.
-   *
-   * A same-origin `?redirect` is a document load (it may name a route this
-   * bundle's tree does not own); the default `/` gets a client transition.
-   */
-  function goHome(): void {
-    if (redirect !== DEFAULT_DESTINATION) {
-      window.location.assign(redirect);
-      return;
+    if (auth.kind === 'signed-in') {
+      window.location.replace(redirect);
     }
-    void navigate({ to: '/', search: HOME_SEARCH, replace: true });
+  }, [auth.kind, redirect]);
+
+  if (auth.kind === 'signed-in') {
+    return (
+      <div className="login-page">
+        <p className="muted">Signed in as {auth.email} — redirecting…</p>
+      </div>
+    );
   }
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (busy) return;
-
-    const trimmed = token.trim();
-    if (trimmed.length === 0) {
-      // Client-side mirror of `LoginBodySchema` (`z.string().min(1)`). The
-      // server would answer 400 for this anyway; catching it here spares a
-      // round trip on a rate-limited endpoint.
-      setFailure({ message: 'Token is required', hint: 'Paste the admin API token.', retryable: true });
-      inputRef.current?.focus();
-      return;
-    }
-
-    setBusy(true);
-    setFailure(null);
-    try {
-      await signIn(trimmed);
-      // `signIn` publishes the new state before resolving, so navigating here
-      // rather than waiting for the effect above means `?redirect` is honoured
-      // on the very first successful submit rather than a render later.
-      goHome();
-    } catch (error: unknown) {
-      setFailure(explain(error));
-      inputRef.current?.select();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const status = statusLine(state);
+  if (auth.kind === 'unknown') {
+    return (
+      <div className="login-page">
+        <p className="muted">Checking your session…</p>
+      </div>
+    );
+  }
 
   return (
-    <section className="login-page" aria-labelledby="login-heading">
-      <h1 id="login-heading">Sign in</h1>
-
-      {status ? (
-        <p className="auth-status" role="status" aria-live="polite">
-          {status}
-        </p>
-      ) : null}
-
-      <form onSubmit={(event) => void submit(event)}>
-        <label htmlFor="login-token">Admin API token</label>
-        <input
-          id="login-token"
-          ref={inputRef}
-          type="password"
-          name="token"
-          value={token}
-          autoComplete="current-password"
-          autoFocus
-          required
-          disabled={busy}
-          onChange={(event) => {
-            setToken(event.target.value);
-            if (failure) setFailure(null);
-          }}
-        />
-
-        <button type="submit" className="primary" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
-
-      {/*
-        `role="alert"` so a screen reader announces the failure without the user
-        having to move focus. The text is React-escaped by construction: there
-        is no `dangerouslySetInnerHTML` on this page, and no handler is ever
-        built by string concatenation.
-      */}
-      {failure ? (
-        <p className="error-message" role="alert">
-          {failure.message}
-          {failure.hint ? <> {failure.hint}</> : null}
-        </p>
-      ) : null}
-
-      {/*
-        Logout semantics, stated once, on the page where a new session begins.
-        Sessions are a stateless HMAC blob with NO server-side store, so
-        `POST /api/v1/auth/logout` only sends `Max-Age=0` — a cookie captured
-        before logout still authenticates until it expires (contract gotcha
-        13). The copy says "clears this browser's cookie", never "revokes".
-      */}
-      <p className="auth-status">
-        Signing out clears this browser&apos;s cookie only. Sessions are stateless, so a cookie
-        captured beforehand keeps working until it expires.
+    <div className="login-page">
+      <h1>Sign in</h1>
+      <p className="muted">
+        FileDrop stores files in your own workspace. Sign in with Google to continue.
       </p>
 
-      <p className="auth-status">
-        <Link to="/" search={HOME_SEARCH}>
-          Back to files
-        </Link>
-        {' — reading files does not require signing in.'}
+      {auth.googleEnabled ? (
+        <a
+          className="button google-signin"
+          href={`/api/v1/auth/google/start?redirect=${encodeURIComponent(redirect)}`}
+        >
+          Sign in with Google
+        </a>
+      ) : (
+        // A button that led to a 503 would be worse than an explanation. The server
+        // reports `googleEnabled` on `/auth/me`, so this branch is a fact about the
+        // deployment rather than a guess about the hostname.
+        <div className="notice-banner" role="status">
+          <strong>Sign-in is not configured on this server.</strong>
+          <p>
+            An administrator must set <code>GOOGLE_CLIENT_ID</code> and{' '}
+            <code>GOOGLE_CLIENT_SECRET</code> before anyone can sign in. Machine callers
+            can still authenticate with the <code>ADMIN_API_TOKEN</code> bearer
+            credential.
+          </p>
+        </div>
+      )}
+
+      <p className="muted small">
+        <AppLink href="/">Continue without signing in</AppLink> — public share links keep
+        working, but the file browser needs a session.
       </p>
-    </section>
+    </div>
   );
 }
-
-export const Route = createFileRoute('/login')({
-  /**
-   * `redirect` is a query string, i.e. attacker-influenceable. It is accepted
-   * only if it looks like a same-origin absolute path — leading `/`, no scheme,
-   * no authority. Everything else falls back to `/`.
-   */
-  validateSearch: (search: Record<string, unknown>): { redirect: string } => {
-    const raw = search.redirect;
-    const usable =
-      typeof raw === 'string' &&
-      raw.startsWith('/') &&
-      !raw.startsWith('//') &&
-      !raw.includes('://');
-    return { redirect: usable ? raw : DEFAULT_DESTINATION };
-  },
-  component: LoginPage,
-});

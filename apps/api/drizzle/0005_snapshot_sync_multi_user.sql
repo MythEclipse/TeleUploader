@@ -1,0 +1,30 @@
+-- Snapshot sync for migration 0004. Contains NO DDL on purpose; do not add any.
+--
+-- `drizzle-kit generate` produced this entry after schema.ts gained the
+-- users/sessions/oauth_states tables plus organizations.personal_owner_user_id
+-- and files.uploader_user_id. Every statement it emitted was a DUPLICATE of what
+-- 0004_multi_user_identity.sql already does:
+--
+--   CREATE TABLE users / sessions / oauth_states                     == 0004
+--   ALTER TABLE files ADD COLUMN uploader_user_id                    == 0004
+--   ALTER TABLE organizations ADD COLUMN personal_owner_user_id      == 0004
+--   CREATE UNIQUE INDEX users_email_unique / users_google_sub_unique == 0004
+--   CREATE UNIQUE INDEX sessions_token_hash_unique                   == 0004
+--   CREATE INDEX idx_sessions_* / idx_oauth_states_expires_at        == 0004
+--
+-- Applying it would fail ("relation already exists") on any database where 0004
+-- has already run, which is every database this ships to. The SQL is removed and
+-- only the SNAPSHOT is kept — the same resolution, for the same reason, as
+-- 0003_snapshot_sync.sql.
+--
+-- What the snapshot is for: meta/0005_snapshot.json records the schema state
+-- AFTER the multi-user changes. Without it, every future `drizzle-kit generate`
+-- would diff against the pre-0004 state and keep re-emitting the same identity
+-- DDL — which is exactly the failure mode that produced this file.
+--
+-- This file must still EXIST: drizzle's migrator throws
+-- `No file <tag>.sql found` for any journal entry whose SQL file is missing.
+-- `scripts/verify-migrations.ts` asserts that invariant across the whole journal.
+--
+-- DO NOT delete this entry, and do not add DDL here. It is a marker that the
+-- snapshot has caught up with schema.ts.

@@ -59,8 +59,10 @@ vi.mock("../src/presentation/http/controllers/health-controller", () => ({
 	handleHealth: mockHandleHealth,
 }));
 vi.mock("../src/presentation/http/controllers/auth-controller", () => ({
-	handleLogin: vi.fn(),
+	handleGoogleStart: vi.fn(() => Promise.resolve(new Response(null, { status: 302 }))),
+	handleGoogleCallback: vi.fn(() => Promise.resolve(new Response(null, { status: 302 }))),
 	handleLogout: vi.fn(),
+	handleLogoutAll: vi.fn(),
 	handleMe: vi.fn(),
 }));
 // P4: `GET /` is served by spa-controller, not home-controller. app.ts never

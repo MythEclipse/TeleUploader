@@ -1,95 +1,60 @@
 /**
- * The organization the dashboard is scoped to.
+ * The organizations the dashboard can be scoped to.
  *
- * ## There is exactly one, and the API will not tell you its name
+ * ## What this replaces, and why it mattered
  *
- * The org switcher is required by the contract (§1.1) and by this lane's brief.
- * It has to be built against what the server actually offers, which is:
+ * The previous version of this file hardcoded ONE organization — literally
+ * `{ id: 'scoped', slug: 'default', name: 'This deployment' }` — and its header
+ * comment explained that this was honest because the API had no endpoint to list
+ * organizations and the session carried only a hardcoded username. That was true at
+ * the time, and it made the org switcher a permanently disabled control.
  *
- * - **No organizations endpoint exists.** Verified:
- *   `grep -rn "'/api/v1" apps/api/src/presentation/http/controllers/*.ts
- *    apps/api/src/presentation/orpc/routers/*.ts | grep -iv "buckets\|auth"`
- *   returns nothing. `handleWebApiV1` (`web-api-controller.ts:424-484`) has
- *   exactly nine branches and none of them list organizations.
- * - **`OrganizationRepository` has one method**, `findOrganizationIdByUserId`
- *   (`domain/ports/organization-repository.ts:22`). There is no "list all".
- * - **The scope is not per-user in any case.** `resolveAdminOrganizationId()`
- *   ignores the session entirely and maps the CONFIGURED
- *   `BOOTSTRAP_ADMIN_ID` to its organization
- *   (`organization-resolver.ts`). `AuthSession` carries only a hardcoded
- *   `username`, and `parseSessionFromCookie` rejects any cookie whose `u` is not
- *   literally `"admin"` (`auth.ts:207`). There is no user identity in the
- *   session to resolve a tenant from — that is TODO.md item 6 (better-auth),
- *   deliberately deferred.
+ * Both premises are gone. There is now a `users` table, sessions that name a real
+ * user, a `members` table that says which organizations that user belongs to, and
+ * `GET /api/v1/organizations` to read them. So this module fetches.
  *
- * So a switcher that rendered a list of orgs would be fabricating data. This
- * module instead exposes a **single-entry source** whose shape is ready for
- * multiple entries when P3c lands, and `OrgSwitcher` renders a disabled control
- * with the count. That is the honest shape: the UI affordance exists, and it
- * states the truth (one org, server-selected) instead of pretending to offer a
- * choice.
+ * ## The org is the TENANT, so a wrong answer is a data-leak-shaped bug
  *
- * ## When this becomes real
- *
- * P3c must add a server endpoint before this module can list anything. Until
- * then, adding entries here would be the same defect class as the eight
- * precedents in docs/P4-CONTRACT.md §0: a claim written down and trusted
- * downstream.
+ * Every organization-scoped request passes `?org=<slug>`, and the server REFUSES a
+ * slug the caller is not a member of (403, never a silent fallback). That makes the
+ * failure mode here safe in one direction: a slug the client invents cannot expose
+ * another tenant. The dangerous direction is the opposite — the client showing one
+ * organization's name while the server is scoped to another — which is why the
+ * active organization is always resolved from the server's own list rather than
+ * from client state.
  */
 
-import { listBuckets } from './endpoints';
-import type { BucketSummary } from './types';
+import { listOrganizations } from './endpoints';
+import type { OrganizationMembership } from './types';
+
+/** Re-exported so callers do not need `./types` for the switcher's item type. */
+export type OrgSummary = OrganizationMembership;
 
 /**
- * One entry in the org switcher.
+ * Fetches the organizations the signed-in account belongs to.
  *
- * `id` is the organization UUID the server scopes to. `slug` is the URL
- * segment used by `/$orgSlug/...` — it is NOT the UUID, because putting a UUID
- * in a path segment is unreadable and the contract's route shapes are
- * slug-based. `name` is a display label.
+ * @returns The organizations, ordered by name. Empty when signed out.
+ * @throws {ApiError} `401` when there is no session, or on a network failure. The
+ *   caller decides whether that is an error or a signed-out state — the switcher
+ *   treats it as "nothing to switch between" rather than crashing the shell.
  */
-export interface OrgSummary {
-  readonly id: string;
-  readonly slug: string;
-  readonly name: string;
-}
-
-/**
- * Placeholder org for the single-tenant deployment.
- *
- * `id` is deliberately a constant placeholder, not a fabricated UUID: nothing
- * in the response set carries an organization id, and inventing one that looks
- * real is the mock-more-correct-than-the-code failure this phase is trying to
- * avoid. `resolveScopedOrg()` below is where a real value would enter.
- */
-const SINGLE_SCOPED_ORG: OrgSummary = {
-  id: 'scoped',
-  slug: 'default',
-  name: 'This deployment',
+export const listOrgs = async (): Promise<OrgSummary[]> => {
+  const response = await listOrganizations();
+  return response.organizations;
 };
 
-/** The orgs the switcher can render. One entry, for the reasons above. */
-export const listOrgs = (): Promise<OrgSummary[]> => Promise.resolve([SINGLE_SCOPED_ORG]);
-
 /**
- * Resolves the org whose `slug` matches, or `null`.
+ * Resolves an organization by its URL slug.
  *
- * With one entry this only ever matches `'default'`, so `/$orgSlug` routes for
- * any other slug 404 through the caller's loader rather than rendering a
- * foreign org's buckets.
+ * Returns `null` for a slug the account is not a member of. The caller renders "not
+ * found" rather than redirecting to the user's own organization, because silently
+ * substituting a different tenant for the one named in the URL is how a shared link
+ * shows the wrong files.
+ *
+ * @param slug - The `$orgSlug` path segment.
+ * @returns The organization, or `null`.
  */
 export const findOrgBySlug = async (slug: string): Promise<OrgSummary | null> => {
   const orgs = await listOrgs();
   return orgs.find((org) => org.slug === slug) ?? null;
 };
-
-/**
- * Buckets belonging to an org.
- *
- * Today every org resolves to the same server-side scope, so this is
- * `listBuckets()` and nothing else — the org argument is accepted so callers
- * written against the eventual multi-tenant shape do not have to change. It is
- * **not** sent to the server, because there is no parameter for it.
- */
-export const listBucketsForOrg = async (_org: OrgSummary): Promise<BucketSummary[]> =>
-  listBuckets();

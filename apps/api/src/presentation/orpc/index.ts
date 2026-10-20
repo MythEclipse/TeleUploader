@@ -2,10 +2,6 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type { Context as HonoContext } from "hono";
 import { config } from "../../env";
 import {
-	MissingOrganizationMembershipError,
-	resolveAdminOrganizationId,
-} from "../http/controllers/organization-resolver";
-import {
 	handleCopyObjectV1,
 	handleCreateBucketV1,
 	handleDeleteBucketV1,
@@ -14,6 +10,7 @@ import {
 	handleListBucketsV1,
 	handleListObjectsV1,
 } from "../http/controllers/web-api-controller";
+import { getAuthenticatedCaller, TenantAccessError } from "../http/middleware/auth";
 import type { AppRouterContext } from "./context";
 import { buildRouter } from "./routers";
 import type { BucketHandlers } from "./routers/bucket";
@@ -71,27 +68,39 @@ export const orpcHandler = new RPCHandler(router);
 export const handleRpc = async (c: HonoContext) => {
 	const request = c.req.raw;
 
-	// P3: resolve the session's organization BEFORE any procedure runs, so an
-	// unauthenticated or unmapped caller cannot reach a bucket at all. A missing
-	// bootstrap membership THROWS rather than returning a 401 — that is a
-	// misconfiguration, and it is refused at boot instead. Unauthenticated
-	// callers are already rejected by `rpcAuthenticated` above; answering 401
-	// here as well conflated the two failures.
+	// P3 → multi-user: resolve the CALLER's organization BEFORE any procedure runs.
 	//
-	// The catch exists because src/index.ts resolves the scope at boot, but this
-	// handler still runs in processes that do not boot it (tests, embedders). An
-	// uncaught throw here becomes an opaque 500 with an empty body, which reads
-	// like a crash rather than "this deployment has no tenant scope". 503 + a
-	// stable error name says which it is. It is NOT a 401: the caller's
-	// credentials were fine.
+	// This used to call `resolveAdminOrganizationId()`, which ignored the request
+	// entirely and returned the configured bootstrap org — so every authenticated
+	// person shared one tenant regardless of who they were. Now the scope comes from
+	// the session, and a caller with no reachable organization gets a 503 rather
+	// than a silently-shared workspace.
+	//
+	// The try/catch exists because an opaque 500 with an empty body reads like a
+	// crash, whereas 503 plus a stable error name says which thing is wrong. It is
+	// NOT a 401: reaching this point means `rpcAuthenticated` already accepted the
+	// credentials.
+	const caller = await getAuthenticatedCaller(request);
+	if (!caller) {
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	}
+
 	let organizationId: string;
 	try {
-		organizationId = await resolveAdminOrganizationId();
+		const { resolveCallerOrganization } = await import("../http/middleware/auth");
+		const resolved = await resolveCallerOrganization(
+			caller,
+			new URL(request.url).searchParams.get("org")
+		);
+		organizationId = resolved.organizationId;
 	} catch (error: unknown) {
-		if (error instanceof MissingOrganizationMembershipError) {
+		if (error instanceof TenantAccessError) {
 			return Response.json(
-				{ error: "Tenant scope unavailable", detail: "missing_organization_membership" },
-				{ status: 503 }
+				{
+					error: error.message,
+					detail: error.status === 503 ? "missing_organization_membership" : "not_a_member",
+				},
+				{ status: error.status }
 			);
 		}
 		throw error;

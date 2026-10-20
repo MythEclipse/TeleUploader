@@ -50,6 +50,7 @@ const mapDbRowToS3Record = (row: Record<string, unknown>): S3FileRecord => ({
 	sizeBytes: toNumber(row.size_bytes),
 	fileType: row.file_type as string,
 	uploaderId: toNumber(row.uploader_id),
+	uploaderUserId: (row.uploader_user_id as string | null) ?? null,
 	fileHash: row.file_hash as string | null,
 	archiveTelegramFileId: row.archive_telegram_file_id as string | null,
 	archiveStorageMessageId:

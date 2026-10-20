@@ -1,51 +1,83 @@
 /**
- * Login / Logout / read-only badge — the admin gating from `home.html`'s
- * `applyAdminUI`, reproduced on the three-state probe instead of a boolean.
+ * Sign in / sign out / account identity — the session gating in the top bar.
  *
- * The mapping, from `home.html:196-203`, re-derived against §1.2:
+ * ## The mapping
  *
- * | AuthState        | Login | Logout | read-only badge |
- * |------------------|-------|--------|-----------------|
- * | `admin`          | no    | yes    | no              |
- * | `readonly`       | yes   | no     | yes             |
- * | `auth-disabled`  | no    | yes    | no              |
- * | `unknown`        | no    | no     | yes             |
+ * | AuthState      | Sign in | Sign out | read-only badge | profile |
+ * |----------------|---------|----------|-----------------|---------|
+ * | `signed-in`    | no      | yes      | no              | yes     |
+ * | `signed-out`   | yes     | no       | yes             | no      |
+ * | `unknown`      | no      | no       | yes             | no      |
  *
- * `auth-disabled` matches `admin` because the server really does accept writes
- * (`requireAuth` is a pass-through with an empty `ADMIN_API_TOKEN`) — showing a
- * Login button there would be a control that cannot work.
+ * ## What changed from the single-token version
+ *
+ * The old component showed a `Logout` button for the `auth-disabled` state too,
+ * because with an empty `ADMIN_API_TOKEN` the server accepted writes and hiding the
+ * control "would be a lie about what the deployment can do". That arm is gone: a
+ * signed-out visitor is genuinely signed out now, so there is nothing to log out of.
+ *
+ * It also renders the account's identity, because there is one — a real email and
+ * display name from Google. The previous version could not: the session carried a
+ * hardcoded `"admin"` string.
  */
 
-import { useAuthState, signOut, useCanWrite, useShouldOfferLogin } from '../auth-store';
+import { useState } from 'react';
+import { signOut, useAuthState, useCanWrite, useShouldOfferLogin } from '../auth-store';
 import { AppLink } from './AppLink';
 
-/**
- * Where Login and Logout go.
- *
- * `AppLink`, not TanStack's typed `<Link to>` — see that component for why
- * (`to="/login"` does not typecheck until `src/routes/login.tsx` exists, and
- * that file is owned by another lane).
- */
+/** Where Sign in and Sign out go. See the note on `AppLink` below. */
 const LOGIN_HREF = '/login';
+
+/**
+ * The signed-in account's label.
+ *
+ * Prefers the display name, falls back to the email's local part. Both can be empty
+ * for a Google account with no profile name, so there is a final fallback rather than
+ * rendering a blank button.
+ *
+ * @param name - Display name from the identity provider.
+ * @param email - The account email.
+ */
+const accountLabel = (name: string, email: string): string => {
+  if (name.trim().length > 0) return name;
+  const localPart = email.split('@')[0];
+  return localPart && localPart.length > 0 ? localPart : email;
+};
 
 export const AuthControls = (): React.JSX.Element => {
   const state = useAuthState();
   const canWrite = useCanWrite();
   const offerLogin = useShouldOfferLogin();
+  const [signingOut, setSigningOut] = useState(false);
 
-  const busy = state.kind === 'unknown';
-
-  if (busy) {
-    return <span className="auth-status">Checking access…</span>;
+  if (state.kind === 'unknown') {
+    return <span className="auth-status">Checking session…</span>;
   }
 
   return (
     <>
+      {state.kind === 'signed-in' ? (
+        <span className="account" title={state.email}>
+          {state.avatarUrl ? (
+            <img
+              className="avatar"
+              src={state.avatarUrl}
+              alt=""
+              width={24}
+              height={24}
+              // The URL comes from Google; if it rots the initial still shows.
+              referrerPolicy="no-referrer"
+            />
+          ) : null}
+          <span className="account-name">{accountLabel(state.name, state.email)}</span>
+        </span>
+      ) : null}
+
       {!canWrite ? <span className="readonly-badge">read-only</span> : null}
 
       {offerLogin ? (
         <AppLink className="ghost button" href={LOGIN_HREF}>
-          Login
+          Sign in
         </AppLink>
       ) : null}
 
@@ -53,16 +85,22 @@ export const AuthControls = (): React.JSX.Element => {
         <button
           type="button"
           className="ghost"
-          title="Clears this browser's cookie. Sessions are stateless HMAC blobs, so a captured cookie still works after logout."
+          disabled={signingOut}
+          title="Signs out and revokes this session on the server."
           onClick={() => {
-            // Drop the local session first, then leave. `signOut` swallows its
-            // own network failure — the cookie is cleared locally either way.
-            void signOut().then(() => {
-              window.location.assign(LOGIN_HREF);
-            });
+            setSigningOut(true);
+            // The server DELETES the session row, so this genuinely revokes — unlike
+            // the old stateless cookie, where logout only cleared the browser's copy.
+            // Navigate regardless of the call's outcome: leaving a signed-out UI in
+            // front of a live cookie would be the stale-state bug.
+            void signOut()
+              .catch(() => undefined)
+              .finally(() => {
+                window.location.assign(LOGIN_HREF);
+              });
           }}
         >
-          Logout
+          {signingOut ? 'Signing out…' : 'Sign out'}
         </button>
       ) : null}
     </>

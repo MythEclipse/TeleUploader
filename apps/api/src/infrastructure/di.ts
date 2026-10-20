@@ -11,6 +11,7 @@
 import type { IBucketRepository } from "../domain/ports/bucket-repository";
 import type { IFilePartRepository } from "../domain/ports/file-part-repository";
 import type { IFileRepository } from "../domain/ports/file-repository";
+import type { IIdentityRepository } from "../domain/ports/identity-repository";
 import type { IMultipartRepository } from "../domain/ports/multipart-repository";
 import type { IOrganizationRepository } from "../domain/ports/organization-repository";
 import type { IS3CredentialRepository } from "../domain/ports/s3-credential-repository";
@@ -18,6 +19,7 @@ import type { ITelegramService } from "../domain/ports/telegram-service";
 import { DrizzleBucketRepository } from "./persistence/repositories/bucket-repository";
 import { DrizzleFilePartRepository } from "./persistence/repositories/file-part-repository";
 import { DrizzleFileRepository } from "./persistence/repositories/file-repository";
+import { DrizzleIdentityRepository } from "./persistence/repositories/identity-repository";
 import { DrizzleMultipartRepository } from "./persistence/repositories/multipart-repository";
 import { DrizzleOrganizationRepository } from "./persistence/repositories/organization-repository";
 import { DrizzleS3CredentialRepository } from "./persistence/repositories/s3-credential-repository";
@@ -58,6 +60,15 @@ export const telegramService: ITelegramService = botPool;
  * and so cannot resolve a tenant from an access key.
  */
 export const organizationRepository: IOrganizationRepository = new DrizzleOrganizationRepository();
+
+/**
+ * Singleton IIdentityRepository instance backed by Drizzle ORM.
+ *
+ * The multi-user seam: users, revocable sessions, OAuth state, and the
+ * membership lookups that decide which organization a session may reach. Every
+ * authenticated dashboard request resolves its tenant through this.
+ */
+export const identityRepository: IIdentityRepository = new DrizzleIdentityRepository();
 
 // ─── Service Singletons ─────────────────────────────────────────────
 

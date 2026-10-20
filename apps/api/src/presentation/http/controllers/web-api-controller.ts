@@ -15,9 +15,15 @@ import logger from "../../../infrastructure/observability/logger";
 import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
 import { sanitizeFilenameHeader } from "../filename";
 import {
-	MissingOrganizationMembershipError,
-	resolveAdminOrganizationId,
-} from "./organization-resolver";
+	type AuthenticatedCaller,
+	bootstrapOrganizationId,
+	getAuthenticatedCaller,
+	isAuthEnabled,
+	listOrganizationsForCaller,
+	resolveCallerOrganization,
+	sharedTokenOrganizations,
+	TenantAccessError,
+} from "../middleware/auth";
 
 /** Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
@@ -186,7 +192,9 @@ export const handleListObjectsV1 = async (
 export const handleUploadObjectV1 = async (
 	req: Request,
 	params: RouteParams,
-	organizationId: string
+	organizationId: string,
+	/** The authenticated user's id, or `null` for the shared admin token. */
+	uploaderUserId: string | null = null
 ): Promise<Response> => {
 	const bucket = await bucketRepository.findByName(params.bucket!, organizationId);
 	if (!bucket) return jsonError("Bucket not found", 404);
@@ -208,6 +216,9 @@ export const handleUploadObjectV1 = async (
 		mimeType: file.type || "application/octet-stream",
 		sizeBytes: streamed.sizeBytes,
 		uploaderId: 0,
+		// Attribution: who uploaded this, as a real user id. The uploaderId above
+		// stays 0 because that column is a Telegram numeric id, not a `users.id`.
+		uploaderUserId,
 		bucketId: bucket.id,
 		s3Key: key,
 		dedup: "none",
@@ -449,28 +460,114 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
 	const parts = pathname.split("/").filter(Boolean);
 	const method = req.method;
 
-	// P3: every route below is scoped to this one organization. Resolved once,
-	// before any bucket is touched, and it THROWS if the bootstrap admin has no
-	// membership — a missing membership is a misconfiguration that stops the
-	// service at boot, not a per-request 403. It is never treated as global
-	// access either: the surface stays scoped or it is down.
+	// ── Tenant resolution: PER CALLER, from the session ─────────────────────────
 	//
-	// The catch keeps an embedded/test process that never booted src/index.ts from
-	// turning into an opaque 500 with an empty body. 503 + a stable error name
-	// says "this deployment has no tenant scope", which is not the same as the
-	// 403 this code used to return — that 403 was indistinguishable from a real
-	// authorization denial, and was the reason this defect shipped green.
+	// This used to call `resolveAdminOrganizationId()`, which took no request and
+	// never read the session: it mapped the configured BOOTSTRAP_ADMIN_ID to its
+	// organization on every call, so every authenticated person shared one tenant.
+	// Multi-user means the scope now comes from WHO IS ASKING.
+	//
+	// Order of authority:
+	//   1. `?org=<slug>` — an explicit organization the caller is a member of;
+	//   2. otherwise the caller's own (personal) organization.
+	//
+	// A slug the caller is not a member of is a 403. It is NEVER a silent fallback
+	// to their own organization: that would show the wrong files for a shared link
+	// and make a denied request look successful.
+	const caller = await getAuthenticatedCaller(req);
+
+	// Auth-DISABLED mode. `requireAuth` is a pass-through when no mechanism is
+	// configured (no `ADMIN_API_TOKEN` and no Google credentials), which is a
+	// documented, supported deployment — the dashboard is intentionally public there.
+	//
+	// In that mode there is no caller to resolve a tenant FROM, so the surface falls
+	// back to the bootstrap organization: the pre-existing single-tenant behaviour.
+	// Answering 401 instead would make an open deployment serve nothing but denials,
+	// which is the exact regression class this repo has already shipped once.
+	//
+	// When auth IS enabled, a missing caller is a real 401: the request reached a
+	// scoped surface without credentials, and it must not fall open.
+	if (!caller) {
+		if (isAuthEnabled()) return jsonError("Unauthorized", 401);
+		return dispatchWithScope(req, parts, method, pathname, await anonymousScope());
+	}
+
 	let organizationId: string;
 	try {
-		organizationId = await resolveAdminOrganizationId();
+		const resolved = await resolveCallerOrganization(caller, url.searchParams.get("org"));
+		organizationId = resolved.organizationId;
 	} catch (error: unknown) {
-		if (error instanceof MissingOrganizationMembershipError) {
-			return jsonError("Tenant scope unavailable (missing_organization_membership)", 503);
+		if (error instanceof TenantAccessError) {
+			return jsonError(error.message, error.status);
 		}
 		throw error;
 	}
 
+	return dispatchWithScope(req, parts, method, pathname, {
+		organizationId,
+		uploaderUserId: caller.userId,
+		caller,
+	});
+};
+
+/**
+ * The scope used when authentication is disabled entirely.
+ *
+ * @returns The bootstrap organization and a null uploader — there is no user.
+ */
+const anonymousScope = async (): Promise<Scope> => ({
+	organizationId: await bootstrapOrganizationId(),
+	uploaderUserId: null,
+	caller: null,
+});
+
+/** The resolved tenant facts a request acts on. */
+interface Scope {
+	/** The organization every bucket operation is scoped to. */
+	readonly organizationId: string;
+	/** The uploading user's id, or null (shared token / auth-disabled). */
+	readonly uploaderUserId: string | null;
+	/** The authenticated caller, or null in auth-disabled mode. */
+	readonly caller: AuthenticatedCaller | null;
+}
+
+/**
+ * Dispatches a request against a resolved scope.
+ *
+ * Split out of {@link handleWebApiV1} so the tenant resolution above reads as one
+ * decision instead of being interleaved with nine route branches.
+ *
+ * @param req - The incoming request.
+ * @param parts - Path segments after `/api/v1`, already split and filtered.
+ * @param method - The HTTP method.
+ * @param pathname - The path, for logging.
+ * @param scope - The resolved organization and uploader.
+ * @returns The handler's response.
+ */
+const dispatchWithScope = async (
+	req: Request,
+	parts: string[],
+	method: string,
+	pathname: string,
+	scope: Scope
+): Promise<Response> => {
+	const { organizationId, uploaderUserId, caller } = scope;
+
 	try {
+		// GET /api/v1/organizations — the org switcher's data source.
+		//
+		// This is deliberately scoped to what the CALLER is a member of. There is no
+		// "list every organization" route anywhere, on purpose: one would be a
+		// cross-tenant directory, and the switcher has no use for it.
+		if (parts.length === 1 && parts[0] === "organizations" && method === "GET") {
+			// No caller means auth is disabled: report the bootstrap organization, which
+			// is the only tenant this deployment has.
+			const organizations = caller
+				? await listOrganizationsForCaller(caller)
+				: await sharedTokenOrganizations();
+			return json({ organizations });
+		}
+
 		// GET /api/v1/buckets
 		if (parts.length === 1 && parts[0] === "buckets" && method === "GET") {
 			return await handleListBucketsV1(organizationId);
@@ -503,7 +600,7 @@ export const handleWebApiV1 = async (req: Request): Promise<Response> => {
 			parts[2] === "upload" &&
 			method === "POST"
 		) {
-			return await handleUploadObjectV1(req, { bucket: parts[1] }, organizationId);
+			return await handleUploadObjectV1(req, { bucket: parts[1] }, organizationId, uploaderUserId);
 		}
 
 		// POST /api/v1/buckets/{name}/copy

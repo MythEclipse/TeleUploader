@@ -29,6 +29,20 @@
       "when": 1791477741022,
       "tag": "0003_snapshot_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791478341022,
+      "tag": "0004_multi_user_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792485523327,
+      "tag": "0005_snapshot_sync_multi_user",
+      "breakpoints": true
     }
   ]
 }

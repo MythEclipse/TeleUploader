@@ -65,7 +65,7 @@
  * no handler built by string concatenation anywhere in this file.
  */
 
-import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
+import { Link, createFileRoute, redirect, useNavigate, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCanWrite } from '../lib/auth-store';
 import { ApiError } from '../lib/client';
@@ -176,38 +176,55 @@ const describeApiError = (error: unknown): { status: number; message: string } =
 /**
  * The loader body shared by both routes.
  *
+ * ## The organization is an explicit parameter, not inferred here
+ *
+ * The signature used to take only `(bucket, prefix)` and discover the org from
+ * `listOrgs()[0]` — which was fine when the list had exactly one hardcoded entry and
+ * is wrong now, because the first membership is not necessarily the one in the URL.
+ * Taking the slug as an argument means the caller (which knows its own route params)
+ * decides the tenant, and this function never guesses. That removes a whole class of
+ * bug where a shared link for org B renders org A's buckets under B's heading.
+ *
+ * Every downstream call passes it as `?org=`, which the server validates against the
+ * caller's memberships. A wrong slug is a 403, never another tenant's data.
+ *
  * Errors are **returned, not thrown**, on purpose. A throw reaches `__root.tsx`'s
- * `errorComponent`, which replaces the whole document body — the user loses the
- * top bar and has no way back. Returning them lets the page render its own
- * failure state inside the shell.
+ * `errorComponent`, which replaces the whole document body — the user loses the top bar
+ * and has no way back. Returning them lets the page render its own failure state
+ * inside the shell.
+ *
+ * @param orgSlug - The organization to scope every read to.
+ * @param bucket - Bucket to list, or `''` for the bucket list only.
+ * @param prefix - Directory prefix within that bucket.
  */
-export const loadBrowser = async (bucket: string, prefix: string): Promise<BrowserData> => {
-  const orgs = await listOrgs();
-  const orgSlug = orgs[0]?.slug ?? '';
-
+export const loadBrowser = async (
+  orgSlug: string,
+  bucket: string,
+  prefix: string,
+): Promise<BrowserData> => {
   if (!bucket) {
     try {
-      return { ...emptyData(orgSlug), buckets: await listBuckets() };
+      return { ...emptyData(orgSlug), buckets: await listBuckets(orgSlug) };
     } catch (error) {
       return { ...emptyData(orgSlug), error: describeApiError(error) };
     }
   }
 
   try {
-    // Both reads are independent and both are public: `app.ts:296` registers
-    // `app.get('/api/v1/*', adapt(handleWebApiV1))` with no auth wrapper.
+    // Both reads are independent, so they go together rather than in sequence:
+    // a cold bucket view costs one round-trip, not two.
     const [buckets, listing] = await Promise.all([
-      listBuckets(),
-      listObjects(bucket, { prefix, maxKeys: MAX_KEYS }),
+      listBuckets(orgSlug),
+      listObjects(bucket, { prefix, maxKeys: MAX_KEYS }, orgSlug),
     ]);
     return { buckets, listing, missingBucket: false, error: null, orgSlug };
   } catch (error) {
     const described = describeApiError(error);
-    // `handleListObjectsV1` 404s with `{"error":"Bucket not found"}` before it
-    // looks at any object. That is a routing outcome (the link is stale), not a
-    // failure of the page, so it gets its own field.
+    // `handleListObjectsV1` 404s with `{"error":"Bucket not found"}` before it looks at
+    // any object. That is a routing outcome (the link is stale), not a failure of the
+    // page, so it gets its own field.
     if (described.status === 404) {
-      const buckets = await listBuckets().catch(() => [] as BucketSummary[]);
+      const buckets = await listBuckets(orgSlug).catch(() => [] as BucketSummary[]);
       return { buckets, listing: null, missingBucket: true, error: null, orgSlug };
     }
     return { buckets: [], listing: null, missingBucket: false, error: described, orgSlug };
@@ -216,19 +233,77 @@ export const loadBrowser = async (bucket: string, prefix: string): Promise<Brows
 
 // ─────── `/` ───────
 
+/**
+ * Picks the organization `/` defaults to.
+ *
+ * A personal (owner) organization wins, then the first by name — the same rule the
+ * switcher and the auth store use, so the browser and the top bar never disagree about
+ * which tenant is on screen.
+ *
+ * @param organizations - The caller's memberships, as the auth store holds them.
+ * @returns The chosen organization, or `null` when the account has none.
+ */
+export const defaultOrganization = (
+  organizations: readonly { slug: string; role: string }[],
+): { slug: string; role: string } | null =>
+  organizations.find((org) => org.role === 'owner') ?? organizations[0] ?? null;
+
 export const Route = createFileRoute('/')({
   validateSearch: (search: Record<string, unknown>): BrowserSearch => ({
     bucket: asBucketName(search.bucket),
     prefix: asPrefix(search.prefix),
   }),
-  // Re-runs the loader whenever either param changes, so the listing follows the
-  // URL and nothing else.
+  // Re-runs the loader whenever either param changes, so the listing follows the URL and
+  // nothing else.
   loaderDeps: ({ search }: { search: BrowserSearch }) => ({
     bucket: search.bucket,
     prefix: search.prefix,
   }),
-  loader: ({ deps }: { deps: { bucket: string; prefix: string } }) =>
-    loadBrowser(deps.bucket, deps.prefix),
+  /**
+   * Resolves the caller's organization, then loads that tenant's bucket list.
+   *
+   * `/` has no org segment in its path, so it cannot take the slug from route params
+   * the way `/$orgSlug/*` does. It asks the API for the caller's memberships and picks
+   * the default one — an explicit choice, not `listOrgs()[0]` by accident.
+   *
+   * A 401 here is a redirect to `/login` rather than an error page: reads now require a
+   * session, and "please sign in" is the correct answer to "who are you". The `?redirect`
+   * carries this exact URL so the callback lands back on the same bucket and prefix.
+   *
+   * @throws A redirect to `/login` when there is no session.
+   */
+  loader: async ({ deps, location }): Promise<BrowserData> => {
+    let organizations: Awaited<ReturnType<typeof listOrgs>>;
+    try {
+      organizations = await listOrgs();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        throw redirect({
+          to: '/login',
+          search: { redirect: location.pathname + location.search },
+        });
+      }
+      throw error;
+    }
+
+    const org = defaultOrganization(organizations);
+    // A signed-in account always has a personal organization provisioned at sign-in, so
+    // this is a broken invariant rather than a normal state. Rendering it as an empty
+    // browser would hide the misconfiguration.
+    if (!org) {
+      return {
+        ...emptyData(''),
+        error: {
+          status: 0,
+          message:
+            'This account belongs to no organization. Signing out and back in re-provisions ' +
+            'a personal workspace; if it persists, the deployment has a provisioning fault.',
+        },
+      };
+    }
+
+    return loadBrowser(org.slug, deps.bucket, deps.prefix);
+  },
   component: IndexRoute,
 });
 
@@ -254,15 +329,17 @@ function IndexRoute(): React.JSX.Element {
 
   const createBucket = useCallback(
     async (name: string) => {
-      // Re-throws so the dialog stays open and shows the server's own 400/409
-      // message. `createBucket` succeeds with 201 and is otherwise transparent.
-      await createBucketRequest(name);
-      // Navigate into the new bucket only after the reload, so the listing the
-      // user lands on is guaranteed to include it.
+      // Re-throws so the dialog stays open and shows the server's own 400/409 message.
+      // Scoped to the org the loader resolved, which is `data.orgSlug` — the same value
+      // every other call in this view uses, so a bucket cannot land in a different tenant
+      // than the one on screen.
+      await createBucketRequest(name, data.orgSlug);
+      // Navigate into the new bucket only after the reload, so the listing the user lands
+      // on is guaranteed to include it.
       await router.invalidate();
       selectBucket(name);
     },
-    [router, selectBucket],
+    [data.orgSlug, router, selectBucket],
   );
 
   if (data.missingBucket) {
@@ -299,12 +376,11 @@ function IndexRoute(): React.JSX.Element {
           prefix={prefix}
           listing={data.listing}
           orgSlug={data.orgSlug}
-          // Merged against the current search because `validateSearch` makes both
-          // params REQUIRED: TanStack types `search` as `{bucket, prefix}` with
-          // no `?`, and navigating with a `Partial` fails with TS2322. Merging
-          // is also the correct semantics — `FileBrowser` only ever sends the
-          // half it means to change, and the other half is carried forward
-          // rather than reset.
+          // Merged against the current search because `validateSearch` makes both params
+          // REQUIRED: TanStack types `search` as `{bucket, prefix}` with no `?`, and
+          // navigating with a `Partial` fails with TS2322. Merging is also the correct
+          // semantics — `FileBrowser` only ever sends the half it means to change, and the
+          // other half is carried forward rather than reset.
           onNavigate={(next) =>
             void navigate({ search: { ...{ bucket, prefix }, ...next } })
           }
@@ -496,6 +572,7 @@ function CreateBucketDialog({
 
 export interface BucketTableProps {
   buckets: BucketSummary[];
+  /** Organization slug every mutation is scoped to. */
   orgSlug: string;
   canWrite: boolean;
 }
@@ -517,16 +594,18 @@ export function BucketTable({ buckets, orgSlug, canWrite }: BucketTableProps): R
     async (bucket: BucketSummary) => {
       setPending(bucket.name);
       try {
-        await deleteBucket(bucket.name);
+        // Scoped to `orgSlug`: bucket names are unique per organization, not globally, so
+        // an unscoped delete could address a same-named bucket in another tenant.
+        await deleteBucket(bucket.name, orgSlug);
         setConfirming(null);
         setNotice({ kind: 'ok', text: `Deleted bucket "${bucket.name}".` });
         await router.invalidate();
       } catch (error) {
         const described = describeApiError(error);
         setConfirming(null);
-        // 409 is the one genuinely informative bucket-delete failure: the bucket
-        // exists and holds objects. `handleDeleteBucketV1` checks emptiness
-        // BEFORE deleting, so this response is honest — unlike the object delete.
+        // 409 is the one genuinely informative bucket-delete failure: the bucket exists
+        // and holds objects. `handleDeleteBucketV1` checks emptiness BEFORE deleting, so
+        // this response is honest — unlike the object delete.
         setNotice({
           kind: 'error',
           text:
@@ -538,7 +617,7 @@ export function BucketTable({ buckets, orgSlug, canWrite }: BucketTableProps): R
         setPending(null);
       }
     },
-    [router],
+    [orgSlug, router],
   );
 
   if (buckets.length === 0) {
@@ -641,7 +720,7 @@ export interface FileBrowserProps {
    * other of these two routes.
    */
   listing: ListObjectsResponse | null;
-  /** Org slug, used for nothing but symmetry with the bucket route. */
+  /** Organization slug. Every scoped call in here passes it as `?org=`. */
   orgSlug: string;
   /**
    * Navigate to a new place. Receives the next search params for the host route:
@@ -665,6 +744,7 @@ export function FileBrowser({
   bucket,
   prefix,
   listing,
+  orgSlug,
   onNavigate,
 }: FileBrowserProps): React.JSX.Element {
   const canWrite = useCanWrite();
@@ -751,8 +831,8 @@ export function FileBrowser({
     async (object: ObjectSummary) => {
       setPendingKey(object.key);
       try {
-        await deleteObject(bucket, object.key);
-        const gone = await assertDeleted(bucket, object.key, { maxKeys: MAX_KEYS });
+        await deleteObject(bucket, object.key, orgSlug);
+        const gone = await assertDeleted(bucket, object.key, { maxKeys: MAX_KEYS }, orgSlug);
         setPendingDelete(null);
         if (gone) {
           setNotice({ kind: 'ok', text: `Deleted "${object.key}".` });
@@ -772,14 +852,14 @@ export function FileBrowser({
           kind: 'error',
           text:
             described.status === 401
-              ? 'Sign in as an administrator to delete.'
+              ? 'Sign in to delete.'
               : `Delete failed: ${described.message}`,
         });
       } finally {
         setPendingKey(null);
       }
     },
-    [bucket, router],
+    [bucket, orgSlug, router],
   );
 
   /**
@@ -816,7 +896,7 @@ export function FileBrowser({
       if (!canWrite) {
         setNotice({
           kind: 'error',
-          text: 'Read-only mode — sign in as an administrator to upload.',
+          text: 'Read-only mode — sign in to upload.',
         });
         return;
       }
@@ -843,16 +923,24 @@ export function FileBrowser({
           );
 
         try {
-          // `key` is `prefix + file.name`, matching home.html:341. The server
-          // takes it verbatim, so it is only ever rendered as a text child.
-          await uploadObject(bucket, file, `${prefix}${file.name}`, (loaded, total) => {
-            if (total === null) return;
-            // The last progress event means the bytes are AT the server, not
-            // stored: `handleUploadObjectV1` buffers the whole body to /tmp before
-            // its first Telegram call. Switch the label so the bar does not sit at
-            // 100% implying completion.
-            patch({ loaded, total, phase: loaded >= total ? 'storing' : 'transferring' });
-          });
+          // `key` is `prefix + file.name`, matching home.html:341. The server takes it
+          // verbatim, so it is only ever rendered as a text child. Scoped to `orgSlug` —
+          // an unscoped upload would land in the caller's default org, which is not
+          // necessarily the one being browsed.
+          await uploadObject(
+            bucket,
+            file,
+            `${prefix}${file.name}`,
+            (loaded, total) => {
+              if (total === null) return;
+              // The last progress event means the bytes are AT the server, not stored:
+              // `handleUploadObjectV1` buffers the whole body to /tmp before its first
+              // Telegram call. Switch the label so the bar does not sit at 100% implying
+              // completion.
+              patch({ loaded, total, phase: loaded >= total ? 'storing' : 'transferring' });
+            },
+            orgSlug,
+          );
           patch({ phase: 'done', loaded: file.size, total: file.size, error: null });
         } catch (error) {
           const described = describeApiError(error);
@@ -878,7 +966,7 @@ export function FileBrowser({
             },
       );
     },
-    [bucket, canWrite, prefix, router],
+    [bucket, canWrite, orgSlug, prefix, router],
   );
 
   /**
@@ -981,6 +1069,7 @@ export function FileBrowser({
           prefixes={prefixes}
           prefix={prefix}
           bucket={bucket}
+          orgSlug={orgSlug}
           canWrite={canWrite}
           pendingKey={pendingKey}
           copiedKey={copied}
@@ -1079,6 +1168,8 @@ export interface ObjectTableProps {
   prefixes: string[];
   prefix: string;
   bucket: string;
+  /** Organization slug, needed to build the download URL. */
+  orgSlug: string;
   canWrite: boolean;
   pendingKey: string | null;
   copiedKey: string | null;
@@ -1092,6 +1183,7 @@ export function ObjectTable({
   prefixes,
   prefix,
   bucket,
+  orgSlug,
   canWrite,
   pendingKey,
   copiedKey,
@@ -1159,7 +1251,7 @@ export function ObjectTable({
               <td className="actions-cell">
                 <a
                   className="ghost button"
-                  href={objectDownloadUrl(bucket, object.key)}
+                  href={objectDownloadUrl(bucket, object.key, orgSlug)}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Download. This route returns the file itself, so it opens in a new tab rather than navigating the app."

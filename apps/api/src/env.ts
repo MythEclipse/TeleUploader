@@ -31,6 +31,26 @@ interface AppConfig {
 	sessionCookieName: string;
 	sessionMaxAgeMs: number;
 	bootstrapAdminId: string;
+	/**
+	 * Google OAuth client id. Empty means Google sign-in is not configured.
+	 *
+	 * NOT in `requiredEnv`: this module throws at import time, and every test,
+	 * every migration and every backend-only deploy must keep working without
+	 * Google credentials. An empty value disables the Google routes (they answer
+	 * 503) rather than stopping the service — see `isGoogleAuthConfigured`.
+	 */
+	googleClientId: string;
+	/** Google OAuth client secret. Server-side only; never sent to the browser. */
+	googleClientSecret: string;
+	/**
+	 * Absolute callback URL registered in the Google Cloud console.
+	 *
+	 * Defaults to `${baseUrl}/api/v1/auth/google/callback`. It must match the
+	 * console EXACTLY, including scheme and trailing slash, or Google answers
+	 * `redirect_uri_mismatch` at the authorize step — a failure that happens before
+	 * this service sees the request, so there is nothing to log here.
+	 */
+	googleRedirectUri: string;
 	s3AccessKey: string;
 	s3SecretKey: string;
 	s3DefaultRegion: string;
@@ -240,6 +260,14 @@ export const config: AppConfig = {
 	sessionCookieName: process.env.SESSION_COOKIE_NAME || "tu_session",
 	sessionMaxAgeMs: parseNumber(process.env.SESSION_COOKIE_MAX_AGE_SECONDS, 86400) * 1000,
 	bootstrapAdminId: process.env.BOOTSTRAP_ADMIN_ID || "bootstrap-admin",
+	googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+	googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+	// Derived from BASE_URL rather than required separately: the callback lives on
+	// this service, so its origin is already known and a second variable is one
+	// more thing to get out of sync with the Google console.
+	googleRedirectUri:
+		process.env.GOOGLE_REDIRECT_URI ||
+		`${(process.env.BASE_URL || "").replace(/\/$/, "")}/api/v1/auth/google/callback`,
 	s3AccessKey: process.env.S3_ACCESS_KEY || "filedrop-admin",
 	s3SecretKey: process.env.S3_SECRET_KEY || "",
 	s3DefaultRegion: process.env.S3_DEFAULT_REGION || "us-east-1",
@@ -251,6 +279,19 @@ export const config: AppConfig = {
 	webDistPath: process.env.WEB_DIST_PATH || "",
 };
 
+/**
+ * Whether Google sign-in is configured.
+ *
+ * Both halves are required: a client id without a secret can start a flow but
+ * cannot exchange the code, so treating it as "configured" would send users to
+ * Google and then fail at the callback. A half-configured deployment answers 503
+ * up front instead.
+ *
+ * @returns `true` when both the client id and the secret are present.
+ */
+export const isGoogleAuthConfigured = (): boolean =>
+	config.googleClientId.length > 0 && config.googleClientSecret.length > 0;
+
 // Debug-level: every import of env.ts would otherwise dump the full config
 // (secrets masked, but still one noisy line per test file) to the log stream.
 logger.debug("Environment variables loaded", {
@@ -260,6 +301,13 @@ logger.debug("Environment variables loaded", {
 		databaseUrl: maskDatabaseUrl(config.databaseUrl),
 		adminApiToken: maskSecret(config.adminApiToken),
 		adminApiTokenEnabled: config.adminApiToken.length > 0,
+		// The client secret is masked and the client id is left in the clear: the id
+		// is public (it appears in the browser's authorize URL), the secret is not.
+		// Masking it here matters because this projection is what gets logged, and a
+		// secret that reaches a log line has to be rotated.
+		googleClientId: config.googleClientId,
+		googleClientSecret: maskSecret(config.googleClientSecret),
+		googleAuthEnabled: isGoogleAuthConfigured(),
 		s3AccessKey: maskSecret(config.s3AccessKey),
 		s3SecretKey: maskSecret(config.s3SecretKey),
 	},

@@ -29,6 +29,14 @@ export interface UploadInput {
 	sizeBytes: number;
 	/** Telegram user ID of the uploader; 0 when unknown or system */
 	uploaderId?: number;
+	/**
+	 * The dashboard user who uploaded this (`users.id`), or null.
+	 *
+	 * Separate from `uploaderId`: that one is Telegram's numeric id. Set only by the
+	 * authenticated web/S3 paths, so a stored file can be attributed to a real
+	 * account without overloading the Telegram column.
+	 */
+	uploaderUserId?: string | null;
 	/** Target bucket UUID for S3-compatible storage; null when un-bucketed */
 	bucketId?: string | null;
 	/** Object key within the bucket for S3-compatible storage; null when un-bucketed */

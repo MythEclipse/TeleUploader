@@ -25,6 +25,14 @@ export interface File {
 	fileType: string;
 	/** Telegram user ID of the uploader */
 	uploaderId: number;
+	/**
+	 * The dashboard user who uploaded this (`users.id`), or null.
+	 *
+	 * Distinct from {@link uploaderId}, which holds Telegram's numeric sender id.
+	 * Null for anything uploaded through the bot or the public `/api/upload` path,
+	 * and for every row written before multi-user landed.
+	 */
+	uploaderUserId: string | null;
 	/** SHA-256 hash of file contents, or null */
 	fileHash: string | null;
 	/** Telegram file_id of the archive (zip) containing this file, or null */

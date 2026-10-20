@@ -1,117 +1,129 @@
 /**
- * `/$orgSlug` — the org layout, and the thin org landing (contract §1.1).
+ * `/$orgSlug` — the organization layout.
  *
  * ## This is a layout, not just a page
  *
- * TanStack file routing treats a file with a `$param` segment as a **parent**
- * when a directory of the same name exists beside it. `routes/$orgSlug/`
- * already holds `dashboard.tsx` (this lane) and `bucketName.tsx` (the sibling
- * bucket lane), so this component renders for all three URLs and must emit an
- * `<Outlet/>` or they render nothing at all.
+ * TanStack file routing treats a file with a `$param` segment as a **parent** when a
+ * directory of the same name exists beside it. `routes/$orgSlug/` holds
+ * `dashboard.tsx` and `bucketName.tsx`, so this component renders for all three URLs
+ * and must emit an `<Outlet/>` or the children render nothing at all.
  *
- * The three-state branch on `isDashboard` is therefore not a nicety — it is how
- * the layout both parents its children and still renders something useful on
- * its own:
+ * ## What changed with multi-user auth
  *
- * - `/$orgSlug/dashboard` → render the child, nothing else.
- * - `/$orgSlug/$bucketName` → render the child, nothing else.
- * - `/$orgSlug` → render the landing, as the contract specifies.
+ * This loader used to resolve the slug against `listOrgs()`, which returned exactly
+ * one hardcoded entry — `{id:'scoped', slug:'default'}` — because there was no
+ * organizations endpoint. The route therefore threw `notFound()` for any slug but
+ * `default`, and the header said "1 org, server-selected".
  *
- * The branch keys on the **`dashboard` path segment**, which the generator
- * resolves to a literal for this route (see the generated `path` in
- * `routeTree.gen.ts`), so the literal comparison typechecks rather than being
- * widened to `string`. A param typed `string` cannot be narrowed by `===` at
- * all, which is why `isDashboard` is written as the generator types it.
+ * Both of those statements are now false and had to go. `GET /api/v1/organizations`
+ * returns the caller's real memberships, and an organization slug in the URL selects a
+ * tenant rather than naming the only one.
  *
- * ## Why the slug is validated at all
+ * ## The loader is a security boundary, not a formality
  *
- * `findOrgBySlug` resolves against `listOrgs()`, which returns exactly ONE
- * hardcoded entry (`lib/orgs.ts`: `{id:'scoped', slug:'default'}`). There is no
- * organizations endpoint — 9 candidate paths were probed and all returned 404 —
- * so any slug other than `default` names nothing that exists. Rendering buckets
- * for an unresolvable slug would be showing another (the only) org's data under
- * a name that does not exist.
+ * Resolving the slug here does two things:
  *
- * So this route throws `notFound()`. That is a real 404 state, distinct from a
- * loader error: the shell stays, so the user keeps the top bar and a way back,
- * and `NotFound` renders inside it rather than replacing the whole page.
+ *  1. it makes the children's `?org=` trustworthy — a slug that survives this check is
+ *     one the account is genuinely a member of; and
+ *  2. it turns a cross-tenant URL into a clean 404 in the shell instead of a 403
+ *     rendered as a page-level error.
  *
- * The single hardcoded org is inherited, not invented — the SPA does not
- * fabricate an org id it was not given.
+ * The second is defence in depth, not the actual control. The server refuses a
+ * non-member slug regardless of what the client asks for, and that refusal is the real
+ * boundary; this check exists so the UI never has to explain a 403 a user cannot fix.
  *
- * ## Why there is no `beforeLoad` auth gate here
+ * ## Signed out is not "not found"
  *
- * `/$orgSlug/*` only ever lists buckets, and `GET /api/v1/buckets` is **public**
- * (`app.ts:296` registers `/api/v1/*` GET bare). Gating it would lock out the
- * exact read-only visitor this route exists to serve. Writes stay admin-gated
- * where they are, in `AuthControls` and the browser route.
+ * With no session `GET /api/v1/organizations` answers 401. Rendering "no such
+ * organization" there would be a lie: the organization may exist and the visitor may
+ * belong to it. That case redirects to `/login` with a `?redirect` back to the URL they
+ * asked for, so signing in lands them where they intended rather than at the dashboard.
  *
- * Relative imports, NOT `@/` — `vite.config.ts` has no `resolve.alias`, so
- * `@/…` typechecks and then fails Rollup. See `__root.tsx`.
+ * Relative imports, NOT `@/` — `vite.config.ts` has no `resolve.alias`, so `@/…`
+ * typechecks and then fails Rollup. See `__root.tsx`.
  */
 
-import { createFileRoute, Outlet, notFound } from '@tanstack/react-router';
+import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router';
 import NotFound from '../lib/layout/NotFound';
-import { findOrgBySlug } from '../lib/orgs';
+import { listOrgs } from '../lib/orgs';
 import type { OrgSummary } from '../lib/orgs';
+import { ApiError } from '../lib/client';
+
+/** What the layout loader hands to the layout and its children. */
+export interface OrgLoaderData {
+  /** The organization named by the URL, proven to be a membership. */
+  readonly org: OrgSummary;
+  /** Total memberships, so the layout can hint at the switcher without a second read. */
+  readonly organizationCount: number;
+}
 
 export const Route = createFileRoute('/$orgSlug')({
   /**
-   * Resolves the slug before rendering anything.
+   * Resolves the slug to a real membership before anything renders.
    *
-   * Throwing `notFound()` (rather than returning a flag the component checks)
-   * means an unknown org never flashes "Loading…" and then a bucket list; the
-   * not-found body is the first thing rendered.
+   * @throws A redirect to `/login` when there is no session; `notFound()` when the
+   *   session exists but the account is not a member of this organization; the raw
+   *   error otherwise.
    */
-  loader: async ({ params }): Promise<OrgSummary> => {
-    const org = await findOrgBySlug(params.orgSlug);
+  loader: async ({ params, location }): Promise<OrgLoaderData> => {
+    let organizations: OrgSummary[];
+
+    try {
+      organizations = await listOrgs();
+    } catch (error) {
+      // 401 is the only "not signed in" signal. Anything else (503, network) is a real
+      // failure and must not be dressed up as a login prompt — `__root` renders the
+      // error, and redirecting there would loop.
+      if (error instanceof ApiError && error.status === 401) {
+        throw redirect({
+          to: '/login',
+          search: { redirect: location.pathname + location.search },
+        });
+      }
+      throw error;
+    }
+
+    const org = organizations.find((candidate) => candidate.slug === params.orgSlug);
     if (!org) throw notFound();
-    return org;
+
+    return { org, organizationCount: organizations.length };
   },
   component: OrgLayout,
   notFoundComponent: () => (
     <NotFound
       title="No such organization"
-      detail="This deployment serves a single server-selected organization. Its slug is not derived from the URL you opened."
+      detail="You are not a member of an organization with this address. Check the link, or open your own workspace from the switcher."
     />
   ),
 });
 
 function OrgLayout(): React.JSX.Element {
-  const org = Route.useLoaderData();
+  const { org, organizationCount } = Route.useLoaderData();
   const { orgSlug } = Route.useParams();
 
   return (
     <div className="org-layout" data-org-slug={org.slug}>
       {/*
-        `orgSlug` is typed as the literal `'dashboard'` by the generator, so
-        this comparison narrows rather than widening to `string`. It is how the
-        layout both parents its children and still renders something on its own:
-        `/$orgSlug/dashboard` and `/$orgSlug/$bucketName` render the child and
-        nothing else, while a bare `/$orgSlug` renders the landing header.
-
-        On the landing URL the org name is all there is to show — there is
-        exactly one org, so a "choose an org" list would be a list of one item
-        that navigates to itself.
+        The children (`dashboard`, `bucketName`) render their own headings, so this
+        header is only for the landing URL. `orgSlug` is typed as the literal
+        `'dashboard'` by the generator for the child route, so this comparison narrows
+        rather than widening to `string`.
       */}
       {orgSlug === 'dashboard' ? null : (
         <header className="org-header">
           <h1>{org.name}</h1>
           <p className="auth-status">
-            {/*
-              One org, server-selected. Says so rather than implying a choice
-              that cannot be made — the same honesty `OrgSwitcher` applies.
-            */}
-            1 org, server-selected — <code>{org.slug}</code>. Organization membership is resolved
-            server-side; this slug only names what the API already scoped.
+            Your role here is <code>{org.role}</code>. Every request in this workspace is
+            scoped to <code>{org.slug}</code> — the server refuses any other organization.
+            {organizationCount > 1
+              ? ' Use the switcher in the top bar to change workspace.'
+              : null}
           </p>
         </header>
       )}
 
-      {/*
-        Required for `/$orgSlug/dashboard` and `/$orgSlug/$bucketName`. Without
-        it those routes resolve and render nothing — a 200 with an empty page.
-      */}
+      {/* Required for `/$orgSlug/dashboard` and `/$orgSlug/$bucketName`. Without it
+          those routes resolve and render nothing — a 200 with an empty page. */}
       <Outlet />
     </div>
   );

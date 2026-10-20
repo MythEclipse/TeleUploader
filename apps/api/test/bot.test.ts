@@ -86,6 +86,7 @@ const existingFile = (publicId: string): FileEntity => ({
 	sizeBytes: 100,
 	fileType: "document",
 	uploaderId: 0,
+	uploaderUserId: null,
 	fileHash: "abc123",
 	archiveTelegramFileId: null,
 	archiveStorageMessageId: null,

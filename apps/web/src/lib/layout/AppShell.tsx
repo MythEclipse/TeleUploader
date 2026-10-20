@@ -1,64 +1,58 @@
 /**
- * The shared chrome: top bar, nav, logout, org switcher.
+ * The shared chrome: top bar, nav, organization switcher, account controls.
  *
- * Ported from `home.html`'s `.topbar` (lines 158-171). Deliberately NOT a
- * component of the file browser: `home.html` put nav, search, bucket select and
- * the admin controls in one flat bar, which is why the search box's value could
- * silently override navigation. Here the bar is the *shell* and each route
- * renders its own controls into the content area, so bucket/prefix live in
- * search params and cannot be clobbered by a stale input (contract §1).
+ * Deliberately NOT the file browser. `home.html` put nav, search, bucket select and the
+ * admin controls in one flat bar, which is why the search box's value could silently
+ * override navigation. Here the bar is the *shell* and each route renders its own
+ * controls into the content area, so bucket/prefix live in search params and cannot be
+ * clobbered by a stale input.
  *
- * Children own their own controls; the shell owns only chrome that is true on
- * every route.
+ * ## What changed with multi-user auth
+ *
+ * `NAV_ITEMS` used to be one entry — `Files` → `/` — with a comment explaining that a
+ * nav item for `/$orgSlug/dashboard` "would need an org slug that does not exist yet".
+ * That is no longer true: the auth store knows the caller's organizations, so the shell
+ * can link to the ACTIVE one's dashboard. The link is derived, not hardcoded, and it is
+ * absent when there is no organization to point at — a nav item to nowhere is worse than
+ * no nav item.
  */
 
 import { Outlet } from '@tanstack/react-router';
 import { AppLink } from './AppLink';
 import { AuthControls } from './AuthControls';
 import { OrgSwitcher } from './OrgSwitcher';
+import { useActiveOrganization } from '../auth-store';
 
-/**
- * Routes reachable from every page.
- *
- * Only `/` is listed. The per-org pages (`/$orgSlug/dashboard`,
- * `/$orgSlug/$bucketName`) are reached by navigating from a bucket, not from
- * global chrome — a nav item for `/$orgSlug/dashboard` would need an org slug
- * that does not exist yet (see `../orgs.ts`), and `to:` on a TanStack `Link` is
- * type-checked against the generated route tree, so naming a route no lane has
- * written yet fails `tsc`. Add entries here when those routes land.
- */
-const NAV_ITEMS = [{ to: '/', label: 'Files' }] as const;
+export const AppShell = (): React.JSX.Element => {
+  const activeOrg = useActiveOrganization();
 
-export const AppShell = (): React.JSX.Element => (
-  <div className="app-shell">
-    <header className="topbar">
-      <AppLink href="/" className="logo">
-        FileDrop
-      </AppLink>
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <AppLink href="/" className="logo">
+          FileDrop
+        </AppLink>
 
-      <nav aria-label="Primary">
-        {NAV_ITEMS.map((item) => (
-          // `aria-current` is set by hand rather than by TanStack's
-          // `activeProps`, because `AppLink` is a plain anchor. Swap for
-          // `<Link activeProps={{...}}>` when this nav gains a real route.
-          <AppLink
-            key={item.to}
-            href={item.to}
-            aria-current={item.to === '/' ? 'page' : undefined}
-          >
-            {item.label}
+        <nav aria-label="Primary">
+          <AppLink href="/" aria-current="page">
+            Files
           </AppLink>
-        ))}
-      </nav>
+          {/* Only when an organization is known: `to` is type-checked against the
+              generated route tree, and a `$orgSlug` we do not have cannot be named. */}
+          {activeOrg ? (
+            <AppLink href={`/${activeOrg.slug}/dashboard`}>Dashboard</AppLink>
+          ) : null}
+        </nav>
 
-      <span className="spacer" />
+        <span className="spacer" />
 
-      <OrgSwitcher />
-      <AuthControls />
-    </header>
+        <OrgSwitcher />
+        <AuthControls />
+      </header>
 
-    <main className="content">
-      <Outlet />
-    </main>
-  </div>
-);
+      <main className="content">
+        <Outlet />
+      </main>
+    </div>
+  );
+};

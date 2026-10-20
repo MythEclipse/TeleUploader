@@ -2,29 +2,79 @@
  * Wire types for the dashboard's HTTP surface.
  *
  * Every type here is transcribed from a real response body in
- * `apps/api/src/presentation/http/controllers/`, not guessed. Where a column
- * is nullable in the Drizzle schema the type says `| null` — see the note on
- * `etag`.
+ * `apps/api/src/presentation/http/controllers/`, not guessed. Where a column is
+ * nullable in the Drizzle schema the type says `| null`.
  *
- * NOTHING here comes from oRPC. The decision, and its four justifications,
- * are in `./client.ts`.
+ * ## What changed with multi-user auth
+ *
+ * `MeResponse` used to be `{ username, expiresAt }` — the session carried a
+ * hardcoded `"admin"` username and nothing else, because there was no user row.
+ * It now carries a real identity, the organizations the caller may switch between,
+ * and whether Google sign-in is available on this deployment.
+ *
+ * `LoginRequest` is GONE: there is no token form to POST. Sign-in is a browser
+ * navigation to `/api/v1/auth/google/start`.
  */
 
-/** `GET /api/v1/auth/me` success body (200). `handleMe` returns both fields always. */
-export interface MeResponse {
-  username: string;
-  /** ISO-8601, or `null` for a bearer session, which never expires server-side. */
-  expiresAt: string | null;
+/** One organization the caller belongs to, as `GET /api/v1/auth/me` reports it. */
+export interface OrganizationMembership {
+  readonly id: string;
+  readonly slug: string;
+  readonly name: string;
+  readonly role: OrgRole;
 }
 
-/** `POST /api/v1/auth/login` success body (200). */
-export interface LoginResponse {
-  username: string;
+/** The three roles a membership can carry. Mirrors `members.role`. */
+export type OrgRole = 'owner' | 'admin' | 'member';
+
+/**
+ * `GET /api/v1/auth/me` success body (200).
+ *
+ * A 401 means "not signed in", which is a normal state, not an error.
+ */
+export interface MeResponse {
+  readonly userId: string;
+  readonly email: string;
+  readonly name: string;
+  readonly avatarUrl: string | null;
+  /** ISO-8601, or `null` for a bearer token / open deployment, which never expires. */
+  readonly expiresAt: string | null;
+  /**
+   * How the caller authenticated.
+   *
+   * `disabled` means the deployment has no authentication configured at all — the
+   * documented open mode, where writes ARE accepted. It is not a fourth flavour of
+   * "not signed in": the server reports it with a 200 precisely so the client does
+   * not mislabel an open deployment as read-only.
+   */
+  readonly method: 'cookie' | 'bearer' | 'disabled';
+  /** Organizations the caller may switch to, ordered by name. */
+  readonly organizations: OrganizationMembership[];
+  /**
+   * Whether the server has Google sign-in configured.
+   *
+   * Read from the response rather than guessed from the hostname: a deployment
+   * without Google credentials answers 503 on the OAuth start route, and a login
+   * button that leads to a 503 is worse than one that explains why it is disabled.
+   */
+  readonly googleEnabled: boolean;
+}
+
+/** `GET /api/v1/organizations` success body. */
+export interface ListOrganizationsResponse {
+  readonly organizations: OrganizationMembership[];
 }
 
 /** `POST /api/v1/auth/logout` success body (200). Also the shape every DELETE returns. */
 export interface SuccessResponse {
-  success: true;
+  readonly success: true;
+}
+
+/** `POST /api/v1/auth/logout-all` success body. */
+export interface LogoutAllResponse {
+  readonly success: true;
+  /** Number of sessions revoked. */
+  readonly revoked: number;
 }
 
 /** One row of `GET /api/v1/buckets` -> `buckets[]`. `handleListBucketsV1`. */
@@ -53,11 +103,8 @@ export interface CreateBucketResponse {
  * `handleListObjectsV1` maps these off a Drizzle row:
  * `key` <- `s3Key`, `etag` <- `fileHash`, `sizeBytes` <- `Number(sizeBytes)`.
  *
- * `etag` is `string | null` because `files.file_hash` is a nullable column
- * (`schema.ts:60`) and the handler does not coalesce it. `key` is typed
- * non-null because `listByPrefix` filters on it, but a row that somehow lost
- * `s3_key` would serialise as `null` — the client never dereferences it as a
- * string without the guard in `./endpoints.ts`.
+ * `etag` is `string | null` because `files.file_hash` is a nullable column and the
+ * handler does not coalesce it.
  */
 export interface ObjectSummary {
   key: string;
@@ -75,13 +122,10 @@ export interface ObjectSummary {
 /**
  * `GET /api/v1/buckets/{b}/objects` success body.
  *
- * `isTruncated` and `nextContinuationToken` are typed truthfully and are
- * **not** to be used to build a paginator. `file-repository.ts:155` queries
- * `LIMIT maxKeys + 1` and then folds the extra row into `prefixes`, so
- * `objects.length` can never exceed `maxKeys`, `isTruncated` is always
- * `false`, and `nextContinuationToken` is always `null`. `home.html` hardcoded
- * `max-keys=200` and truncated silently; the port truncates silently and says
- * so in the UI rather than offering a control that cannot work.
+ * `isTruncated` is always `false` and `nextContinuationToken` always `null` today:
+ * `file-repository.ts` queries `LIMIT maxKeys + 1` and folds the extra row into
+ * `prefixes`, so a paginator built on these fields would never advance. The UI says
+ * so rather than offering a control that cannot work.
  */
 export interface ListObjectsResponse {
   objects: ObjectSummary[];
@@ -96,13 +140,8 @@ export interface ListObjectsQuery {
   prefix?: string;
   /** Defaults to `/` server-side. */
   delimiter?: string;
-  /** Defaults to `1000` server-side. `home.html` used 200. */
+  /** Defaults to `1000` server-side. */
   maxKeys?: number;
-  /**
-   * Honoured by `handleListObjectsV1` but UNREACHABLE through the typed oRPC
-   * input schema, and effectively dead because of the `maxKeys + 1` fold above.
-   * Exposed for completeness; nothing in the SPA sends it.
-   */
   continuationToken?: string;
 }
 
@@ -127,9 +166,4 @@ export interface CopyObjectResponse {
   sourceKey: string;
   destKey: string;
   destBucket: string;
-}
-
-/** Request body of `POST /api/v1/auth/login`. Matches `LoginBodySchema`. */
-export interface LoginRequest {
-  token: string;
 }

@@ -1,169 +1,188 @@
 import { createHmac } from "node:crypto";
 import type { AuthSession } from "../../../application/dto/auth";
 import { timingSafeCompare } from "../../../application/shared/utils/crypto";
+import type { MemberRole } from "../../../domain/ports/identity-repository";
 import { config } from "../../../env";
+import { identityRepository } from "../../../infrastructure/di";
+import { hashSessionToken } from "../../../infrastructure/persistence/repositories/identity-repository";
+
+/**
+ * Authentication middleware — cookie sessions, bearer admin token, and the
+ * tenant authorization check.
+ *
+ * ── WHAT CHANGED FROM THE SINGLE-ADMIN VERSION ──────────────────────────────
+ *
+ * The previous module minted a STATELESS cookie: `base64url({u,e})` plus an
+ * HMAC, where `u` was hardcoded to the literal `"admin"`, and
+ * `parseSessionFromCookie` REJECTED any cookie whose `u` was not exactly that
+ * string. That is why a second person could not exist, and why logout revoked
+ * nothing (docs/P4-CONTRACT.md gotcha 13): there was no server-side record to
+ * delete.
+ *
+ * This version is backed by the `sessions` table. The cookie carries an opaque
+ * random token; the database stores only its SHA-256, so:
+ *
+ *   - logout is REAL (the row is deleted, and a replayed cookie stops working);
+ *   - a session belongs to an actual `users` row, so `organizationId` can be
+ *     resolved from the CALLER rather than from a configured bootstrap id;
+ *   - sessions expire server-side, not just by an `exp` field the client could
+ *     be tricked about.
+ *
+ * ── THE BEARER PATH IS DELIBERATELY KEPT ────────────────────────────────────
+ *
+ * `ADMIN_API_TOKEN` still authenticates machine callers (scripts, CI, curl). It
+ * has no user row, so it resolves to the configured bootstrap admin — the same
+ * behaviour as before — and it is the ONLY path that does. Removing it would
+ * break every existing automation, and it is a shared secret an operator
+ * controls, not a user credential.
+ *
+ * ── WHY THE SESSION READ IS ASYNC AND THE COOKIE PARSE IS NOT ───────────────
+ *
+ * Parsing the cookie is pure string work. Resolving it to a user is a database
+ * round trip. `getAuthSession` is therefore async, and every caller awaits it —
+ * a synchronous wrapper that returned a stub would reintroduce the "username
+ * only" session this module exists to replace.
+ */
 
 const ADMIN_USERNAME = "admin";
 const SIGNATURE_SEPARATOR = ".";
+/** Cookie carrying the opaque session token. Distinct from the legacy name. */
+const LEGACY_BEARER_PREFIX = "Bearer ";
 
 /** A request handler function that returns a Response. */
 type Handler = (req: Request) => Response | Promise<Response>;
 
-/**
- * Represents an authenticated user session after successful
- * authentication via cookie or bearer token.
- *
- * RE-EXPORTED, not re-declared — `AuthSession` is a DTO in
- * `application/dto/auth`, and this module must not own a second definition of it.
- *
- * The import at the top of this file is what makes the name usable HERE: a bare
- * `export type { AuthSession } from '…'` re-exports the name for consumers
- * without binding it in this module's own scope, so every local annotation
- * (`getAuthSession`, `parseSessionFromCookie`) failed to resolve with
- * "Cannot find name 'AuthSession'".
- */
 export type { AuthSession };
 
-/** Options for configuring cookie-based session behaviour. */
+/** Options for configuring cookie behaviour. */
 interface CookieOptions {
-	/** HMAC signing secret (defaults to {@link config.adminApiToken}). */
-	secret?: string;
 	/** Name of the session cookie (defaults to {@link config.sessionCookieName}). */
 	cookieName?: string;
 	/** Session lifetime in milliseconds (defaults to {@link config.sessionMaxAgeMs}). */
 	maxAgeMs?: number;
 }
 
-/** Shape of the serialised cookie payload. */
-interface SessionPayload {
-	u: string;
-	e: number;
+/**
+ * The authenticated caller, with the tenant facts every scoped surface needs.
+ *
+ * Distinct from {@link AuthSession}, which is the transport-level answer to "is
+ * this request authenticated". This one answers "who, and what may they reach",
+ * which requires the database and therefore cannot live on the DTO.
+ */
+export interface AuthenticatedCaller {
+	readonly session: AuthSession;
+	/**
+	 * The `users.id` of the caller.
+	 *
+	 * `null` for the bearer-token path: a shared admin token has no user row. A
+	 * caller MUST NOT treat null as "all access" — {@link resolveCallerOrganization}
+	 * refuses to resolve a tenant for it.
+	 */
+	readonly userId: string | null;
+	readonly email: string | null;
+	readonly name: string | null;
+	/** True only for the shared `ADMIN_API_TOKEN` path. */
+	readonly isSharedAdminToken: boolean;
 }
 
-const getSecret = (secret?: string): string => secret ?? config.adminApiToken;
 const getCookieName = (cookieName?: string): string => cookieName ?? config.sessionCookieName;
 const getMaxAgeMs = (maxAgeMs?: number): number => maxAgeMs ?? config.sessionMaxAgeMs;
 
-const encodePayload = (value: string): string => Buffer.from(value, "utf8").toString("base64url");
-
-const decodePayload = (value: string): string | null => {
-	try {
-		return Buffer.from(value, "base64url").toString("utf8");
-	} catch {
-		return null;
-	}
-};
-
 /**
- * Checks whether authentication is enabled.
+ * Checks whether ANY authentication mechanism is enabled.
  *
- * Authentication is considered enabled when the admin API token is
- * non-empty.
+ * Auth is "enabled" when either Google sign-in is configured or a legacy admin
+ * token is set. This is what decides whether the dashboard offers a login at all.
  *
- * @param secret - Secret to check (defaults to `config.adminApiToken`).
- * @returns `true` when auth is enabled, `false` otherwise.
+ * @returns `true` when at least one mechanism can authenticate a caller.
  */
-export const isAuthEnabled = (secret = config.adminApiToken): boolean => secret.length > 0;
+export const isAuthEnabled = (): boolean =>
+	config.adminApiToken.length > 0 ||
+	(config.googleClientId.length > 0 && config.googleClientSecret.length > 0);
 
+/** @deprecated Kept for the S3 surface, which compares against one shared secret. */
 export { timingSafeCompare } from "../../../application/shared/utils/crypto";
 
 /**
- * Signs an arbitrary payload string with HMAC-SHA256 using the given
- * secret, producing a base64url-encoded signature.
+ * Signs an arbitrary payload with HMAC-SHA256.
+ *
+ * RETAINED, but no longer used to build sessions. The S3 surface and a few tests
+ * still exercise it, and removing it would mean touching the SigV4 path in the
+ * same change that rewrites authentication — two unrelated risk surfaces at once.
+ * New session code must NOT use this: sessions are random opaque tokens now.
  *
  * @param payload - The value to sign.
- * @param secret  - HMAC signing key.
+ * @param secret - HMAC signing key.
  * @returns The base64url-encoded signature.
  */
 export const signCookiePayload = (payload: string, secret: string): string =>
 	createHmac("sha256", secret).update(payload).digest("base64url");
 
 /**
- * Verifies the HMAC signature on a cookie value and returns the
- * original signed payload.
+ * Verifies an HMAC signature and returns the signed payload.
  *
- * The cookie value is expected to be in the format
- * `<payload>.<signature>`.  Returns `null` when the format is
- * invalid or the signature does not match.
- *
- * @param cookieValue - The full cookie value including signature.
- * @param secret      - HMAC signing key.
- * @returns The unsigned payload string, or `null` on failure.
+ * @param cookieValue - `<payload>.<signature>`.
+ * @param secret - HMAC signing key.
+ * @returns The payload, or `null` when invalid.
  */
 export const verifyCookieSignature = (cookieValue: string, secret: string): string | null => {
 	const separatorIndex = cookieValue.lastIndexOf(SIGNATURE_SEPARATOR);
-	if (separatorIndex <= 0 || separatorIndex === cookieValue.length - 1) {
-		return null;
-	}
+	if (separatorIndex <= 0 || separatorIndex === cookieValue.length - 1) return null;
 
 	const payload = cookieValue.slice(0, separatorIndex);
 	const signature = cookieValue.slice(separatorIndex + 1);
-	const expectedSignature = signCookiePayload(payload, secret);
-
-	if (!timingSafeCompare(signature, expectedSignature)) {
-		return null;
-	}
+	if (!timingSafeCompare(signature, signCookiePayload(payload, secret))) return null;
 
 	return payload;
 };
 
 /**
- * Builds the `Set-Cookie` attribute string for a given max-age in
- * seconds.  The cookie is HttpOnly, SameSite=Lax, Secure, and
- * scoped to the root path.
+ * Builds the `Set-Cookie` attributes.
+ *
+ * `Secure` is set when the deployment is https. It used to be set
+ * UNCONDITIONALLY, which is why login over plain http silently produced a 200 and
+ * a browser that dropped the cookie (contract gotcha 12). Deriving it from
+ * `BASE_URL` makes a local http deployment work and keeps https strict.
  *
  * @param maxAgeSeconds - Max-Age in seconds.
- * @returns The cookie attribute string (excluding name=value).
+ * @returns The attribute string.
  */
-const cookieAttributes = (maxAgeSeconds: number): string =>
-	[`Max-Age=${maxAgeSeconds}`, "Path=/", "HttpOnly", "SameSite=Lax", "Secure"].join("; ");
-
-/**
- * Creates a signed session cookie string suitable for use as a
- * `Set-Cookie` header value.
- *
- * The cookie embeds a base64url-encoded JSON payload containing the
- * username and expiration timestamp, signed with HMAC-SHA256.
- *
- * @param username - Session username (default `"admin"`).
- * @param options  - Optional cookie settings.
- * @returns A fully-formed `Set-Cookie` header value.
- */
-export const createSessionCookie = (
-	username = ADMIN_USERNAME,
-	options: CookieOptions = {}
-): string => {
-	const secret = getSecret(options.secret);
-	const cookieName = getCookieName(options.cookieName);
-	const maxAgeMs = getMaxAgeMs(options.maxAgeMs);
-	const expiresAt = Date.now() + maxAgeMs;
-	const payload = encodePayload(
-		JSON.stringify({ u: username, e: expiresAt } satisfies SessionPayload)
-	);
-	const signature = signCookiePayload(payload, secret);
-	const maxAgeSeconds = Math.max(1, Math.floor(maxAgeMs / 1000));
-
-	return `${cookieName}=${payload}${SIGNATURE_SEPARATOR}${signature}; ${cookieAttributes(maxAgeSeconds)}`;
+const cookieAttributes = (maxAgeSeconds: number): string => {
+	const isHttps = config.baseUrl.startsWith("https://");
+	const attributes = [`Max-Age=${maxAgeSeconds}`, "Path=/", "HttpOnly", "SameSite=Lax"];
+	if (isHttps) attributes.push("Secure");
+	return attributes.join("; ");
 };
 
 /**
- * Creates a `Set-Cookie` header value that immediately expires the
- * session cookie, effectively logging the user out.
+ * Creates the `Set-Cookie` value for a real session token.
  *
- * @param cookieName - Name of the cookie to clear (defaults to
- *                     `config.sessionCookieName`).
+ * @param token - The opaque token whose SHA-256 was persisted.
+ * @param options - Cookie name / lifetime overrides.
+ * @returns A fully-formed `Set-Cookie` header value.
+ */
+export const createSessionCookie = (token: string, options: CookieOptions = {}): string => {
+	const cookieName = getCookieName(options.cookieName);
+	const maxAgeMs = getMaxAgeMs(options.maxAgeMs);
+	const maxAgeSeconds = Math.max(1, Math.floor(maxAgeMs / 1000));
+	return `${cookieName}=${token}; ${cookieAttributes(maxAgeSeconds)}`;
+};
+
+/**
+ * Creates a `Set-Cookie` value that expires the session cookie.
+ *
+ * @param cookieName - Name of the cookie to clear.
  * @returns A `Set-Cookie` header value with Max-Age=0.
  */
 export const clearSessionCookie = (cookieName = config.sessionCookieName): string =>
 	`${cookieName}=; ${cookieAttributes(0)}`;
 
 /**
- * Finds the value of a named cookie from a raw `Cookie` header
- * string.
+ * Finds a named cookie's value in a raw `Cookie` header.
  *
- * @param cookieHeader - The raw `Cookie` header value, or `null`.
- * @param cookieName   - Name of the cookie to look for.
- * @returns The cookie value, or `null` if not found.
+ * @param cookieHeader - The raw header, or `null`.
+ * @param cookieName - Name to look for.
+ * @returns The value, or `null`.
  */
 const findCookieValue = (cookieHeader: string | null, cookieName: string): string | null => {
 	if (!cookieHeader) return null;
@@ -174,115 +193,92 @@ const findCookieValue = (cookieHeader: string | null, cookieName: string): strin
 		if (equalsIndex <= 0) continue;
 
 		const name = cookie.slice(0, equalsIndex);
-		if (name === cookieName) {
-			return cookie.slice(equalsIndex + 1);
-		}
+		if (name === cookieName) return cookie.slice(equalsIndex + 1);
 	}
 
 	return null;
 };
 
 /**
- * Parses an {@link AuthSession} from a signed session cookie.
+ * Extracts the opaque session token from a request.
  *
- * The function verifies the HMAC signature, decodes the payload,
- * and validates the expiration timestamp.  Returns `null` when the
- * cookie is missing, malformed, expired, or the signature is
- * invalid.  Also returns `null` when auth is disabled (empty
- * admin API token).
- *
- * @param cookieHeader - The `Cookie` header value, or `null`.
- * @param options      - Optional overrides for secret / cookie name.
- * @returns The parsed session, or `null`.
+ * @param req - The incoming request.
+ * @param cookieName - Cookie name override.
+ * @returns The token, or `null`.
  */
-export const parseSessionFromCookie = (
-	cookieHeader: string | null,
-	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
-): AuthSession | null => {
-	const secret = getSecret(options.secret);
-	const cookieName = getCookieName(options.cookieName);
-	if (!isAuthEnabled(secret)) return null;
-
-	const cookieValue = findCookieValue(cookieHeader, cookieName);
-	if (!cookieValue) return null;
-
-	const encodedPayload = verifyCookieSignature(cookieValue, secret);
-	if (!encodedPayload) return null;
-
-	const rawPayload = decodePayload(encodedPayload);
-	if (!rawPayload) return null;
-
-	try {
-		const payload = JSON.parse(rawPayload) as Partial<SessionPayload>;
-		if (payload.u !== ADMIN_USERNAME || typeof payload.e !== "number") return null;
-		if (!Number.isFinite(payload.e) || payload.e <= Date.now()) return null;
-
-		return {
-			username: payload.u,
-			expiresAt: new Date(payload.e),
-			method: "cookie",
-		};
-	} catch {
-		return null;
-	}
-};
+export const readSessionToken = (
+	req: Request,
+	cookieName = config.sessionCookieName
+): string | null => findCookieValue(req.headers.get("cookie"), cookieName);
 
 /**
- * Validates a `Bearer` token from the `Authorization` header using
- * timing-safe comparison.
+ * Validates a `Bearer` token against the shared admin token.
  *
- * @param authorizationHeader - The raw `Authorization` header, or `null`.
- * @param secret              - Expected bearer token (defaults to
- *                              `config.adminApiToken`).
- * @returns `true` when the token is valid, `false` otherwise.
+ * @param authorizationHeader - Raw `Authorization` header, or `null`.
+ * @param secret - Expected token (defaults to `config.adminApiToken`).
+ * @returns `true` when valid.
  */
 export const checkBearerToken = (
 	authorizationHeader: string | null,
 	secret = config.adminApiToken
 ): boolean => {
-	if (!isAuthEnabled(secret) || !authorizationHeader) return false;
+	if (secret.length === 0 || !authorizationHeader) return false;
+	if (!authorizationHeader.startsWith(LEGACY_BEARER_PREFIX)) return false;
 
-	const [scheme, ...rest] = authorizationHeader.split(" ");
-	if (scheme !== "Bearer" || rest.length === 0) return false;
-
-	const token = rest.join(" ").trim();
+	const token = authorizationHeader.slice(LEGACY_BEARER_PREFIX.length).trim();
 	return token.length > 0 && timingSafeCompare(token, secret);
 };
 
 /**
- * Extracts the authenticated session from a request.
+ * Resolves the authenticated caller for a request.
  *
- * Tries cookie-based authentication first, then falls back to a
- * Bearer token in the `Authorization` header.  When auth is
- * disabled (empty API token) the function returns a synthetic
- * session with method `"bearer"` and no expiry, effectively
- * granting access to all requests.
+ * Order: session cookie (a real user), then bearer token (the shared admin).
+ * Returns `null` when the request carries neither.
  *
- * @param req     - The incoming HTTP request.
- * @param options - Optional overrides for secret / cookie name.
- * @returns The authenticated session, or `null` when unauthenticated.
+ * @param req - The incoming request.
+ * @param options - Cookie name override.
+ * @returns The caller, or `null`.
  */
-export const getAuthSession = (
+export const getAuthenticatedCaller = async (
 	req: Request,
-	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
-): AuthSession | null => {
-	const secret = getSecret(options.secret);
-	if (!isAuthEnabled(secret)) {
-		return {
-			username: ADMIN_USERNAME,
-			expiresAt: null,
-			method: "bearer",
-		};
+	options: Pick<CookieOptions, "cookieName"> = {}
+): Promise<AuthenticatedCaller | null> => {
+	const token = readSessionToken(req, getCookieName(options.cookieName));
+
+	if (token) {
+		const resolved = await identityRepository.findSessionUser(hashSessionToken(token));
+		if (resolved) {
+			return {
+				session: {
+					userId: resolved.user.id,
+					username: resolved.user.email,
+					expiresAt: resolved.session.expiresAt,
+					method: "cookie",
+				},
+				userId: resolved.user.id,
+				email: resolved.user.email,
+				name: resolved.user.name,
+				isSharedAdminToken: false,
+			};
+		}
+		// A present-but-invalid cookie falls through to the bearer check rather than
+		// short-circuiting: a machine caller may legitimately send both.
 	}
 
-	const cookieSession = parseSessionFromCookie(req.headers.get("cookie"), options);
-	if (cookieSession) return cookieSession;
-
-	if (checkBearerToken(req.headers.get("authorization"), secret)) {
+	if (checkBearerToken(req.headers.get("authorization"))) {
 		return {
-			username: ADMIN_USERNAME,
-			expiresAt: null,
-			method: "bearer",
+			session: {
+				userId: config.bootstrapAdminId,
+				username: ADMIN_USERNAME,
+				expiresAt: null,
+				method: "bearer",
+			},
+			// NULL, deliberately: the shared token has no user row. Callers must fall
+			// back to the bootstrap org explicitly, never assume global access.
+			userId: null,
+			email: null,
+			name: null,
+			isSharedAdminToken: true,
 		};
 	}
 
@@ -290,41 +286,198 @@ export const getAuthSession = (
 };
 
 /**
- * Creates a 401 Unauthorized JSON response with a standard error
- * body.
+ * Session-only view of the caller, for surfaces that predate tenancy.
  *
- * @returns A `Response` with status 401 and JSON body
- *          `{ error: "Unauthorized" }`.
+ * @param req - The incoming request.
+ * @returns The session, or `null`.
+ */
+export const getAuthSession = async (req: Request): Promise<AuthSession | null> => {
+	const caller = await getAuthenticatedCaller(req);
+	return caller?.session ?? null;
+};
+
+/**
+ * Resolves WHICH organization a caller may operate on — the tenant boundary.
+ *
+ * ## Why this is not "the bootstrap admin's org" any more
+ *
+ * The previous `resolveAdminOrganizationId()` took no request and never read the
+ * session: it mapped the configured `BOOTSTRAP_ADMIN_ID` to its organization on
+ * every call, so every authenticated person shared one tenant. That was a
+ * documented limitation, not a design, and it meant `members.user_id` was never
+ * consulted for authorization.
+ *
+ * The rule now:
+ *
+ *   - a SESSION caller resolves to an organization they are actually a member of;
+ *   - the requested slug is optional — absent, the caller's personal org is used;
+ *   - a slug the caller is NOT a member of is a 403, never a silent fallback to
+ *     their own org (which would make a shared link show the wrong files);
+ *   - the BEARER caller (no user row) resolves to the configured bootstrap org,
+ *     which is the pre-existing single-tenant behaviour.
+ *
+ * @param caller - The authenticated caller.
+ * @param requestedSlug - Optional `$orgSlug`-style slug from the request.
+ * @returns The organization id and the caller's role.
+ * @throws {TenantAccessError} When the caller may not reach any/that tenant.
+ */
+export const resolveCallerOrganization = async (
+	caller: AuthenticatedCaller,
+	requestedSlug?: string | null
+): Promise<{ organizationId: string; role: MemberRole }> => {
+	if (caller.userId === null) {
+		// Shared admin token: single-tenant behaviour, resolved from config. This is
+		// the ONLY path that does not consult `members`.
+		const organizationId = await bootstrapOrganizationId();
+		return { organizationId, role: "owner" };
+	}
+
+	if (requestedSlug) {
+		const organization = await identityRepository.findOrganizationBySlug(
+			caller.userId,
+			requestedSlug
+		);
+		if (!organization) {
+			throw new TenantAccessError(
+				`You are not a member of the organization "${requestedSlug}".`,
+				403
+			);
+		}
+		return { organizationId: organization.id, role: organization.role };
+	}
+
+	// No slug: the caller's personal workspace, which every user is guaranteed to
+	// have after sign-in. This keeps `/api/v1/buckets` working without the client
+	// having to know a slug first.
+	const organizations = await identityRepository.listOrganizationsForUser(caller.userId);
+	const personal = organizations.find((org) => org.role === "owner") ?? organizations[0];
+	if (!personal) {
+		throw new TenantAccessError(
+			"No organization is available for this account. Sign out and sign in again to provision one.",
+			403
+		);
+	}
+	return { organizationId: personal.id, role: personal.role };
+};
+
+/**
+ * Raised when a caller is authenticated but may not reach the tenant.
+ *
+ * Carries the status so the HTTP layer does not have to map error strings to
+ * status codes — the mistake that previously turned a misconfiguration into a
+ * per-request 403 indistinguishable from a real denial.
+ */
+export class TenantAccessError extends Error {
+	constructor(
+		message: string,
+		readonly status: 403 | 503
+	) {
+		super(message);
+		this.name = "TenantAccessError";
+	}
+}
+
+/**
+ * The bootstrap organization, resolved once and cached.
+ *
+ * @returns The organization UUID.
+ * @throws {TenantAccessError} 503 when the bootstrap admin has no membership.
+ */
+let bootstrapOrganization: Promise<string> | null = null;
+
+export const bootstrapOrganizationId = async (): Promise<string> => {
+	bootstrapOrganization ??= (async () => {
+		const { organizationRepository } = await import("../../../infrastructure/di");
+		const organizationId = await organizationRepository.findOrganizationIdByUserId(
+			config.bootstrapAdminId
+		);
+		if (!organizationId) {
+			throw new TenantAccessError(
+				`No organization membership for the bootstrap admin "${config.bootstrapAdminId}". ` +
+					"Run `pnpm db:seed`, or point BOOTSTRAP_ADMIN_ID at an existing member.",
+				503
+			);
+		}
+		return organizationId;
+	})().catch((error: unknown) => {
+		// Do not cache a failure: a membership can be created without a restart.
+		bootstrapOrganization = null;
+		throw error;
+	});
+
+	return bootstrapOrganization;
+};
+
+/** Test seam: drop the memoized bootstrap organization. */
+export const resetBootstrapOrganizationCache = (): void => {
+	bootstrapOrganization = null;
+};
+
+/**
+ * The organizations a caller may see, in one call.
+ *
+ * Branches on the caller's identity because the two cases genuinely differ: a real
+ * user has membership rows, while the shared admin token has none and resolves to
+ * the configured bootstrap organization. Centralising the branch keeps the two
+ * callers (`GET /auth/me` and `GET /api/v1/organizations`) from drifting apart —
+ * they were already duplicated once during this change, and a switcher that
+ * disagreed with the session probe would render a selection the API then rejects.
+ *
+ * @param caller - The authenticated caller.
+ * @returns The organizations, ordered by name. Empty when none are reachable.
+ */
+export const listOrganizationsForCaller = async (
+	caller: AuthenticatedCaller
+): Promise<{ id: string; slug: string; name: string; role: MemberRole }[]> => {
+	if (caller.userId === null) return sharedTokenOrganizations();
+	return identityRepository.listOrganizationsForUser(caller.userId);
+};
+
+/**
+ * The shared admin token's single organization.
+ *
+ * @returns A one-entry list, or empty when the bootstrap membership is missing.
+ */
+export const sharedTokenOrganizations = async (): Promise<
+	{ id: string; slug: string; name: string; role: MemberRole }[]
+> => {
+	const organizationId = await bootstrapOrganizationId().catch(() => null);
+	if (!organizationId) return [];
+	return [{ id: organizationId, slug: "default", name: "This deployment", role: "owner" }];
+};
+
+/**
+ * A 401 JSON response.
+ *
+ * @returns A `Response` with status 401.
  */
 export const unauthorizedResponse = (): Response =>
 	Response.json({ error: "Unauthorized" }, { status: 401 });
 
 /**
- * Middleware that wraps a request handler with authentication.
+ * Wraps a raw handler in an authentication check.
  *
- * When auth is enabled the wrapper checks for a valid session
- * (cookie or Bearer token) before delegating to the handler.
- * Unauthenticated requests receive a 401 response.  When auth is
- * disabled the handler is always invoked.
+ * IMPORTANT: this checks AUTHENTICATION only. Tenant authorization is the
+ * handler's job, because the handler knows which organization the request names
+ * (`/api/v1/buckets/{bucket}` implies none, so the caller's default is used).
  *
- * @param handler - The request handler to protect.
- * @param options - Optional overrides for secret / cookie name.
- * @returns A wrapped handler that performs the auth check.
+ * When no auth mechanism is configured the handler is invoked directly — the
+ * documented "auth disabled" mode, preserved so existing deployments that
+ * deliberately run open keep working.
+ *
+ * @param handler - The handler to protect.
+ * @param options - Cookie name override.
+ * @returns A wrapped handler.
  */
 export const requireAuth = (
 	handler: Handler,
-	options: Pick<CookieOptions, "secret" | "cookieName"> = {}
+	options: Pick<CookieOptions, "cookieName"> = {}
 ): ((req: Request) => Promise<Response>) => {
 	return async (req: Request): Promise<Response> => {
-		const secret = getSecret(options.secret);
-		if (!isAuthEnabled(secret)) {
-			return handler(req);
-		}
+		if (!isAuthEnabled()) return handler(req);
 
-		const session = getAuthSession(req, options);
-		if (!session) {
-			return unauthorizedResponse();
-		}
+		const caller = await getAuthenticatedCaller(req, options);
+		if (!caller) return unauthorizedResponse();
 
 		return handler(req);
 	};

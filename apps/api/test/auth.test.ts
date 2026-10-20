@@ -1,183 +1,241 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-const defaultEnv = (key: string, value: string) => {
-	process.env[key] ||= value;
-};
+/**
+ * Multi-user authentication middleware.
+ *
+ * ## What this file replaces, and why it could not simply be edited
+ *
+ * The previous suite asserted the STATELESS cookie design: a payload of
+ * `{u:"admin",e:…}` signed with an HMAC, where `parseSessionFromCookie` verified
+ * the signature and REJECTED any payload whose `u` was not exactly `"admin"`.
+ * Every one of those assertions described behaviour that had to go — the cookie
+ * carries an opaque token now, the server keeps the row, and the user id comes
+ * from the database — so the suite is rewritten rather than patched.
+ *
+ * The properties still worth keeping are re-asserted against the new shape (cookie
+ * attributes, timing-safe bearer comparison, the pass-through when auth is off),
+ * and the new session properties are asserted against a stubbed repository.
+ */
 const setEnv = (key: string, value: string) => {
 	process.env[key] = value;
 };
 
-defaultEnv("BOT_TOKEN", "123456:ABC-DEF");
-defaultEnv("STORAGE_CHANNEL_ID", "-1001234567890");
-defaultEnv("BASE_URL", "https://example.com");
-defaultEnv("DATABASE_URL", "postgresql://asephs:***@100.121.180.82:6432/test");
-defaultEnv("PORT", "4000");
-defaultEnv("NODE_ENV", "test");
+setEnv("BOT_TOKENS", "123456:ABC-DEF");
+setEnv("STORAGE_CHANNEL_ID", "-1001234567890");
+setEnv("BASE_URL", "https://example.com");
+// Only needs to satisfy `src/env.ts`. Nothing here opens a connection because both
+// repositories are mocked below.
+setEnv("DATABASE_URL", "postgresql://test:test@127.0.0.1:1/none");
+setEnv("PORT", "4000");
+setEnv("NODE_ENV", "test");
 setEnv("ADMIN_API_TOKEN", "route-secret-token");
 setEnv("SESSION_COOKIE_NAME", "route_session");
 setEnv("SESSION_COOKIE_MAX_AGE_SECONDS", "3600");
 
+/** A canned session, shaped exactly as `findSessionUser` returns one. */
+interface FakeSessionUser {
+	user: { id: string; email: string; name: string; avatarUrl: string | null };
+	session: { id: string; userId: string; expiresAt: Date };
+}
+
+/**
+ * Mutable state the mocked repository reads.
+ *
+ * Declared at module scope rather than inside `vi.mock`'s factory: vitest hoists
+ * that factory above every import, so a closure over a local would be hoisted out
+ * of scope, while a top-level binding is initialised before the first test runs.
+ * `vi.mock` therefore must not reference this object at definition time — only
+ * inside the mocked methods, which execute later.
+ */
+const mockState = {
+	sessionUser: null as FakeSessionUser | null,
+	findSessionUserCalls: [] as string[],
+	deleteSessionCalls: [] as string[],
+};
+
+vi.mock("../src/infrastructure/di", () => ({
+	identityRepository: {
+		findSessionUser: async (tokenHash: string) => {
+			mockState.findSessionUserCalls.push(tokenHash);
+			return mockState.sessionUser;
+		},
+		deleteSession: async (tokenHash: string) => {
+			mockState.deleteSessionCalls.push(tokenHash);
+			return true;
+		},
+		listOrganizationsForUser: async () => [],
+	},
+	organizationRepository: {
+		findOrganizationIdByUserId: async (userId: string) =>
+			userId ? "00000000-0000-4000-8000-000000000001" : null,
+	},
+}));
+
 const auth = await import("../src/presentation/http/middleware/auth");
+const { hashSessionToken } = await import(
+	"../src/infrastructure/persistence/repositories/identity-repository"
+);
 
-describe("auth utilities", () => {
-	const secret = "admin-secret-token";
-	const cookieName = "test_session";
+/** A session for a real user, with a future expiry. */
+const activeSession = (): FakeSessionUser => ({
+	user: {
+		id: "11111111-1111-4111-8111-111111111111",
+		email: "person@example.com",
+		name: "A Person",
+		avatarUrl: null,
+	},
+	session: {
+		id: "22222222-2222-4222-8222-222222222222",
+		userId: "11111111-1111-4111-8111-111111111111",
+		expiresAt: new Date(Date.now() + 60_000),
+	},
+});
 
-	it("signs and verifies a cookie payload", () => {
-		const payload = Buffer.from(JSON.stringify({ u: "admin", e: Date.now() + 60_000 })).toString(
-			"base64url"
-		);
-		const signature = auth.signCookiePayload(payload, secret);
+/** Builds a request carrying the session cookie. */
+const withCookie = (token: string): Request =>
+	new Request("http://localhost/api", { headers: { cookie: `route_session=${token}` } });
 
-		expect(auth.verifyCookieSignature(`${payload}.${signature}`, secret)).toBe(payload);
-	});
+describe("cookie construction", () => {
+	it("sets HttpOnly, SameSite, Path and Max-Age on the session cookie", () => {
+		const cookie = auth.createSessionCookie("opaque-token");
 
-	it("rejects tampered cookie signatures", () => {
-		const payload = Buffer.from(JSON.stringify({ u: "admin", e: Date.now() + 60_000 })).toString(
-			"base64url"
-		);
-		const signature = auth.signCookiePayload(payload, secret);
-
-		expect(auth.verifyCookieSignature(`${payload}x.${signature}`, secret)).toBeNull();
-	});
-
-	it("rejects malformed cookie values", () => {
-		expect(auth.verifyCookieSignature("", secret)).toBeNull();
-		expect(auth.verifyCookieSignature("payload-only", secret)).toBeNull();
-		expect(auth.verifyCookieSignature(".signature", secret)).toBeNull();
-		expect(auth.verifyCookieSignature("payload.", secret)).toBeNull();
-	});
-
-	it("creates a secure HttpOnly session cookie", () => {
-		const cookie = auth.createSessionCookie("admin", {
-			secret,
-			cookieName,
-			maxAgeMs: 60_000,
-		});
-
-		expect(cookie.slice(0, cookieName.length + 1)).toBe(`${cookieName}=`);
-		expect(cookie).toContain("Max-Age=60");
-		expect(cookie).toContain("Path=/");
+		expect(cookie.startsWith("route_session=")).toBe(true);
 		expect(cookie).toContain("HttpOnly");
 		expect(cookie).toContain("SameSite=Lax");
-		expect(cookie).toContain("Secure");
+		expect(cookie).toContain("Path=/");
+		expect(cookie).toContain("Max-Age=3600");
 	});
 
-	it("clears a session cookie", () => {
-		const cookie = auth.clearSessionCookie(cookieName);
+	it("sets Secure when BASE_URL is https", () => {
+		// The old implementation set `Secure` UNCONDITIONALLY, which is why a login on
+		// plain http answered 200 and then had its cookie silently discarded by the
+		// browser (docs/P4-CONTRACT.md gotcha 12). It now follows the deployment's own
+		// scheme, so https keeps the protection and http actually works.
+		expect(auth.createSessionCookie("t")).toContain("Secure");
+	});
 
-		expect(cookie.slice(0, cookieName.length + 2)).toBe(`${cookieName}=;`);
+	it("clears the cookie with Max-Age=0", () => {
+		const cookie = auth.clearSessionCookie("route_session");
+
+		expect(cookie.startsWith("route_session=;")).toBe(true);
 		expect(cookie).toContain("Max-Age=0");
 		expect(cookie).toContain("HttpOnly");
 	});
+});
 
-	it("parses a valid signed session cookie", () => {
-		const setCookie = auth.createSessionCookie("admin", {
-			secret,
-			cookieName,
-			maxAgeMs: 60_000,
-		});
-		const cookieHeader = setCookie.split(";")[0];
+describe("bearer token", () => {
+	const secret = "shared-secret";
 
-		const session = auth.parseSessionFromCookie(cookieHeader, { secret, cookieName });
-
-		expect(session?.username).toBe("admin");
-		expect(session?.method).toBe("cookie");
-		expect(session?.expiresAt).toBeInstanceOf(Date);
-	});
-
-	it("rejects an expired session cookie", () => {
-		const expiredPayload = Buffer.from(
-			JSON.stringify({ u: "admin", e: Date.now() - 1_000 })
-		).toString("base64url");
-		const signature = auth.signCookiePayload(expiredPayload, secret);
-
-		const session = auth.parseSessionFromCookie(`${cookieName}=${expiredPayload}.${signature}`, {
-			secret,
-			cookieName,
-		});
-
-		expect(session).toBeNull();
-	});
-
-	it("rejects cookies with the wrong name or secret", () => {
-		const setCookie = auth.createSessionCookie("admin", {
-			secret,
-			cookieName,
-			maxAgeMs: 60_000,
-		});
-		const cookieHeader = setCookie.split(";")[0];
-
-		expect(auth.parseSessionFromCookie(cookieHeader, { secret, cookieName: "other" })).toBeNull();
-		expect(auth.parseSessionFromCookie(cookieHeader, { secret: "wrong", cookieName })).toBeNull();
-	});
-
-	it("validates bearer tokens", () => {
+	it("accepts the exact token with the Bearer scheme", () => {
 		expect(auth.checkBearerToken(`Bearer ${secret}`, secret)).toBe(true);
+	});
+
+	it("rejects a wrong token, a wrong scheme, a bare token, and a missing header", () => {
 		expect(auth.checkBearerToken("Bearer wrong", secret)).toBe(false);
+		// A bare token is not a Bearer credential; accepting it would widen the
+		// surface to any header shape.
 		expect(auth.checkBearerToken(secret, secret)).toBe(false);
 		expect(auth.checkBearerToken(null, secret)).toBe(false);
+		// An empty configured secret must never authenticate anything.
+		expect(auth.checkBearerToken("Bearer ", "")).toBe(false);
+	});
+});
+
+describe("session resolution", () => {
+	it("resolves a valid session cookie to a real user", async () => {
+		mockState.sessionUser = activeSession();
+
+		const caller = await auth.getAuthenticatedCaller(withCookie("opaque-token"));
+
+		expect(caller?.userId).toBe("11111111-1111-4111-8111-111111111111");
+		expect(caller?.email).toBe("person@example.com");
+		expect(caller?.session.method).toBe("cookie");
+		expect(caller?.isSharedAdminToken).toBe(false);
+		// The cookie value is HASHED before lookup: the raw token must never reach the
+		// database, which is what makes a database read useless to an attacker.
+		expect(mockState.findSessionUserCalls.at(-1)).toBe(hashSessionToken("opaque-token"));
 	});
 
-	it("uses cookie and bearer auth for request sessions", () => {
-		const setCookie = auth.createSessionCookie("admin", {
-			secret,
-			cookieName,
-			maxAgeMs: 60_000,
-		});
-		const cookieRequest = new Request("http://localhost/api", {
-			headers: { cookie: setCookie.split(";")[0] },
-		});
-		const bearerRequest = new Request("http://localhost/api", {
-			headers: { authorization: `Bearer ${secret}` },
-		});
+	it("returns null for an unknown or expired session", async () => {
+		mockState.sessionUser = null;
 
-		expect(auth.getAuthSession(cookieRequest, { secret, cookieName })?.method).toBe("cookie");
-		expect(auth.getAuthSession(bearerRequest, { secret, cookieName })?.method).toBe("bearer");
+		const caller = await auth.getAuthenticatedCaller(withCookie("stale-token"));
+
+		expect(caller).toBeNull();
 	});
 
-	it("allows protected handlers when auth is disabled", async () => {
-		let calls = 0;
-		const handler = (_req: Request) => {
-			calls++;
+	it("falls back to the bearer token when the cookie is invalid", async () => {
+		mockState.sessionUser = null;
+
+		const caller = await auth.getAuthenticatedCaller(
+			new Request("http://localhost/api", {
+				headers: { cookie: "route_session=bogus", authorization: "Bearer route-secret-token" },
+			})
+		);
+
+		expect(caller?.session.method).toBe("bearer");
+		// NULL, deliberately: the shared token has no `users` row, so no caller may
+		// read its id as a person's.
+		expect(caller?.userId).toBeNull();
+		expect(caller?.isSharedAdminToken).toBe(true);
+	});
+
+	it("returns null when neither credential is present", async () => {
+		mockState.sessionUser = null;
+		const caller = await auth.getAuthenticatedCaller(new Request("http://localhost/api"));
+		expect(caller).toBeNull();
+	});
+});
+
+describe("requireAuth", () => {
+	/** A handler that records whether it ran. */
+	const counting = () => {
+		const counter = { calls: 0 };
+		const handler = (): Response => {
+			counter.calls += 1;
 			return Response.json({ ok: true });
 		};
-		const protectedHandler = auth.requireAuth(handler, { secret: "", cookieName });
+		return { counter, handler };
+	};
 
-		const res = await protectedHandler(new Request("http://localhost/api"));
+	it("rejects a request with no session", async () => {
+		mockState.sessionUser = null;
+		const { counter, handler } = counting();
 
-		expect(res.status).toBe(200);
-		expect(calls).toBe(1);
-	});
-
-	it("rejects protected handlers without a valid session", async () => {
-		let calls = 0;
-		const handler = (_req: Request) => {
-			calls++;
-			return Response.json({ ok: true });
-		};
-		const protectedHandler = auth.requireAuth(handler, { secret, cookieName });
-
-		const res = await protectedHandler(new Request("http://localhost/api"));
+		const res = await auth.requireAuth(handler)(new Request("http://localhost/api"));
 
 		expect(res.status).toBe(401);
 		expect(await res.json()).toEqual({ error: "Unauthorized" });
-		expect(calls).toBe(0);
+		expect(counter.calls).toBe(0);
 	});
 
-	it("passes protected handlers with a bearer token", async () => {
-		let calls = 0;
-		const handler = (_req: Request) => {
-			calls++;
-			return Response.json({ ok: true });
-		};
-		const protectedHandler = auth.requireAuth(handler, { secret, cookieName });
+	it("passes a request carrying a real session", async () => {
+		mockState.sessionUser = activeSession();
+		const { counter, handler } = counting();
 
-		const res = await protectedHandler(
-			new Request("http://localhost/api", { headers: { authorization: `Bearer ${secret}` } })
+		const res = await auth.requireAuth(handler)(withCookie("opaque-token"));
+
+		expect(res.status).toBe(200);
+		expect(counter.calls).toBe(1);
+	});
+
+	it("passes a request carrying the shared bearer token", async () => {
+		mockState.sessionUser = null;
+		const { counter, handler } = counting();
+
+		const res = await auth.requireAuth(handler)(
+			new Request("http://localhost/api", {
+				headers: { authorization: "Bearer route-secret-token" },
+			})
 		);
 
 		expect(res.status).toBe(200);
-		expect(calls).toBe(1);
+		expect(counter.calls).toBe(1);
+	});
+});
+
+describe("isAuthEnabled", () => {
+	it("is true when a shared token is configured", () => {
+		expect(auth.isAuthEnabled()).toBe(true);
 	});
 });

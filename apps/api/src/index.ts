@@ -4,7 +4,6 @@ import { fileInfoCache } from "./infrastructure/cache/index";
 import { logger } from "./infrastructure/observability/logger";
 import { metricsCollector } from "./infrastructure/observability/metrics";
 import { createApp } from "./presentation/http/app";
-import { resolveAdminOrganizationId } from "./presentation/http/controllers/organization-resolver";
 import { cleanupRateLimitCache } from "./presentation/http/middleware/rate-limit";
 import { startBot } from "./presentation/telegram/handler";
 
@@ -31,28 +30,34 @@ import { startBot } from "./presentation/telegram/handler";
 // the deploy wiring is a trip-wire test instead of a comment. If you change the
 // deploy path, re-run the commands; do not trust this paragraph.
 
-// ─── Tenant scoping is verified BEFORE anything starts serving ─────────────
+// ─── Tenant scoping is no longer a boot-time hard failure ───────────────────
 //
-// The dashboard REST and oRPC surfaces are scoped to the bootstrap admin's
-// organization membership. Previously that lookup ran per request and returned
-// null when the membership was missing, so a deploy that never ran `db:seed`
-// answered 403 on every dashboard route — including the PUBLIC
-// GET /api/v1/buckets — and 401 on every oRPC procedure, with nothing but a
-// denial to show for it. `BOOTSTRAP_ADMIN_ID` is not set by deploy.sh,
-// docker-compose.yml or CI, so that was the DEFAULT state, not an edge case.
+// This block used to call `resolveAdminOrganizationId()` and `process.exit(1)`
+// when the bootstrap admin had no organization membership. That was correct while
+// there was exactly ONE identity and every dashboard request shared it: the
+// membership was mandatory infrastructure.
 //
-// Resolve it once, here. On success it is cached and costs nothing further; on
-// failure the process refuses to start and says exactly what to run. An
-// operator sees this in the first second instead of debugging a dashboard that
-// 403s everything.
+// Multi-user changes the premise. The scope is now resolved PER CALLER from their
+// session (`resolveCallerOrganization`), so a missing bootstrap membership no
+// longer bricks the dashboard — it only means the shared `ADMIN_API_TOKEN` path
+// has no default organization. Exiting on that would make a deployment where
+// every human signs in with Google refuse to boot because of a machine credential
+// nobody configured.
+//
+// So it is a WARNING now, and the runtime answers 503 for the one path that
+// genuinely needs it. Fail-fast is preserved where it still means something: the
+// bearer path reports its own misconfiguration at the moment it is used.
 try {
-	const organizationId = await resolveAdminOrganizationId();
-	logger.info("Tenant scope resolved for dashboard surfaces", { organizationId });
+	const { bootstrapOrganizationId } = await import("./presentation/http/middleware/auth");
+	const organizationId = await bootstrapOrganizationId();
+	logger.info("Bootstrap organization resolved for the shared admin token", { organizationId });
 } catch (error: unknown) {
-	logger.error("Startup aborted: dashboard tenant scope could not be resolved", {
-		error: error instanceof Error ? error.message : String(error),
-	});
-	process.exit(1);
+	logger.warn(
+		"No bootstrap organization for the shared admin token. Google sign-in and per-user " +
+			"organizations are unaffected; callers using ADMIN_API_TOKEN as a Bearer credential " +
+			"will receive 503 until `pnpm db:seed` runs.",
+		{ error: error instanceof Error ? error.message : String(error) }
+	);
 }
 
 const app = createApp();

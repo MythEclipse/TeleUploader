@@ -23,6 +23,13 @@ export interface FileInput {
 	storageBackend: string | null;
 	/** Optional overrides */
 	uploaderId?: number;
+	/**
+	 * The dashboard user who uploaded this (`users.id`), or null.
+	 *
+	 * Not the same as `uploaderId`, which is Telegram's numeric sender id. Only the
+	 * authenticated web and S3 paths set this.
+	 */
+	uploaderUserId?: string | null;
 	fileHash?: string | null;
 	bucketId?: string | null;
 	s3Key?: string | null;
@@ -69,6 +76,7 @@ export const buildNewFile = (input: FileInput): NewFile => ({
 	sizeBytes: input.sizeBytes,
 	fileType: input.fileType,
 	uploaderId: input.uploaderId ?? 0,
+	uploaderUserId: input.uploaderUserId ?? null,
 	fileHash: input.fileHash ?? null,
 	archiveTelegramFileId: input.archiveTelegramFileId ?? null,
 	archiveStorageMessageId: input.archiveStorageMessageId ?? null,

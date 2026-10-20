@@ -1,7 +1,13 @@
 import type { Context, Handler } from "hono";
 import { Hono } from "hono";
 import { handleRpc } from "../orpc";
-import { handleLogin, handleLogout, handleMe } from "./controllers/auth-controller";
+import {
+	handleGoogleCallback,
+	handleGoogleStart,
+	handleLogout,
+	handleLogoutAll,
+	handleMe,
+} from "./controllers/auth-controller";
 import { handleFileInfo, handleFileRedirect } from "./controllers/file-controller";
 import { handleHealth } from "./controllers/health-controller";
 import { handleS3Request } from "./controllers/s3-controller";
@@ -253,9 +259,16 @@ export const createApp = (): Hono => {
 	app.get("/healthz", adapt(handleHealth));
 
 	// ── Dashboard auth ───────────────────────────────────────────────────────
-	app.post("/api/v1/auth/login", limited(handleLogin));
-	app.post("/api/v1/auth/logout", adapt(handleLogout));
+	// `google/start` and `google/callback` are the OAuth flow; both are PUBLIC by
+	// necessity (a signed-out visitor is the whole point) and neither is rate
+	// limited, because a 302 to Google is not a credential guess. The login POST is
+	// gone: Google is now the only interactive path, and `ADMIN_API_TOKEN` remains
+	// as a Bearer credential for machine callers rather than a form field.
+	app.get("/api/v1/auth/google/start", adapt(handleGoogleStart));
+	app.get("/api/v1/auth/google/callback", adapt(handleGoogleCallback));
 	app.get("/api/v1/auth/me", adapt(handleMe));
+	app.post("/api/v1/auth/logout", adapt(handleLogout));
+	app.post("/api/v1/auth/logout-all", adapt(handleLogoutAll));
 
 	// ── API documentation (P4) ───────────────────────────────────────────────
 	// PUBLIC and unthrottled: the docs must stay reachable when a rate limit is
