@@ -234,7 +234,19 @@ export const handleMe = async (req: Request): Promise<Response> => {
 	if (!caller) {
 		// No credentials presented AND nothing configured: the documented open mode.
 		// Anything else (auth enabled, no credentials) is a genuine 401.
-		if (isAuthEnabled()) return jsonError("Unauthorized", 401);
+		//
+		// The 401 still carries `googleEnabled`, and it has to: an anonymous visitor is
+		// exactly the caller who needs to know whether a Sign-in button will work. Without
+		// it the SPA has nothing to read on a 401 and falls back to assuming Google is
+		// available, so a deployment with no credentials rendered a button that dead-ends
+		// at this server's own 503 — the misleading button the login page's comment says
+		// it avoids. A machine caller can read the flag here too, without a credential.
+		if (isAuthEnabled()) {
+			return Response.json(
+				{ error: "Unauthorized", googleEnabled: isGoogleAuthConfigured() },
+				{ status: 401 }
+			);
+		}
 
 		const organizations = await sharedTokenOrganizations();
 		const body: UserInfoResponse = {

@@ -20,7 +20,8 @@
  *  - `activeOrganizationOf` must return `null` for a slug the account is not a member of,
  *    never silently fall back to a different tenant;
  *  - `canWrite` must be true for an OPEN deployment, where the server accepts writes;
- *  - `probeAuth` must pass `method` through verbatim rather than defaulting to `cookie`.
+ *  - `probeAuth` must pass `method` through verbatim rather than defaulting to `cookie`;
+ *  - `probeAuth` must READ `googleEnabled` off a 401 instead of assuming Google works.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -182,6 +183,67 @@ describe('probeAuth', () => {
       () => new Response('{"error":"Unauthorized"}', { status: 401 }),
       async () => {
         expect((await probeAuth()).kind).toBe('signed-out');
+      },
+    );
+  });
+
+  test('a 401 with no googleEnabled does NOT claim Google is available', async () => {
+    // The defect this pins: the 401 branch used to hardcode `googleEnabled: true`, so a
+    // deployment with no Google credentials still rendered a "Sign in with Google" button
+    // that dead-ended at this server's own 503. False is the honest answer for a body
+    // that does not say otherwise, because a hidden button costs a click while a broken
+    // one costs trust in the page.
+    await withFetch(
+      () => new Response('{"error":"Unauthorized"}', { status: 401 }),
+      async () => {
+        const state = await probeAuth();
+        expect(state.kind).toBe('signed-out');
+        if (state.kind === 'signed-out') expect(state.googleEnabled).toBe(false);
+      },
+    );
+  });
+
+  test('a 401 REPORTING googleEnabled:false disables the button', async () => {
+    await withFetch(
+      () =>
+        new Response(JSON.stringify({ error: 'Unauthorized', googleEnabled: false }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      async () => {
+        const state = await probeAuth();
+        if (state.kind !== 'signed-out') throw new Error(`expected signed-out, got ${state.kind}`);
+        expect(state.googleEnabled).toBe(false);
+      },
+    );
+  });
+
+  test('a 401 REPORTING googleEnabled:true keeps the button', async () => {
+    // The mirror of the test above, so a fix cannot be "always false" and pass.
+    await withFetch(
+      () =>
+        new Response(JSON.stringify({ error: 'Unauthorized', googleEnabled: true }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      async () => {
+        const state = await probeAuth();
+        if (state.kind !== 'signed-out') throw new Error(`expected signed-out, got ${state.kind}`);
+        expect(state.googleEnabled).toBe(true);
+      },
+    );
+  });
+
+  test('a 401 with a non-JSON body still maps to signed-out', async () => {
+    // A proxy or an error page can answer a non-JSON 401. `res.json()` would throw and
+    // the probe must not turn that into `unknown` (which renders as read-only and hides
+    // the login link entirely).
+    await withFetch(
+      () => new Response('<html>Unauthorized</html>', { status: 401 }),
+      async () => {
+        const state = await probeAuth();
+        expect(state.kind).toBe('signed-out');
+        if (state.kind === 'signed-out') expect(state.googleEnabled).toBe(false);
       },
     );
   });

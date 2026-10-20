@@ -86,6 +86,24 @@ export const beginSignIn = (redirectTo = '/'): void => {
 };
 
 /**
+ * `googleEnabled` for a freshly signed-out state.
+ *
+ * Signing out does not change whether the server HAS Google configured, so this carries
+ * the value the current state already knows rather than inventing one. It matters:
+ * hardcoding `true` here made the login page render a Sign-in button on a deployment with
+ * no Google credentials — the button the server itself answers with 503. When nothing is
+ * known yet (`unknown`), false is the honest default and the login page re-probes on
+ * mount anyway.
+ *
+ * @returns Whether Google sign-in should be offered.
+ */
+const googleEnabledForSignedOut = (): boolean =>
+  state.kind === 'unknown' ? false : state.googleEnabled;
+
+const setSignedOut = (): AuthState =>
+  setState({ kind: 'signed-out', googleEnabled: googleEnabledForSignedOut() });
+
+/**
  * Revokes this session server-side and publishes `signed-out`.
  *
  * @throws {ApiError} If the server call fails. The caller decides whether to
@@ -94,7 +112,7 @@ export const beginSignIn = (redirectTo = '/'): void => {
  */
 export const signOut = async (): Promise<AuthState> => {
   await logout();
-  return setState({ kind: 'signed-out', googleEnabled: true });
+  return setSignedOut();
 };
 
 /**
@@ -105,7 +123,7 @@ export const signOut = async (): Promise<AuthState> => {
  */
 export const signOutEverywhere = async (): Promise<number> => {
   const revoked = await logoutEverywhere();
-  setState({ kind: 'signed-out', googleEnabled: true });
+  setSignedOut();
   return revoked;
 };
 

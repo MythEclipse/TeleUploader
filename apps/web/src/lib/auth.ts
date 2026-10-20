@@ -178,7 +178,20 @@ export const probeAuth = async (): Promise<AuthState> => {
     // 401 is the only "authentication is configured and you presented nothing" signal.
     // A 404 would mean the route is missing, which is a deployment bug and must not be
     // read as "public access".
-    if (res.status === 401) return { kind: 'signed-out', googleEnabled: true };
+    if (res.status === 401) {
+      // The 401 body carries `googleEnabled`, and reading it is the whole point: an
+      // anonymous visitor is the only one who sees the login page. Defaulting to `true`
+      // here made an unconfigured deployment render a Sign-in button that dead-ended at
+      // `/api/v1/auth/google/start` → 503. Absent or unparseable leaves it false, which
+      // shows the explanatory notice instead of a button that cannot work — the safer of
+      // the two errors, because a hidden button costs a click while a broken one costs
+      // trust in the whole page.
+      const body = await res.json().catch(() => null);
+      return {
+        kind: 'signed-out',
+        googleEnabled: (body as { googleEnabled?: unknown } | null)?.googleEnabled === true,
+      };
+    }
     if (!res.ok) return UNKNOWN;
 
     const body = (await res.json()) as Partial<MeResponse>;

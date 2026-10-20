@@ -408,6 +408,42 @@ describe("GET /api/v1/auth/me", () => {
 		expect(res.status).toBe(401);
 	});
 
+	it("carries googleEnabled on the 401, because an anonymous visitor is the one asking", async () => {
+		// The contract the SPA depends on. An anonymous visitor is the ONLY caller who sees
+		// the login page, and this 401 is the only answer they get. Without the flag the
+		// client had nothing to read and assumed Google was available, so a deployment with
+		// no credentials rendered a Sign-in button that dead-ended at this server's 503.
+		// A machine caller benefits too: the capability is discoverable with no credential.
+		//
+		// Asserted in BOTH directions on purpose. A one-sided test would pass against a
+		// hardcoded `false` just as well as against the real value, and `false` would hide
+		// the button on every correctly-configured deployment.
+		const previous = mockState.googleConfigured;
+		try {
+			mockState.googleConfigured = false;
+			const unconfigured = await handleMe(new Request("https://example.com/api/v1/auth/me"));
+			expect(unconfigured.status).toBe(401);
+			const offBody = (await unconfigured.json()) as { googleEnabled: boolean };
+			expect(offBody.googleEnabled).toBe(false);
+
+			mockState.googleConfigured = true;
+			const configured = await handleMe(new Request("https://example.com/api/v1/auth/me"));
+			expect(configured.status).toBe(401);
+			const onBody = (await configured.json()) as { googleEnabled: boolean };
+			expect(onBody.googleEnabled).toBe(true);
+		} finally {
+			mockState.googleConfigured = previous;
+		}
+	});
+
+	it("keeps the 401 error field intact so the SPA still sees Unauthorized", async () => {
+		// Widening the 401 body must not drop `error`: the client's ApiError path and the
+		// curl-facing contract both read it.
+		const res = await handleMe(new Request("https://example.com/api/v1/auth/me"));
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("Unauthorized");
+	});
+
 	it("returns the profile and the caller's organizations for a valid session", async () => {
 		const presented = "presented-token";
 		sessions.set(hashSessionToken(presented), {
