@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/asepharyana/TeleUploader/compare/v1.4.0...v1.4.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **auth:** report googleEnabled on the 401 so the login page stops lying ([e66e1cb](https://github.com/asepharyana/TeleUploader/commit/e66e1cb5c071fdf16ba6edfc055faab347212512))
+
 # [1.4.0](https://github.com/asepharyana/TeleUploader/compare/v1.3.25...v1.4.0) (2026-10-20)
 
 
