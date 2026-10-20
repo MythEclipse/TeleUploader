@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/asepharyana/TeleUploader/compare/v1.3.25...v1.4.0) (2026-10-20)
+
+
+### Features
+
+* **auth:** multi-user file management with Google OAuth sign-in ([d19fb94](https://github.com/asepharyana/TeleUploader/commit/d19fb9475252d35626200c2fe8b26f5a625ebbdd))
+
 ## [1.3.25](https://github.com/asepharyana/TeleUploader/compare/v1.3.24...v1.3.25) (2026-10-20)
 
 
