@@ -1,3 +1,5 @@
+## [1.3.24](https://github.com/asepharyana/TeleUploader/compare/v1.3.23...v1.3.24) (2026-10-20)
+
 ## [1.3.23](https://github.com/asepharyana/TeleUploader/compare/v1.3.22...v1.3.23) (2026-10-16)
 
 
