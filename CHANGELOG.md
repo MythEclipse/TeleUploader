@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/asepharyana/TeleUploader/compare/v1.4.1...v1.5.0) (2026-10-21)
+
+
+### Features
+
+* **auth:** migrate to the Kana stack — better-auth, oRPC, TanStack ([786bbb1](https://github.com/asepharyana/TeleUploader/commit/786bbb1544b940e877dd1cec551d5f0f7a606080))
+
 ## [1.4.1](https://github.com/asepharyana/TeleUploader/compare/v1.4.0...v1.4.1) (2026-10-20)
 
 
