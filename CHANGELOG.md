@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/asepharyana/TeleUploader/compare/v1.5.0...v1.5.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **orpc:** drop downloadObject, a procedure that could only ever throw ([e65b53c](https://github.com/asepharyana/TeleUploader/commit/e65b53c5795745bf023ae9c2b4b9ae99924a8332))
+
 # [1.5.0](https://github.com/asepharyana/TeleUploader/compare/v1.4.1...v1.5.0) (2026-10-21)
 
 
