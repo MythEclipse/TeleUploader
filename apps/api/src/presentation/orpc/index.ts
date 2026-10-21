@@ -19,7 +19,6 @@ import {
 	handleCreateBucketV1,
 	handleDeleteBucketV1,
 	handleDeleteObjectV1,
-	handleDownloadObjectV1,
 	handleListBucketsV1,
 	handleListObjectsV1,
 	handleWebApiV1,
@@ -44,11 +43,10 @@ import type { RouterHandlers } from "./routers/bucket";
  *
  * Every entry names a controller function directly, and several adapt a
  * signature (`(req, bucket, organizationId)` → `(req, params, organizationId)`).
- * Those adapters are why upload and download stay out of this file's procedure
- * list: `handleUploadObjectV1` takes a streamed multipart body and
- * `handleDownloadObjectV1` returns one, and oRPC serialises both directions as
- * JSON. They keep their binary routes and are called by the web app's
- * `lib/client.ts`, not by `lib/rpc.ts`.
+ * Those adapters are why upload and download are absent from this file's
+ * procedure list entirely: oRPC serialises BOTH directions as JSON, so upload
+ * cannot carry a `File` in and download cannot carry bytes out. They keep their
+ * binary routes and are called by the web app's `lib/client.ts`, not `lib/rpc.ts`.
  */
 const handlers = {
 	bucket: {
@@ -62,8 +60,6 @@ const handlers = {
 			handleCopyObjectV1(req, { bucket }, organizationId),
 		deleteObject: (req: Request, bucket: string, key: string, organizationId: string) =>
 			handleDeleteObjectV1(req, { bucket, key }, organizationId),
-		downloadObject: (req: Request, bucket: string, key: string, organizationId: string) =>
-			handleDownloadObjectV1(req, { bucket, key }, organizationId),
 		bucketUsage: (bucket: string, organizationId: string) =>
 			handleBucketUsageV1({ bucket }, organizationId),
 		moveObject: (req: Request, bucket: string, organizationId: string) =>

@@ -58,21 +58,6 @@ export interface BucketHandlers {
 		key: string,
 		organizationId: string
 	) => Promise<Response>;
-	/**
-	 * Download an object.
-	 *
-	 * Still here, and still delegating, but note the procedure below parses the
-	 * body as JSON — which is why the DASHBOARD does not use it for downloads.
-	 * The binary route stays `GET /api/v1/buckets/{bucket}/download/{key}`; see
-	 * `jsonPayload` in `./shared.ts` for the mechanism that makes an RPC
-	 * round-trip lossy for bytes.
-	 */
-	downloadObject: (
-		req: Request,
-		bucket: string,
-		key: string,
-		organizationId: string
-	) => Promise<Response>;
 	/** `GET /api/v1/buckets/{bucket}/usage` — totals for one bucket. */
 	bucketUsage: (bucket: string, organizationId: string) => Promise<Response>;
 	/** `POST /api/v1/buckets/{bucket}/move` — rename an object or a folder. */
@@ -131,23 +116,24 @@ const bucketNamespace = {
 		summary: "Delete an object (soft delete)",
 	}),
 
-	// DECLARED, BUT NOT THE DASHBOARD'S DOWNLOAD PATH.
+	// NO `downloadObject` PROCEDURE EXISTS, DELIBERATELY.
 	//
-	// `jsonPayload` calls `res.json()`, which parses the controller's body — and
-	// that destroys a binary one. A real download therefore cannot cross this
-	// surface: it stays at `GET /api/v1/buckets/{bucket}/download/{key}` and the
-	// web client reaches it through `lib/client.ts`. The same reason keeps upload
-	// off oRPC, at `POST /api/v1/buckets/{bucket}/upload`: oRPC serialises INPUT
-	// as JSON too, so a `File` cannot cross it either.
+	// Download and upload are the two operations this surface cannot carry, and
+	// both for the same class of reason: oRPC serialises through JSON on BOTH
+	// directions. `jsonPayload` calls `res.json()`, which throws on a binary body
+	// (verified with a 6-byte PNG: `Unexpected token`), so a download procedure
+	// here could never return a file — only an error. Upload fails on the input
+	// side, where a `File` cannot be JSON-encoded at all.
 	//
-	// The procedure is kept for API-shape completeness (and because the OpenAPI
-	// generator reads this contract), but the client must not treat it as a
-	// substitute for the binary route.
-	downloadObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
-		method: "GET",
-		path: "/api/v1/buckets/{bucket}/download/{key}",
-		summary: "Download an object",
-	}),
+	// An earlier revision declared `downloadObject` anyway, arguing that the
+	// OpenAPI generator wants the path. That was wrong: a procedure whose every
+	// invocation throws is not API completeness, it is a trap for the next caller,
+	// and the generated document advertised a working endpoint that did not exist.
+	//
+	// The real routes are hand-written and remain the only ones:
+	//   POST /api/v1/buckets/{bucket}/upload
+	//   GET  /api/v1/buckets/{bucket}/download/{key}
+	// The web client reaches both through `lib/client.ts`, never through `/rpc`.
 
 	// ── File-manager operations ──────────────────────────────────────────────
 	usage: os.input(z.object({ bucket: bucketName })).meta({
@@ -297,20 +283,6 @@ export const buildBucketRouter = (base: RouterBase, handlers: BucketHandlers): B
 						context,
 						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/${encodeKey(input.key)}`,
 						{ method: "DELETE" }
-					),
-					input.bucket,
-					input.key,
-					context.organizationId
-				)
-			)
-		),
-
-		downloadObject: base.bucket.downloadObject.handler(async ({ input, context }) =>
-			jsonPayload(
-				await handlers.downloadObject(
-					controllerRequest(
-						context,
-						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/download/${encodeKey(input.key)}`
 					),
 					input.bucket,
 					input.key,
