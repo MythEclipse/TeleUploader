@@ -1,5 +1,6 @@
 import type { Context, Handler } from "hono";
 import { Hono } from "hono";
+import logger from "../../infrastructure/observability/logger";
 import { handleRpc } from "../orpc";
 import {
 	handleGoogleCallback,
@@ -251,12 +252,73 @@ const mayServeSpaShell = (req: Request, reqPath: string): boolean => {
 	return true;
 };
 
+/**
+ * Delegate a request to better-auth's own router.
+ *
+ * ## Why this is a function and not a bare `auth.handler` reference
+ *
+ * `better-auth.ts` builds the instance at module load and validates its secret
+ * there. Importing it eagerly would make EVERY module that touches `app.ts` — the
+ * whole test suite included — construct better-auth, and fail on any machine
+ * without `BETTER_AUTH_SECRET`. The dynamic import defers that to the first
+ * actual auth request, and the module cache makes it free afterwards.
+ *
+ * ## Why a failure answers 503 rather than throwing
+ *
+ * If better-auth cannot load, the correct statement is "this deployment cannot do
+ * the new sign-in flow" — not a 500 that reads like a crash. The hand-written
+ * `google/start` route below still works, so the deployment has a functioning
+ * login; only this newer surface is unavailable, and it says so.
+ *
+ * @param request - The raw Fetch request Hono received.
+ * @returns better-auth's response, or a 503 explaining the gap.
+ */
+const betterAuthHandler = async (request: Request): Promise<Response> => {
+	try {
+		const { auth } = await import("../../infrastructure/auth/better-auth");
+		return auth.handler(request);
+	} catch (error: unknown) {
+		logger.error("better-auth handler unavailable", {
+			path: new URL(request.url).pathname,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return Response.json(
+			{ error: "Sign-in is not available on this deployment", detail: "better_auth_unavailable" },
+			{ status: 503 }
+		);
+	}
+};
+
 export const createApp = (): Hono => {
 	const app = new Hono();
 
 	// ── Health (public, unthrottled — the deploy probe hits this) ───────────
 	app.get("/health", adapt(handleHealth));
 	app.get("/healthz", adapt(handleHealth));
+
+	// ── better-auth's own routes ─────────────────────────────────────────────
+	// Registered BEFORE the hand-written auth routes below, and before the
+	// `/api/v1/*` wildcard, because Hono matches on registration order.
+	//
+	// better-auth serves `/api/v1/auth/sign-in/social`, `/api/v1/auth/callback/*`,
+	// `/api/v1/auth/sign-out`, `/api/v1/auth/get-session` and friends under
+	// `basePath: "/api/v1/auth"`. These are the sign-in surface the SPA uses; the
+	// hand-written `google/start` and `google/callback` below remain mounted as a
+	// second, independent path so an existing in-flight redirect does not break.
+	//
+	// The handler takes and returns a Fetch Request/Response, which is exactly
+	// Hono's native shape — no `adapt()` needed, and wrapping it would strip the
+	// streaming body better-auth's callbacks use.
+	//
+	// Failure to load better-auth must not remove the routes entirely: a
+	// deployment without it configured still serves the legacy Google flow. The
+	// dynamic import keeps that possible, at the cost of one lookup per request
+	// that the module cache makes cheap.
+	app.all("/api/v1/auth/sign-in/*", (c) => betterAuthHandler(c.req.raw));
+	app.all("/api/v1/auth/callback/*", (c) => betterAuthHandler(c.req.raw));
+	app.all("/api/v1/auth/sign-out", (c) => betterAuthHandler(c.req.raw));
+	app.all("/api/v1/auth/get-session", (c) => betterAuthHandler(c.req.raw));
+	app.all("/api/v1/auth/session", (c) => betterAuthHandler(c.req.raw));
 
 	// ── Dashboard auth ───────────────────────────────────────────────────────
 	// `google/start` and `google/callback` are the OAuth flow; both are PUBLIC by

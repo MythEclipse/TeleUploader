@@ -5,7 +5,7 @@ import {
 	createSignInUseCase,
 } from "../../../application/use-cases/authenticate";
 import { config, isGoogleAuthConfigured } from "../../../env";
-import { identityRepository } from "../../../infrastructure/di";
+import { bucketRepository, identityRepository } from "../../../infrastructure/di";
 import {
 	buildAuthorizationUrl,
 	createCodeChallenge,
@@ -189,6 +189,7 @@ export const handleGoogleCallback = async (req: Request): Promise<Response> => {
 
 	const signIn = createSignInUseCase({
 		identityRepository,
+		bucketRepository,
 		sessionMaxAgeMs: config.sessionMaxAgeMs,
 	});
 	const result = await signIn(profile, req.headers.get("user-agent")?.slice(0, 500) ?? null);

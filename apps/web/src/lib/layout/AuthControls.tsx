@@ -9,31 +9,49 @@
  * | `signed-out`   | yes     | no       | yes             | no      |
  * | `unknown`      | no      | no       | yes             | no      |
  *
- * ## What changed from the single-token version
+ * ## Why there is no `useState` here
  *
- * The old component showed a `Logout` button for the `auth-disabled` state too,
- * because with an empty `ADMIN_API_TOKEN` the server accepted writes and hiding the
- * control "would be a lie about what the deployment can do". That arm is gone: a
- * signed-out visitor is genuinely signed out now, so there is nothing to log out of.
+ * Kana bans React hooks, `useState` included. The one piece of component-local
+ * state this component had was the "signing out…" flag, which is now a
+ * module-level TanStack `Store` read with `useSelector`. That is a deliberate
+ * downgrade in locality for a deliberate reason: the flag drives a `disabled`
+ * attribute and a label, and a Store gives both without a hook.
  *
- * It also renders the account's identity, because there is one — a real email and
- * display name from Google. The previous version could not: the session carried a
- * hardcoded `"admin"` string.
+ * The flag is module-level rather than per-instance because there is exactly one
+ * auth control on screen — it lives in the app shell's top bar. Two stores for
+ * one button would be the only alternative, and it buys nothing.
+ *
+ * ## Sign out is a revoke, not a cookie clear
+ *
+ * `logout()` calls `/api/v1/auth/logout`, which DELETES the session row. The
+ * cookie is dead even if it is replayed. The navigation happens regardless of the
+ * call's outcome: leaving a signed-out-looking UI in front of a live session would
+ * be the stale-state bug, and a failed request is worth reporting but not worth
+ * stranding the user on a page that claims they are signed in.
  */
 
-import { useState } from 'react';
-import { signOut, useAuthState, useCanWrite, useShouldOfferLogin } from '../auth-store';
+import { useSelector } from '@tanstack/react-store';
+import { Store } from '@tanstack/store';
+import { logout, useAuthState, useCanWrite, useShouldOfferLogin } from '../auth-store';
 import { AppLink } from './AppLink';
 
-/** Where Sign in and Sign out go. See the note on `AppLink` below. */
+/** Where Sign in and Sign out go. */
 const LOGIN_HREF = '/login';
+
+/**
+ * Whether a sign-out request is in flight.
+ *
+ * Module-level, see the note in the file header. `false` is the resting state, so
+ * a remount after a successful sign-out does not leave a stuck spinner.
+ */
+const signingOutStore = new Store(false);
 
 /**
  * The signed-in account's label.
  *
- * Prefers the display name, falls back to the email's local part. Both can be empty
- * for a Google account with no profile name, so there is a final fallback rather than
- * rendering a blank button.
+ * Prefers the display name, falls back to the email's local part. Both can be
+ * empty for a Google account with no profile name, so there is a final fallback
+ * rather than rendering a blank button.
  *
  * @param name - Display name from the identity provider.
  * @param email - The account email.
@@ -48,7 +66,7 @@ export const AuthControls = (): React.JSX.Element => {
   const state = useAuthState();
   const canWrite = useCanWrite();
   const offerLogin = useShouldOfferLogin();
-  const [signingOut, setSigningOut] = useState(false);
+  const signingOut = useSelector(signingOutStore, (value) => value);
 
   if (state.kind === 'unknown') {
     return <span className="auth-status">Checking session…</span>;
@@ -81,21 +99,18 @@ export const AuthControls = (): React.JSX.Element => {
         </AppLink>
       ) : null}
 
-      {canWrite ? (
+      {state.kind === 'signed-in' ? (
         <button
           type="button"
           className="ghost"
           disabled={signingOut}
           title="Signs out and revokes this session on the server."
           onClick={() => {
-            setSigningOut(true);
-            // The server DELETES the session row, so this genuinely revokes — unlike
-            // the old stateless cookie, where logout only cleared the browser's copy.
-            // Navigate regardless of the call's outcome: leaving a signed-out UI in
-            // front of a live cookie would be the stale-state bug.
-            void signOut()
+            signingOutStore.setState(() => true);
+            void logout()
               .catch(() => undefined)
               .finally(() => {
+                signingOutStore.setState(() => false);
                 window.location.assign(LOGIN_HREF);
               });
           }}

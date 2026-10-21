@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { slugFragment } from "../../../application/shared/utils/slug";
 import type {
 	GoogleProfile,
 	IIdentityRepository,
@@ -99,26 +99,6 @@ const mapUser = (row: Record<string, unknown>): UserRecord => ({
 	name: typeof row.name === "string" ? row.name : "",
 	avatarUrl: typeof row.avatar_url === "string" ? row.avatar_url : null,
 });
-
-/**
- * Derives a slug-safe fragment from an email's local part.
- *
- * Kept deliberately dumb: lowercase, non-alphanumerics collapsed to `-`, and
- * truncated so the result fits `varchar(63)` with room for a uniqueness suffix.
- * Uniqueness itself is NOT solved here — {@link DrizzleIdentityRepository.ensurePersonalOrganization}
- * appends a discriminator and retries, because a slug computed from an email
- * cannot be unique on its own (`a.b@x` and `a-b@x` collapse together).
- */
-const slugFragment = (email: string): string => {
-	const localPart = email.split("@")[0] ?? "user";
-	const cleaned = localPart
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
-	// 3 is the minimum the S3 bucket-name rules impose on the sibling namespace,
-	// and an empty slug would produce `--<suffix>` which reads as a typo.
-	return cleaned.length >= 3 ? cleaned.slice(0, 40) : "user";
-};
 
 /**
  * Drizzle-backed implementation of {@link IIdentityRepository}.
@@ -470,26 +450,12 @@ export class DrizzleIdentityRepository implements IIdentityRepository {
 }
 
 /**
- * SHA-256 of a session token, hex-encoded.
+ * The session-token helpers now live in `application/shared/utils/session.ts`.
  *
- * The only place a raw session token is converted to its stored form. Keeping it
- * here — rather than at each call site — is what guarantees the hash used to
- * CREATE a session and the hash used to LOOK ONE UP cannot diverge.
- *
- * @param token - The opaque cookie value.
- * @returns 64-char lowercase hex, matching `sessions.token_hash`.
+ * Re-exported from here because they were originally defined in this file and
+ * several callers (middleware, the live probes, test files) import them from
+ * this path. A re-export keeps those call sites working while the single
+ * definition moves to the pure layer — one implementation, two import paths, no
+ * copy that can drift.
  */
-export const hashSessionToken = (token: string): string =>
-	createHash("sha256").update(token).digest("hex");
-
-/**
- * Generates a new opaque session token.
- *
- * `randomUUID` is used rather than `Math.random` or a counter: this value IS the
- * credential, so it must come from the CSPRNG. 122 bits of entropy, and two UUIDs
- * concatenated would be belt-and-braces without benefit, since 122 bits is far
- * past guessable.
- *
- * @returns A URL-safe token safe to place in a cookie.
- */
-export const generateSessionToken = (): string => randomUUID();
+export { generateSessionToken, hashSessionToken } from "../../../application/shared/utils/session";

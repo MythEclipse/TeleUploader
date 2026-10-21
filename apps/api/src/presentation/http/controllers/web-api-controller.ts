@@ -24,6 +24,18 @@ import {
 	sharedTokenOrganizations,
 	TenantAccessError,
 } from "../middleware/auth";
+import {
+	handleCreateCredentialV1,
+	handleDeleteCredentialV1,
+	handleListCredentialsV1,
+} from "./credentials-controller";
+import { handleMoveObjectV1 } from "./move-controller";
+import {
+	handleBucketUsageV1,
+	handleSearchObjectsV1,
+	handleStorageEndpointV1,
+	handleStorageUsageV1,
+} from "./storage-controller";
 
 /** Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
@@ -433,8 +445,12 @@ export const handleCopyObjectV1 = async (
  *
  * `download` is listed because its branch is 4 segments deep (`download/{key+}`),
  * so the collision is with any key that merely BEGINS with `download/`.
+ *
+ * `move` and `usage` joined this set with the file manager: both are single
+ * segments at a bucket root, so `DELETE /api/v1/buckets/b/move` would otherwise
+ * soft-delete a file named `move` instead of 404ing.
  */
-const RESERVED_ROOT_SEGMENTS = new Set(["objects", "upload", "copy", "download"]);
+const RESERVED_ROOT_SEGMENTS = new Set(["objects", "upload", "copy", "download", "move", "usage"]);
 
 /**
  * True when `parts` names a reserved routing segment at a bucket root.
@@ -566,6 +582,52 @@ const dispatchWithScope = async (
 				? await listOrganizationsForCaller(caller)
 				: await sharedTokenOrganizations();
 			return json({ organizations });
+		}
+
+		// GET /api/v1/storage — tenant-wide and per-bucket storage totals.
+		if (parts.length === 1 && parts[0] === "storage" && method === "GET") {
+			return await handleStorageUsageV1(organizationId);
+		}
+
+		// GET /api/v1/storage/endpoint — the S3 endpoint a client should use.
+		if (
+			parts.length === 2 &&
+			parts[0] === "storage" &&
+			parts[1] === "endpoint" &&
+			method === "GET"
+		) {
+			return handleStorageEndpointV1();
+		}
+
+		// GET /api/v1/search?q=… — cross-bucket object search.
+		if (parts.length === 1 && parts[0] === "search" && method === "GET") {
+			return await handleSearchObjectsV1(req, organizationId);
+		}
+
+		// GET /api/v1/credentials — the tenant's S3 keys, without their secrets.
+		if (parts.length === 1 && parts[0] === "credentials" && method === "GET") {
+			return await handleListCredentialsV1(organizationId);
+		}
+
+		// POST /api/v1/credentials — issue a key pair. The secret is in this
+		// response only; no later read can reproduce it.
+		if (parts.length === 1 && parts[0] === "credentials" && method === "POST") {
+			return await handleCreateCredentialV1(req, organizationId);
+		}
+
+		// DELETE /api/v1/credentials/{id} — revoke one key.
+		if (parts.length === 2 && parts[0] === "credentials" && method === "DELETE") {
+			return await handleDeleteCredentialV1({ id: parts[1] }, organizationId);
+		}
+
+		// GET /api/v1/buckets/{name}/usage — totals for one bucket.
+		if (parts.length === 3 && parts[0] === "buckets" && parts[2] === "usage" && method === "GET") {
+			return await handleBucketUsageV1({ bucket: parts[1] }, organizationId);
+		}
+
+		// POST /api/v1/buckets/{name}/move — rename an object or a folder.
+		if (parts.length === 3 && parts[0] === "buckets" && parts[2] === "move" && method === "POST") {
+			return await handleMoveObjectV1(req, { bucket: parts[1] }, organizationId);
 		}
 
 		// GET /api/v1/buckets

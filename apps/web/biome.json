@@ -1,0 +1,80 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "files": {
+    "includes": ["src/**", "vite.config.ts", "scripts/**", "!src/routeTree.gen.ts"]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "react": {
+                "message": "Kana forbids every React hook. Use TanStack Store (useSelector), TanStack Query (useQuery/useMutation), TanStack Form (useForm) or a route beforeLoad instead. Type-only imports from 'react' are allowed. See the kana-typescript-stack skill, references/no-react-hooks.md.",
+                "importNames": [
+                  "useState",
+                  "useEffect",
+                  "useLayoutEffect",
+                  "useInsertionEffect",
+                  "useRef",
+                  "useMemo",
+                  "useCallback",
+                  "useContext",
+                  "useReducer",
+                  "useSyncExternalStore",
+                  "useTransition",
+                  "useDeferredValue",
+                  "useImperativeHandle",
+                  "useDebugValue",
+                  "useId",
+                  "useActionState",
+                  "useFormStatus",
+                  "useOptimistic",
+                  "use"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "suspicious": {
+        "noExplicitAny": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/routeTree.gen.ts"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    }
+  ]
+}

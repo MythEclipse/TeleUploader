@@ -1,72 +1,40 @@
 /**
- * The dashboard's HTTP transport.
+ * The dashboard's HTTP transport for the paths oRPC cannot carry.
  *
- * ## `/api/v1/*`, not `/rpc/*` — the decision and its justification
+ * ## What changed, and why `http` is still here
  *
- * The contract settled this in §1.3 ("the surface is NOT fully on `/rpc`").
- * Four independent reasons, each verified against the source:
+ * This module used to justify hand-rolling every call because `@orpc/client` was
+ * not installed. It IS installed now, and `./rpc.ts` is the typed client for the
+ * JSON surface — that is where buckets, objects, usage, search and credentials
+ * go, so the wire contract has one definition instead of two.
  *
- * 1. **`/rpc` is auth-gated wholesale, so it cannot serve the read-only
- *    browser.** `app.ts:146` registers `app.all('/rpc/*', rpcAuthenticated)`.
- *    `GET /api/v1/*` is registered bare at `app.ts:149`. `home.html` renders
- *    the file browser to logged-out visitors and gates only the write controls
- *    (`applyAdminUI`); moving reads to `/rpc` would 401 the entire UI for the
- *    unauthenticated case that is a supported, working mode today.
- * 2. **There is no upload procedure.** `POST /rpc/bucket/uploadObject` -> 404.
- *    Upload must go to `POST /api/v1/buckets/{b}/upload`.
- * 3. **`downloadObject` cannot carry bytes over `/rpc`.** It is bound through
- *    `jsonPayload()`, which does `res.json()` (`routers/bucket.ts:155-165`), so
- *    a binary body is destroyed. Download must use the REST proxy route.
- * 4. **Per-segment key encoding is already correct on the REST path** — see
- *    `./keys.ts`, which is the same one-liner `routers/bucket.ts:71` uses.
- *    `deleteObject` is the single operation where `/rpc` is genuinely the better
- *    transport, and it is not worth a second client, a second auth story, and a
- *    hard dependency for one call that REST gets right once keys are encoded
- *    per segment.
+ * `http` remains because three operations genuinely cannot cross an oRPC
+ * boundary, and pretending otherwise would mean a broken feature rather than a
+ * tidier file:
  *
- * **`@orpc/client` is also not installed in this workspace.** `pnpm-lock.yaml`
- * is owned by the DEPS lane and no Build lane may run `pnpm install`
- * (contract §7.1); `apps/web/node_modules/@orpc` does not exist. A client that
- * imports it would not typecheck. This is a second, independent reason for the
- * same answer.
+ * 1. **Upload** is `multipart/form-data`. oRPC serialises procedure input as
+ *    JSON, so a `File` cannot be an argument.
+ * 2. **Download** returns bytes. The API's oRPC adapter calls `res.json()` on a
+ *    controller response, which destroys a binary body — the same reason the
+ *    server keeps download off `/rpc`.
+ * 3. **Progress** needs `XMLHttpRequest`; `fetch` exposes no upload-progress
+ *    event, and XHR cannot be expressed as an oRPC call at all.
  *
- * ## Auth, reproduced exactly
+ * `send`/`sendJson` therefore exist as the general escape hatch, and
+ * `uploadObject`/`downloadObject` are the two specific cases.
  *
- * Traced from `middleware/auth.ts` and `controllers/auth-controller.ts`:
+ * ## Credentials mode
  *
- * - `requireAuth` (auth.ts:304) is a **pass-through when
- *   `ADMIN_API_TOKEN` is empty** (auth.ts:310-312). It calls the handler
- *   unconditionally. There is no cookie to present in that mode.
- * - When auth IS enabled, `getAuthSession` (auth.ts:255) tries the **cookie
- *   first**, then `Authorization: Bearer <ADMIN_API_TOKEN>`.
- * - The cookie is minted by `handleLogin` (auth-controller.ts:84) via
- *   `createSessionCookie('admin')`. Its **name** comes from
- *   `config.sessionCookieName` = `process.env.SESSION_COOKIE_NAME || 'tu_session'`
- *   (env.ts:213). Its value is `base64url({"u":"admin","e":<epochMs>}) + "." +
- *   HMAC-SHA256-base64url`, and `parseSessionFromCookie` **rejects any payload
- *   whose `u` is not exactly `"admin"`** (auth.ts:207).
- * - `handleLogin` sets it with `HttpOnly; SameSite=Lax; Secure; Path=/` and
- *   **HttpOnly means the SPA cannot read it** — it must rely on the browser's
- *   automatic cookie jar. Therefore every request here is same-origin and must
- *   carry the jar explicitly (`credentials: 'same-origin'`, and
- *   `withCredentials` on the XHR upload path). There is no token in
- *   localStorage and no manual `Cookie` header — a browser forbids setting it.
- * - `POST /api/v1/auth/login` is **rate limited** (`app.ts:126`), so a failed
- *   attempt is not retried automatically here.
- *
- * ### The `Secure`-over-http trap (contract gotcha 12)
- *
- * `cookieAttributes` (auth.ts:109) sets `Secure` **unconditionally**. Over
- * plain `http://localhost` the browser silently refuses to store the cookie,
- * so login returns 200, the SPA believes it is admin, and every subsequent
- * write 401s. `login()` below therefore re-probes `/auth/me` after a
- * successful login and reports the mismatch rather than reporting success.
+ * `'same-origin'` is the spec default in current browsers, but it is set
+ * explicitly because the whole auth story depends on the cookie jar being
+ * attached, and `include` would be wrong — the SPA is served from the API's own
+ * origin and there is no cross-origin credential exchange to permit.
  */
 
 /** A non-2xx response from the API, carrying the server's own error message. */
 export class ApiError extends Error {
   constructor(
-    /** HTTP status. `401` and `404` on `/auth/me` are meaningful, not failures. */
+    /** HTTP status. `401` on `/auth/me` is meaningful, not a failure. */
     readonly status: number,
     message: string,
   ) {
@@ -100,8 +68,8 @@ const readError = async (res: Response): Promise<string> => {
  * on any non-2xx status.
  *
  * Deliberately does NOT throw on `401`/`404` from `/auth/me` — that endpoint's
- * status is the state probe (contract §1.2), so callers that care use
- * `probeAuth`, which reads the status without going through here.
+ * status is the state probe, so callers that care use `probeAuth`, which reads
+ * the status without going through here.
  */
 const request = async (path: string, init: RequestInit = {}): Promise<Response> => {
   const res = await fetch(path, { ...init, credentials: CREDENTIALS });
@@ -130,8 +98,7 @@ export const http = {
     }),
 
   /** `POST` with no body — logout. Returns the parsed JSON body. */
-  postEmptyJson: <T>(path: string): Promise<T> =>
-    requestJson<T>(path, { method: 'POST' }),
+  postEmptyJson: <T>(path: string): Promise<T> => requestJson<T>(path, { method: 'POST' }),
 
   /** `DELETE`, returning parsed JSON. */
   deleteJson: <T>(path: string): Promise<T> => requestJson<T>(path, { method: 'DELETE' }),
@@ -142,4 +109,132 @@ export const http = {
    * what a user pasting into `aws s3` or a `curl` needs.
    */
   absolute: (path: string): string => new URL(path, window.location.origin).toString(),
+};
+
+/** Outcome of one upload, as the server reports it. */
+export interface UploadResult {
+  key: string;
+  size: number;
+  etag: string;
+  downloadUrl: string;
+}
+
+/** Progress callback for {@link uploadObject}. */
+export type UploadProgress = (loaded: number, total: number) => void;
+
+/**
+ * Uploads one file to a bucket, reporting progress.
+ *
+ * ## Why `XMLHttpRequest` and not `fetch`
+ *
+ * `fetch` has no upload-progress event. For a large file over a slow link, a
+ * spinner that cannot say "40% done" is the difference between waiting and giving
+ * up. XHR's `upload.onprogress` is the only browser API that reports bytes sent.
+ *
+ * ## Why the promise resolves on `load`, not on `readystatechange`
+ *
+ * `load` fires after the response body is available; `readystatechange` fires
+ * repeatedly and would need a guard for `readyState === 4`, which is the same
+ * event with more ways to get it wrong.
+ *
+ * @param params - Bucket, file, destination key, scope, and progress callback.
+ * @returns The server's upload result.
+ * @throws {ApiError} With the server's status and message on a non-2xx response.
+ */
+export const uploadObject = (params: {
+  bucket: string;
+  file: File;
+  /** Destination key. Defaults to the file's own name server-side. */
+  key?: string;
+  orgSlug?: string;
+  onProgress?: UploadProgress;
+}): Promise<UploadResult> =>
+  new Promise((resolve, reject) => {
+    const url = new URL(
+      `/api/v1/buckets/${encodeURIComponent(params.bucket)}/upload`,
+      window.location.origin,
+    );
+    if (params.orgSlug) url.searchParams.set('org', params.orgSlug);
+
+    const form = new FormData();
+    form.append('file', params.file);
+    if (params.key) form.append('key', params.key);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url.toString());
+    // Same-origin XHR already sends cookies, but it is set explicitly so the
+    // auth contract is visible at the call site rather than implied by a default.
+    xhr.withCredentials = true;
+
+    if (params.onProgress) {
+      xhr.upload.onprogress = (event) => {
+        // `lengthComputable` is false when the browser cannot determine the size
+        // (a streamed body). Reporting 0/0 would render as a divide-by-zero bar.
+        if (event.lengthComputable) params.onProgress?.(event.loaded, event.total);
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadResult);
+        } catch {
+          reject(new ApiError(xhr.status, 'The upload succeeded but returned an unreadable body'));
+        }
+        return;
+      }
+      reject(new ApiError(xhr.status, parseErrorMessage(xhr)));
+    };
+
+    xhr.onerror = () =>
+      reject(new ApiError(0, 'The upload failed — the connection was interrupted'));
+    xhr.ontimeout = () => reject(new ApiError(0, 'The upload timed out'));
+    xhr.onabort = () => reject(new ApiError(0, 'The upload was cancelled'));
+
+    xhr.send(form);
+  });
+
+/**
+ * Extracts the server's error message from a failed XHR.
+ *
+ * Falls back to the status text because a 413 from a proxy may not carry the
+ * JSON envelope at all — reporting "HTTP 413" beats reporting nothing.
+ *
+ * @param xhr - The completed request.
+ * @returns A human-readable message.
+ */
+const parseErrorMessage = (xhr: XMLHttpRequest): string => {
+  try {
+    const body: unknown = JSON.parse(xhr.responseText);
+    if (typeof body === 'object' && body !== null && 'error' in body) {
+      const { error } = body as { error?: unknown };
+      if (typeof error === 'string' && error) return error;
+    }
+  } catch {
+    // Not JSON — a proxy error page, most likely. The status text is the best
+    // information available.
+  }
+  return xhr.statusText || `HTTP ${xhr.status}`;
+};
+
+/**
+ * Triggers a browser download of one object through the API's proxy route.
+ *
+ * A NAVIGATION, not a `fetch`: the response is a file the browser should save,
+ * and the route requires the session cookie (attached automatically on a
+ * same-origin navigation). Reading the body into JS first would buffer an
+ * arbitrarily large file in memory for no benefit.
+ *
+ * @param bucket - The bucket name.
+ * @param key - The object key.
+ * @param orgSlug - Organization scope, when the UI knows one.
+ */
+export const downloadObject = (bucket: string, key: string, orgSlug?: string): void => {
+  const encoded = key.split('/').map(encodeURIComponent).join('/');
+  const url = new URL(
+    `/api/v1/buckets/${encodeURIComponent(bucket)}/download/${encoded}`,
+    window.location.origin,
+  );
+  if (orgSlug) url.searchParams.set('org', orgSlug);
+  window.location.assign(url.toString());
 };

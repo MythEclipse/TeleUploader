@@ -1,13 +1,12 @@
+import type { IBucketRepository } from "../../domain/ports/bucket-repository";
 import type {
 	GoogleProfile,
 	IIdentityRepository,
 	MemberRole,
 } from "../../domain/ports/identity-repository";
-import {
-	generateSessionToken,
-	hashSessionToken,
-} from "../../infrastructure/persistence/repositories/identity-repository";
 import type { UserInfoResponse } from "../dto/auth";
+import { generateSessionToken, hashSessionToken, sessionExpiryFrom } from "../shared/utils/session";
+import { createEnsurePersonalBucketUseCase } from "./ensure-personal-bucket";
 
 /**
  * Authentication use cases.
@@ -37,6 +36,20 @@ export interface AuthUseCaseDeps {
 	readonly sessionMaxAgeMs: number;
 }
 
+/**
+ * Dependencies for {@link createSignInUseCase} specifically.
+ *
+ * `bucketRepository` is REQUIRED here and absent from {@link AuthUseCaseDeps}
+ * because it is not optional in fact: sign-in is the only moment a personal
+ * bucket can be provisioned for free, and an optional dependency would make
+ * "forgot to pass it" a deployment that quietly hands every new user an empty
+ * workspace. Splitting the type means the compiler enforces it instead of a
+ * runtime guard.
+ */
+export interface SignInUseCaseDeps extends AuthUseCaseDeps {
+	readonly bucketRepository: IBucketRepository;
+}
+
 /** The outcome of a successful sign-in. */
 export interface SignInResult {
 	readonly userId: string;
@@ -56,22 +69,37 @@ export interface SignInResult {
  * Builds the sign-in use case.
  *
  * Idempotent for a returning user: the same Google subject resolves to the same
- * `users` row, and their personal organization is reused rather than duplicated.
+ * `users` row, their personal organization is reused rather than duplicated, and
+ * their personal bucket is found rather than created twice.
  *
- * @param deps - Injected repository and session lifetime.
+ * @param deps - Injected repositories and session lifetime.
  * @returns A function turning a verified Google profile into a live session.
  */
-export function createSignInUseCase(deps: AuthUseCaseDeps) {
+export function createSignInUseCase(deps: SignInUseCaseDeps) {
+	const ensurePersonalBucket = createEnsurePersonalBucketUseCase({
+		bucketRepository: deps.bucketRepository,
+	});
+
 	return async (profile: GoogleProfile, userAgent: string | null): Promise<SignInResult> => {
 		const user = await deps.identityRepository.upsertUserFromGoogle(profile);
 
 		// BEFORE the session. Every authenticated read resolves a tenant from
 		// `members`, so a session minted before the organization exists would produce
 		// a signed-in user whose first dashboard load answers 403.
-		await deps.identityRepository.ensurePersonalOrganization(user.id, user.email, user.name);
+		const organization = await deps.identityRepository.ensurePersonalOrganization(
+			user.id,
+			user.email,
+			user.name
+		);
+
+		// Also BEFORE the session, for the same reason one level down: the dashboard
+		// reads the bucket list immediately, and the personal organization starts
+		// with none. Provisioning here is what makes "every user has their own
+		// bucket" true without the user performing a setup step.
+		await ensurePersonalBucket({ organizationId: organization.id, email: user.email });
 
 		const sessionToken = generateSessionToken();
-		const expiresAt = new Date(Date.now() + deps.sessionMaxAgeMs);
+		const expiresAt = sessionExpiryFrom(deps.sessionMaxAgeMs);
 
 		// Only the hash is persisted — a database read cannot reconstruct the token.
 		await deps.identityRepository.createSession(

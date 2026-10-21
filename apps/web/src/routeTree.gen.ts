@@ -9,20 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as OrgSlugRouteImport } from './routes/$orgSlug'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as OrgSlugBucketNameRouteImport } from './routes/$orgSlug/bucketName'
-import { Route as OrgSlugDashboardRouteImport } from './routes/$orgSlug/dashboard'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedOrgSlugRouteImport } from './routes/_authenticated/$orgSlug'
+import { Route as AuthenticatedOrgSlugBucketNameRouteImport } from './routes/_authenticated/$orgSlug/$bucketName'
+import { Route as AuthenticatedOrgSlugDashboardRouteImport } from './routes/_authenticated/$orgSlug/dashboard'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrgSlugRoute = OrgSlugRouteImport.update({
-  id: '/$orgSlug',
-  path: '/$orgSlug',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -30,83 +25,89 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrgSlugBucketNameRoute = OrgSlugBucketNameRouteImport.update({
-  id: '/bucketName',
-  path: '/bucketName',
-  getParentRoute: () => OrgSlugRoute,
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const OrgSlugDashboardRoute = OrgSlugDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => OrgSlugRoute,
+const AuthenticatedOrgSlugRoute = AuthenticatedOrgSlugRouteImport.update({
+  id: '/$orgSlug',
+  path: '/$orgSlug',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedOrgSlugBucketNameRoute =
+  AuthenticatedOrgSlugBucketNameRouteImport.update({
+    id: '/$bucketName',
+    path: '/$bucketName',
+    getParentRoute: () => AuthenticatedOrgSlugRoute,
+  } as any)
+const AuthenticatedOrgSlugDashboardRoute =
+  AuthenticatedOrgSlugDashboardRouteImport.update({
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => AuthenticatedOrgSlugRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/$orgSlug': typeof OrgSlugRouteWithChildren
+  '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
-  '/$orgSlug/bucketName': typeof OrgSlugBucketNameRoute
-  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
+  '/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
+  '/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
+  '/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/$orgSlug': typeof OrgSlugRouteWithChildren
   '/login': typeof LoginRoute
-  '/$orgSlug/bucketName': typeof OrgSlugBucketNameRoute
-  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
+  '/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
+  '/': typeof AuthenticatedIndexRoute
+  '/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
+  '/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/$orgSlug': typeof OrgSlugRouteWithChildren
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
-  '/$orgSlug/bucketName': typeof OrgSlugBucketNameRoute
-  '/$orgSlug/dashboard': typeof OrgSlugDashboardRoute
+  '/_authenticated/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
+  '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
+  '/_authenticated/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/$orgSlug'
     | '/login'
-    | '/$orgSlug/bucketName'
+    | '/$orgSlug'
+    | '/$orgSlug/$bucketName'
     | '/$orgSlug/dashboard'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
-    | '/$orgSlug'
     | '/login'
-    | '/$orgSlug/bucketName'
+    | '/$orgSlug'
+    | '/'
+    | '/$orgSlug/$bucketName'
     | '/$orgSlug/dashboard'
   id:
     | '__root__'
-    | '/'
-    | '/$orgSlug'
+    | '/_authenticated'
     | '/login'
-    | '/$orgSlug/bucketName'
-    | '/$orgSlug/dashboard'
+    | '/_authenticated/$orgSlug'
+    | '/_authenticated/'
+    | '/_authenticated/$orgSlug/$bucketName'
+    | '/_authenticated/$orgSlug/dashboard'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  OrgSlugRoute: typeof OrgSlugRouteWithChildren
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$orgSlug': {
-      id: '/$orgSlug'
-      path: '/$orgSlug'
-      fullPath: '/$orgSlug'
-      preLoaderRoute: typeof OrgSlugRouteImport
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -116,39 +117,66 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$orgSlug/bucketName': {
-      id: '/$orgSlug/bucketName'
-      path: '/bucketName'
-      fullPath: '/$orgSlug/bucketName'
-      preLoaderRoute: typeof OrgSlugBucketNameRouteImport
-      parentRoute: typeof OrgSlugRoute
+    '/_authenticated/': {
+      id: '/_authenticated/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/$orgSlug/dashboard': {
-      id: '/$orgSlug/dashboard'
+    '/_authenticated/$orgSlug': {
+      id: '/_authenticated/$orgSlug'
+      path: '/$orgSlug'
+      fullPath: '/$orgSlug'
+      preLoaderRoute: typeof AuthenticatedOrgSlugRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/$orgSlug/$bucketName': {
+      id: '/_authenticated/$orgSlug/$bucketName'
+      path: '/$bucketName'
+      fullPath: '/$orgSlug/$bucketName'
+      preLoaderRoute: typeof AuthenticatedOrgSlugBucketNameRouteImport
+      parentRoute: typeof AuthenticatedOrgSlugRoute
+    }
+    '/_authenticated/$orgSlug/dashboard': {
+      id: '/_authenticated/$orgSlug/dashboard'
       path: '/dashboard'
       fullPath: '/$orgSlug/dashboard'
-      preLoaderRoute: typeof OrgSlugDashboardRouteImport
-      parentRoute: typeof OrgSlugRoute
+      preLoaderRoute: typeof AuthenticatedOrgSlugDashboardRouteImport
+      parentRoute: typeof AuthenticatedOrgSlugRoute
     }
   }
 }
 
-interface OrgSlugRouteChildren {
-  OrgSlugBucketNameRoute: typeof OrgSlugBucketNameRoute
-  OrgSlugDashboardRoute: typeof OrgSlugDashboardRoute
+interface AuthenticatedOrgSlugRouteChildren {
+  AuthenticatedOrgSlugBucketNameRoute: typeof AuthenticatedOrgSlugBucketNameRoute
+  AuthenticatedOrgSlugDashboardRoute: typeof AuthenticatedOrgSlugDashboardRoute
 }
 
-const OrgSlugRouteChildren: OrgSlugRouteChildren = {
-  OrgSlugBucketNameRoute: OrgSlugBucketNameRoute,
-  OrgSlugDashboardRoute: OrgSlugDashboardRoute,
+const AuthenticatedOrgSlugRouteChildren: AuthenticatedOrgSlugRouteChildren = {
+  AuthenticatedOrgSlugBucketNameRoute: AuthenticatedOrgSlugBucketNameRoute,
+  AuthenticatedOrgSlugDashboardRoute: AuthenticatedOrgSlugDashboardRoute,
 }
 
-const OrgSlugRouteWithChildren =
-  OrgSlugRoute._addFileChildren(OrgSlugRouteChildren)
+const AuthenticatedOrgSlugRouteWithChildren =
+  AuthenticatedOrgSlugRoute._addFileChildren(AuthenticatedOrgSlugRouteChildren)
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedOrgSlugRoute: typeof AuthenticatedOrgSlugRouteWithChildren
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedOrgSlugRoute: AuthenticatedOrgSlugRouteWithChildren,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  OrgSlugRoute: OrgSlugRouteWithChildren,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport

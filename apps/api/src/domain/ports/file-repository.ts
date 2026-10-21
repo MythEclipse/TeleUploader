@@ -106,3 +106,126 @@ export interface IFileRepository {
 	 */
 	findOrphansByBucket(bucketId: string): Promise<File[]>;
 }
+
+/**
+ * The storage-management operations the dashboard needs and the bot does not.
+ *
+ * ## Why this is a second port rather than more methods on {@link IFileRepository}
+ *
+ * `IFileRepository` is what `startBot` takes, and it is mocked in full by
+ * several suites. Widening it for the dashboard's benefit makes every one of
+ * those mocks implement `searchByKey` and `movePrefix` — methods a Telegram bot
+ * can never call — and turns a mock into a place where a missing method is a
+ * type error instead of an irrelevant detail. Splitting the interface costs one
+ * extra `implements` clause on the one class that genuinely does both, and
+ * keeps each consumer depending only on what it uses.
+ *
+ * Every method here is TENANT-SCOPED, either by `organizationId` (search) or by
+ * a `bucketId` the caller has already resolved within its own organization.
+ */
+export interface IFileManagementRepository {
+	/**
+	 * Sum the stored bytes of a bucket's live objects.
+	 *
+	 * A SUM over the table rather than a length of the listing: the listing is
+	 * paged and folds directories into prefixes, so a client-side total would be
+	 * the size of the current page and silently wrong on every bucket bigger
+	 * than one page.
+	 *
+	 * @param bucketId - The bucket UUID.
+	 * @returns Total bytes, and the object count it was summed over.
+	 */
+	usageByBucket(bucketId: string): Promise<BucketUsage>;
+
+	/**
+	 * Sum the stored bytes across every bucket one organization owns.
+	 *
+	 * @param organizationId - The owning organization's UUID.
+	 * @returns Total bytes, object count, and bucket count.
+	 */
+	usageByOrganization(organizationId: string): Promise<OrganizationUsage>;
+
+	/**
+	 * Move or rename one object.
+	 *
+	 * Refuses when the destination already exists: `idx_files_bucket_key` is a
+	 * UNIQUE index over `(bucket_id, s3_key) WHERE is_deleted = false`, so an
+	 * overwriting move would either fail at the driver or destroy the target.
+	 * Reporting the collision lets the caller answer 409 instead of 500.
+	 *
+	 * @param bucketId - The bucket UUID.
+	 * @param fromKey - The current object key.
+	 * @param toKey - The destination key.
+	 * @returns `moved`, `missing`, or `destination-exists`.
+	 */
+	moveObject(
+		bucketId: string,
+		fromKey: string,
+		toKey: string
+	): Promise<"moved" | "missing" | "destination-exists">;
+
+	/**
+	 * Move or rename every object under a prefix — a folder rename.
+	 *
+	 * The suffix is preserved, so `a/b.txt` under `a/` becomes `c/b.txt` under
+	 * `c/`. Refuses as a whole when ANY destination key is taken, so a partial
+	 * rename cannot leave half a folder behind.
+	 *
+	 * @param bucketId - The bucket UUID.
+	 * @param fromPrefix - Source prefix, with or without a trailing slash.
+	 * @param toPrefix - Destination prefix, with the same convention.
+	 * @returns The number of objects moved.
+	 * @throws {DestinationExistsError} When the destination collides.
+	 */
+	movePrefix(bucketId: string, fromPrefix: string, toPrefix: string): Promise<number>;
+
+	/**
+	 * Find live objects whose key contains a substring, across a whole tenant.
+	 *
+	 * Scoped by ORGANIZATION, not by bucket: the file manager's search box is
+	 * meant to answer "where did I put that file", and requiring the user to
+	 * pick the right bucket first defeats it.
+	 *
+	 * @param organizationId - The owning organization's UUID.
+	 * @param query - Case-insensitive substring, matched against the key.
+	 * @param limit - Maximum rows to return.
+	 * @returns Matching objects, newest first, with their bucket name.
+	 */
+	searchByKey(organizationId: string, query: string, limit: number): Promise<ObjectSearchHit[]>;
+}
+
+/** Storage totals for one bucket. */
+export interface BucketUsage {
+	/** Sum of `size_bytes` over live objects. */
+	readonly bytes: number;
+	/** Number of live objects. */
+	readonly objects: number;
+}
+
+/** Storage totals across every bucket one organization owns. */
+export interface OrganizationUsage extends BucketUsage {
+	/** Number of buckets. */
+	readonly buckets: number;
+}
+
+/**
+ * One search result.
+ *
+ * Carries the BUCKET NAME rather than only its id, because the caller is
+ * rendering a cross-bucket list and would otherwise have to resolve every id.
+ */
+export interface ObjectSearchHit {
+	/** The bucket the object lives in. */
+	readonly bucket: string;
+	/** The full object key. */
+	readonly key: string;
+	/** The object's display name. */
+	readonly fileName: string;
+	readonly mimeType: string;
+	readonly sizeBytes: number;
+	readonly etag: string | null;
+	/** ISO-8601. */
+	readonly lastModified: string;
+	/** Absolute public share link. */
+	readonly downloadUrl: string;
+}

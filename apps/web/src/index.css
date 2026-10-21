@@ -1,30 +1,104 @@
-/* Base styles for the dashboard SPA.
+/* The dashboard's stylesheet.
  *
- * Deliberately minimal: the SPA lane owns the visual design. These rules exist
- * so `main.tsx` has something to import and so the page does not render as
- * unstyled markup before any stylesheet loads.
+ * ## What this file is responsible for
+ *
+ * Every class the app renders. The previous version covered only the shell (top
+ * bar, org switcher, empty states) and left `file-table`, `dropzone`, `modal`,
+ * `breadcrumb`, `upload-panel` and `notice-banner` — all of which the routes
+ * already emit — completely unstyled. That is why the browser rendered as
+ * unformatted markup.
+ *
+ * ## Design tokens
+ *
+ * Two layers, deliberately:
+ *
+ *   - `--fd-space-*`, `--fd-radius-*`, `--fd-text-*` are the scales.
+ *   - `--fd-bg`, `--fd-surface`, `--fd-fg`, `--fd-border`, `--fd-accent` … are the
+ *     semantic tokens built from them.
+ *
+ * Components reference ONLY the semantic tokens. That is what makes the dark theme
+ * a single block of overrides instead of a per-component `prefers-color-scheme`
+ * hunt, and it is why nothing below this block hardcodes a colour.
+ *
+ * ## Dark mode is a token swap, not a second stylesheet
+ *
+ * `color-scheme` is declared so native controls (the `<select>`, scrollbars, the
+ * `<progress>` bar) follow the theme. Without it a dark page renders a white
+ * dropdown, which is the most common half-done dark theme.
  */
 
 :root {
-  --fd-bg: #ffffff;
+  /* Scale */
+  --fd-space-1: 4px;
+  --fd-space-2: 8px;
+  --fd-space-3: 12px;
+  --fd-space-4: 16px;
+  --fd-space-5: 24px;
+  --fd-space-6: 32px;
+  --fd-space-7: 48px;
+
+  --fd-radius-sm: 6px;
+  --fd-radius: 10px;
+  --fd-radius-lg: 14px;
+  --fd-radius-pill: 999px;
+
+  --fd-text-xs: 0.75rem;
+  --fd-text-sm: 0.8125rem;
+  --fd-text-base: 0.9375rem;
+  --fd-text-lg: 1.125rem;
+  --fd-text-xl: 1.5rem;
+
+  /* Semantic — light */
+  --fd-bg: #f6f7f9;
+  --fd-surface: #ffffff;
+  --fd-surface-2: #f0f2f5;
+  --fd-surface-hover: #f6f8fa;
   --fd-fg: #16191d;
   --fd-muted: #5b6470;
   --fd-border: #d8dee6;
+  --fd-border-strong: #c2cad4;
   --fd-accent: #2563eb;
+  --fd-accent-fg: #ffffff;
+  --fd-accent-soft: #eff4ff;
+  --fd-danger: #dc2626;
+  --fd-danger-soft: #fef2f2;
+  --fd-success: #15803d;
+  --fd-success-soft: #f0fdf4;
+  --fd-shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 10%);
+  --fd-shadow-lg: 0 12px 32px rgb(16 24 40 / 16%), 0 2px 8px rgb(16 24 40 / 8%);
+  --fd-ring: 0 0 0 3px rgb(37 99 235 / 25%);
+
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fd-bg: #14171a;
-    --fd-fg: #e8ecf1;
-    --fd-muted: #9aa4b2;
-    --fd-border: #2b3138;
-    --fd-accent: #60a5fa;
+    --fd-bg: #0d1117;
+    --fd-surface: #161b22;
+    --fd-surface-2: #1c2229;
+    --fd-surface-hover: #1f262e;
+    --fd-fg: #e6edf3;
+    --fd-muted: #9198a1;
+    --fd-border: #2d333b;
+    --fd-border-strong: #3d444d;
+    --fd-accent: #4d8dfa;
+    --fd-accent-fg: #0d1117;
+    --fd-accent-soft: #16223a;
+    --fd-danger: #f85149;
+    --fd-danger-soft: #2d1618;
+    --fd-success: #3fb950;
+    --fd-success-soft: #12261a;
+    --fd-shadow: 0 1px 2px rgb(0 0 0 / 40%);
+    --fd-shadow-lg: 0 12px 32px rgb(0 0 0 / 55%);
+    --fd-ring: 0 0 0 3px rgb(77 141 250 / 30%);
   }
 }
 
-* {
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -39,16 +113,165 @@ body {
   background: var(--fd-bg);
   color: var(--fd-fg);
   font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--fd-text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
-/* ── App shell ────────────────────────────────────────────────────────────────
- * Styles for the shared chrome owned by `src/lib/layout/`. The file browser,
- * dashboard and credentials routes own their own markup; these rules cover only
- * the top bar, org switcher, auth controls and the two empty/error states that
- * every route shares. Tokens mirror `home.html`'s `:root` so the port reads the
- * same in light and dark.
- */
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+a {
+  color: var(--fd-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Keyboard focus is never removed — only restyled. A file manager is driven from
+ * the keyboard as often as a mouse, and `outline: none` with no replacement makes
+ * every control unusable without a pointer. */
+:focus-visible {
+  outline: 2px solid var(--fd-accent);
+  outline-offset: 2px;
+}
+
+/* Visible to screen readers, removed from the visual flow. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--fd-muted);
+}
+
+.small {
+  font-size: var(--fd-text-sm);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  padding: 7px 14px;
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-surface);
+  color: var(--fd-fg);
+  font: inherit;
+  font-size: var(--fd-text-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+button:hover:not(:disabled),
+.button:hover {
+  background: var(--fd-surface-hover);
+  border-color: var(--fd-border-strong);
+  text-decoration: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* `.ghost` is the resting style for a secondary control — the class the routes use
+ * for Download, Copy link and Dismiss. It is a modifier rather than a distinct look
+ * because `button` already renders the quiet form. */
+.ghost {
+  background: transparent;
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--fd-surface-hover);
+}
+
+.primary {
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+  color: var(--fd-accent-fg);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+  filter: brightness(1.08);
+}
+
+.danger {
+  color: var(--fd-danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--fd-danger-soft);
+  border-color: var(--fd-danger);
+}
+
+.primary.danger {
+  background: var(--fd-danger);
+  border-color: var(--fd-danger);
+  color: #fff;
+}
+
+.primary.danger:hover:not(:disabled) {
+  background: var(--fd-danger);
+  border-color: var(--fd-danger);
+  filter: brightness(1.08);
+}
+
+/* The dismiss button inside a banner. Declared HERE, before the table rules, because its
+ * specificity (0,1,1) is lower than `.file-table .actions-cell button` (0,2,1) — a
+ * cascade-order requirement Biome's `noDescendingSpecificity` enforces, and putting it
+ * later meant the table's margin won inside any banner rendered in a table cell. */
+.notice-banner button {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: var(--fd-text-xs);
+}
+
+/* ── App shell ─────────────────────────────────────────────────────────────── */
 
 .app-shell {
   display: flex;
@@ -62,80 +285,108 @@ body {
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 24px;
-  background: color-mix(in srgb, var(--fd-bg) 92%, var(--fd-border));
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-3) var(--fd-space-5);
+  background: var(--fd-surface);
   border-bottom: 1px solid var(--fd-border);
 }
 
 .topbar .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  color: var(--fd-fg);
+  font-size: var(--fd-text-lg);
   font-weight: 700;
-  font-size: 1.1rem;
-  color: inherit;
+  letter-spacing: -0.02em;
   text-decoration: none;
+}
+
+.topbar .logo::before {
+  content: "▲";
+  color: var(--fd-accent);
+  font-size: 0.85em;
 }
 
 .topbar nav {
   display: flex;
-  gap: 4px;
+  gap: var(--fd-space-1);
+  margin-left: var(--fd-space-4);
 }
 
 .topbar nav a {
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: var(--fd-radius-sm);
   color: var(--fd-muted);
-  font-size: 0.875rem;
+  font-size: var(--fd-text-sm);
+  font-weight: 500;
   text-decoration: none;
 }
 
 .topbar nav a:hover {
-  background: var(--fd-border);
+  background: var(--fd-surface-hover);
   color: var(--fd-fg);
 }
 
-/* `activeProps` sets aria-current; style off the attribute so the visual state
- * can never drift from the accessibility state. */
-.topbar nav a[aria-current='page'] {
-  background: var(--fd-accent);
-  color: #fff;
+/* `activeProps` sets aria-current; style off the attribute so the visual state can
+ * never drift from the accessibility state. */
+.topbar nav a[aria-current="page"] {
+  background: var(--fd-accent-soft);
+  color: var(--fd-accent);
 }
 
 .topbar .spacer {
   flex: 1;
 }
 
-/* Visible to screen readers, removed from the visual flow. Needed because the
- * org switcher's <select> has no visible label of its own. */
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.topbar button,
+.topbar .button {
+  padding: 6px 12px;
 }
 
 .org-switcher {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--fd-space-2);
 }
 
-.org-switcher select,
-.topbar button,
-.topbar .button {
-  padding: 6px 12px;
+/* `select` is declared FIRST because its specificity (0,0,1) is lower than the
+ * `input[type=...]` selectors below it (0,1,1). Cascade order for equal-intent rules
+ * goes low→high, which is also what Biome's `noDescendingSpecificity` enforces: a
+ * lower-specificity rule placed after a higher one can never win, so it is dead code
+ * that reads as live. */
+select,
+input[type="text"],
+input[type="search"] {
+  padding: 7px 11px;
   border: 1px solid var(--fd-border);
-  border-radius: 8px;
-  background: var(--fd-bg);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-surface);
   color: var(--fd-fg);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--fd-text-sm);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+select:focus,
+input[type="text"]:focus,
+input[type="search"]:focus {
+  border-color: var(--fd-accent);
+  box-shadow: var(--fd-ring);
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--fd-muted);
+  opacity: 0.7;
+}
+
+/* Padding, border, surface, colour and font come from the generic `select` rule above.
+ * Only the pointer cursor is specific to a switcher. */
+.org-switcher select {
   cursor: pointer;
-  text-decoration: none;
 }
 
 .org-switcher select:disabled {
@@ -143,64 +394,631 @@ body {
   cursor: not-allowed;
 }
 
+.org-empty {
+  padding: 4px 10px;
+  border: 1px dashed var(--fd-border);
+  border-radius: var(--fd-radius-pill);
+  color: var(--fd-muted);
+  font-size: var(--fd-text-xs);
+}
+
 .org-count {
   color: var(--fd-muted);
-  font-size: 0.75rem;
+  font-size: var(--fd-text-xs);
   white-space: nowrap;
 }
 
 .readonly-badge {
   padding: 4px 10px;
   border: 1px solid var(--fd-border);
-  border-radius: 999px;
+  border-radius: var(--fd-radius-pill);
   color: var(--fd-muted);
-  font-size: 0.75rem;
+  font-size: var(--fd-text-xs);
+  font-weight: 500;
 }
 
 .auth-status {
   color: var(--fd-muted);
-  font-size: 0.875rem;
+  font-size: var(--fd-text-sm);
+}
+
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  padding: 3px 10px 3px 3px;
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-pill);
+  font-size: var(--fd-text-sm);
+}
+
+.account .avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--fd-surface-2);
+}
+
+.account-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content {
   flex: 1;
-  padding: 16px 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--fd-space-5);
 }
+
+/* ── Page structure ────────────────────────────────────────────────────────── */
+
+.org-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-4);
+}
+
+.org-header h1 {
+  font-size: var(--fd-text-xl);
+}
+
+.org-header p {
+  margin-top: var(--fd-space-1);
+  color: var(--fd-muted);
+  font-size: var(--fd-text-sm);
+}
+
+.browser-page,
+.file-browser,
+.bucket-list,
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-4);
+}
+
+.dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fd-space-3);
+}
+
+/* ── Toolbars and fields ───────────────────────────────────────────────────── */
+
+.browser-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--fd-space-3);
+}
+
+.bucket-select,
+.filter-field,
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-1);
+}
+
+.filter-field {
+  flex: 1;
+  min-width: 220px;
+}
+
+.field-label {
+  color: var(--fd-muted);
+  font-size: var(--fd-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.field-help {
+  color: var(--fd-muted);
+  font-size: var(--fd-text-xs);
+}
+
+/* ── Breadcrumb ────────────────────────────────────────────────────────────── */
+
+.breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fd-space-1);
+  margin: 0;
+  padding: var(--fd-space-2) var(--fd-space-3);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  background: var(--fd-surface);
+  list-style: none;
+  font-size: var(--fd-text-sm);
+}
+
+.breadcrumb li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-1);
+}
+
+.breadcrumb button {
+  padding: 2px 6px;
+  border: 0;
+  background: none;
+  color: var(--fd-accent);
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.breadcrumb button:hover {
+  background: var(--fd-accent-soft);
+}
+
+.breadcrumb [aria-current="page"] {
+  padding: 2px 6px;
+  color: var(--fd-fg);
+  font-weight: 600;
+}
+
+.breadcrumb .sep {
+  color: var(--fd-muted);
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────────── */
+
+.file-table {
+  width: 100%;
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  background: var(--fd-surface);
+  font-size: var(--fd-text-sm);
+}
+
+.file-table thead th {
+  padding: var(--fd-space-2) var(--fd-space-4);
+  border-bottom: 1px solid var(--fd-border);
+  background: var(--fd-surface-2);
+  color: var(--fd-muted);
+  font-size: var(--fd-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.file-table tbody tr {
+  transition: background-color 100ms ease;
+}
+
+.file-table tbody tr:hover {
+  background: var(--fd-surface-hover);
+}
+
+.file-table tbody th,
+.file-table tbody td {
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-bottom: 1px solid var(--fd-border);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.file-table tbody tr:last-child th,
+.file-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.file-table .numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.file-table .name-cell {
+  min-width: 0;
+}
+
+.file-table .actions-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.file-table .actions-cell button,
+.file-table .actions-cell .button {
+  margin-left: var(--fd-space-2);
+}
+
+/* Row content --------------------------------------------------------------- */
+
+.object-name,
+.folder-link,
+.bucket-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fd-space-2);
+  max-width: 46ch;
+  overflow: hidden;
+  color: var(--fd-fg);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bucket-link,
+.folder-link {
+  color: var(--fd-accent);
+  font-weight: 600;
+}
+
+.folder-link {
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 0;
+  border-radius: var(--fd-radius-sm);
+  background: none;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--fd-accent);
+}
+
+.folder-link:hover {
+  background: var(--fd-accent-soft);
+}
+
+.folder-row {
+  background: var(--fd-surface-2);
+}
+
+.object-key {
+  display: block;
+  max-width: 46ch;
+  overflow: hidden;
+  color: var(--fd-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fd-text-xs);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Dropzone ──────────────────────────────────────────────────────────────── */
+
+.dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fd-space-2);
+  padding: var(--fd-space-6) var(--fd-space-4);
+  border: 2px dashed var(--fd-border-strong);
+  border-radius: var(--fd-radius-lg);
+  background: var(--fd-surface);
+  color: var(--fd-muted);
+  font-size: var(--fd-text-sm);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.dropzone:hover {
+  border-color: var(--fd-accent);
+  color: var(--fd-fg);
+}
+
+.dropzone.dragover {
+  border-color: var(--fd-accent);
+  background: var(--fd-accent-soft);
+  color: var(--fd-accent);
+}
+
+/* ── Upload progress ───────────────────────────────────────────────────────── */
+
+.upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-2);
+  padding: var(--fd-space-4);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  background: var(--fd-surface);
+  box-shadow: var(--fd-shadow);
+}
+
+.upload-panel ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.upload-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  align-items: center;
+  gap: var(--fd-space-3);
+  font-size: var(--fd-text-sm);
+}
+
+.upload-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-status {
+  color: var(--fd-muted);
+  font-size: var(--fd-text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.upload-slot.failed .upload-status {
+  color: var(--fd-danger);
+}
+
+.upload-slot.done .upload-status {
+  color: var(--fd-success);
+}
+
+progress {
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: var(--fd-radius-pill);
+  background: var(--fd-surface-2);
+  overflow: hidden;
+  appearance: none;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--fd-surface-2);
+  border-radius: var(--fd-radius-pill);
+}
+
+progress::-webkit-progress-value {
+  border-radius: var(--fd-radius-pill);
+  background: var(--fd-accent);
+  transition: width 120ms ease;
+}
+
+progress::-moz-progress-bar {
+  border-radius: var(--fd-radius-pill);
+  background: var(--fd-accent);
+}
+
+.upload-slot.failed progress::-webkit-progress-value {
+  background: var(--fd-danger);
+}
+
+.upload-slot.failed progress::-moz-progress-bar {
+  background: var(--fd-danger);
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────────── */
+
+.notice-banner,
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border: 1px solid var(--fd-border);
+  border-left-width: 3px;
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-surface);
+  font-size: var(--fd-text-sm);
+}
+
+.notice-banner.ok {
+  border-left-color: var(--fd-success);
+  background: var(--fd-success-soft);
+}
+
+.notice-banner.error,
+.error-banner {
+  border-left-color: var(--fd-danger);
+  background: var(--fd-danger-soft);
+  color: var(--fd-danger);
+}
+
+/* ── Empty and error states ────────────────────────────────────────────────── */
 
 .empty-state,
 .error-state {
-  padding: 48px 24px;
+  padding: var(--fd-space-7) var(--fd-space-5);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-lg);
+  background: var(--fd-surface);
   color: var(--fd-muted);
   text-align: center;
 }
 
 .empty-state h2,
 .error-state h1 {
-  margin-bottom: 8px;
+  margin-bottom: var(--fd-space-2);
   color: var(--fd-fg);
-  font-size: 1.2rem;
+  font-size: var(--fd-text-lg);
 }
 
 .error-message {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fd-text-sm);
 }
 
 .error-state .buttons {
   display: flex;
-  gap: 8px;
+  gap: var(--fd-space-2);
   justify-content: center;
-  margin-top: 16px;
+  margin-top: var(--fd-space-4);
 }
 
 .error-state .buttons button,
 .error-state .buttons a {
   padding: 8px 16px;
   border: 1px solid var(--fd-border);
-  border-radius: 8px;
-  background: var(--fd-bg);
+  border-radius: var(--fd-radius-sm);
+  background: var(--fd-surface);
   color: var(--fd-fg);
   font: inherit;
   cursor: pointer;
   text-decoration: none;
+}
+
+/* ── Modal ─────────────────────────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fd-space-4);
+  background: rgb(9 12 17 / 55%);
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-3);
+  width: 100%;
+  max-width: 440px;
+  padding: var(--fd-space-5);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-lg);
+  background: var(--fd-surface);
+  box-shadow: var(--fd-shadow-lg);
+}
+
+.modal h3 {
+  font-size: var(--fd-text-lg);
+}
+
+.modal input[type="text"] {
+  width: 100%;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--fd-space-2);
+  justify-content: flex-end;
+  margin-top: var(--fd-space-2);
+}
+
+/* ── Login ─────────────────────────────────────────────────────────────────── */
+
+.login-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-3);
+  max-width: 420px;
+  margin: var(--fd-space-7) auto;
+  padding: var(--fd-space-6);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-lg);
+  background: var(--fd-surface);
+  box-shadow: var(--fd-shadow);
+}
+
+.login-page h1 {
+  font-size: var(--fd-text-xl);
+}
+
+.google-signin {
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--fd-accent);
+  border-color: var(--fd-accent);
+  color: var(--fd-accent-fg);
+  font-weight: 600;
+}
+
+.google-signin:hover {
+  background: var(--fd-accent);
+  filter: brightness(1.08);
+  text-decoration: none;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .content {
+    padding: var(--fd-space-4) var(--fd-space-3);
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: var(--fd-space-2);
+    padding: var(--fd-space-2) var(--fd-space-3);
+  }
+
+  .topbar nav {
+    margin-left: 0;
+  }
+
+  .upload-slot {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .upload-slot progress {
+    grid-column: 1 / -1;
+  }
+
+  .file-table thead {
+    display: none;
+  }
+
+  .file-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fd-space-2);
+    padding: var(--fd-space-3);
+    border-bottom: 1px solid var(--fd-border);
+  }
+
+  .file-table tbody th,
+  .file-table tbody td {
+    padding: 0;
+    border: 0;
+  }
+
+  .file-table .actions-cell {
+    text-align: left;
+  }
+
+  .file-table .actions-cell button,
+  .file-table .actions-cell .button {
+    margin-left: 0;
+    margin-right: var(--fd-space-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * `!important` is correct here and is the one place it is. A reduced-motion block is
+   * an ACCESSIBILITY override: it must win over every component's own transition,
+   * including rules with higher specificity and inline styles set by a third party.
+   * Removing the flag to satisfy `noImportantStyles` would let a `.upload-slot progress`
+   * transition keep running for exactly the users who asked it not to. Biome's own
+   * guidance treats this pattern as the intended escape hatch.
+   */
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: accessibility override — must beat every component transition, see the comment above. */
+    transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: accessibility override — see above. */
+    animation-duration: 0.01ms !important;
+  }
 }

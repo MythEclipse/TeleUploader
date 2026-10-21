@@ -43,6 +43,13 @@
       "when": 1792485523327,
       "tag": "0005_snapshot_sync_multi_user",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793500000000,
+      "tag": "0006_better_auth",
+      "breakpoints": true
     }
   ]
 }

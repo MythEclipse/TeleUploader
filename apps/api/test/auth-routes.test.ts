@@ -58,6 +58,20 @@ const mockState = {
 	 */
 	adminToken: "route-secret-token",
 	deletedSessions: [] as string[],
+	/**
+	 * Buckets provisioned during this suite, per organization.
+	 *
+	 * Declared alongside `deletedSessions` because both exist for the same
+	 * reason: to let a test observe a SIDE EFFECT of the flow rather than only
+	 * its status code.
+	 */
+	buckets: [] as {
+		id: string;
+		name: string;
+		organizationId: string;
+		createdAt: Date;
+		updatedAt: Date;
+	}[],
 };
 
 vi.mock("../src/env", async (importOriginal) => {
@@ -142,6 +156,33 @@ vi.mock("../src/infrastructure/di", () => ({
 		listOrganizationsForUser: async () => [
 			{ id: "org-1", slug: "org-slug", name: "Org", role: "owner" as const },
 		],
+	},
+	/**
+	 * The bucket repository, so sign-in can provision the personal bucket.
+	 *
+	 * `ensurePersonalBucket` is now part of the sign-in sequence, so a mock
+	 * without this binding fails the flow outright. In-memory, keyed the same way
+	 * the real repository is (per organization), so a test can assert the bucket
+	 * was created rather than merely that sign-in returned 302.
+	 */
+	bucketRepository: {
+		create: async (name: string, organizationId: string) => {
+			const bucket = {
+				id: `bucket-${name}`,
+				name,
+				organizationId,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			};
+			mockState.buckets.push(bucket);
+			return bucket;
+		},
+		exists: async (name: string, organizationId: string) =>
+			mockState.buckets.some((b) => b.name === name && b.organizationId === organizationId),
+		findByName: async (name: string, organizationId: string) =>
+			mockState.buckets.find((b) => b.name === name && b.organizationId === organizationId) ?? null,
+		list: async () => mockState.buckets,
+		delete: async () => true,
 	},
 	organizationRepository: {
 		findOrganizationIdByUserId: async () => "bootstrap-org",
@@ -278,6 +319,55 @@ describe("GET /api/v1/auth/google/start", () => {
 		);
 
 		expect(res.status).toBe(503);
+	});
+});
+
+describe("personal bucket provisioning at sign-in", () => {
+	/**
+	 * The feature this asserts is the whole point of per-user storage: a person
+	 * who signs in for the first time must land in a workspace that already has a
+	 * bucket, without performing a setup step. Asserting the 302 alone would pass
+	 * with the provisioning removed, so this checks the SIDE EFFECT.
+	 */
+	const start = async (): Promise<string> => {
+		await handleGoogleStart(new Request("https://example.com/api/v1/auth/google/start"));
+		const state = [...oauthStates.keys()][0];
+		if (!state) throw new Error("start did not persist a state");
+		return state;
+	};
+
+	beforeEach(() => {
+		mockState.buckets.length = 0;
+	});
+
+	it("creates a bucket derived from the signer's email on first sign-in", async () => {
+		const state = await start();
+		idTokenClaims = { ...idTokenClaims, nonce: state };
+
+		const res = await handleGoogleCallback(
+			new Request(`https://example.com/api/v1/auth/google/callback?code=auth-code&state=${state}`)
+		);
+
+		expect(res.status).toBe(302);
+		expect(
+			mockState.buckets.map((b) => b.name),
+			"sign-in must provision the user's personal bucket"
+		).toEqual(["person-files"]);
+	});
+
+	it("does not create a second bucket on a returning sign-in", async () => {
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			const state = await start();
+			idTokenClaims = { ...idTokenClaims, nonce: state };
+			await handleGoogleCallback(
+				new Request(`https://example.com/api/v1/auth/google/callback?code=auth-code&state=${state}`)
+			);
+		}
+
+		expect(
+			mockState.buckets.length,
+			"a second sign-in must reuse the bucket, not mint another"
+		).toBe(1);
 	});
 });
 

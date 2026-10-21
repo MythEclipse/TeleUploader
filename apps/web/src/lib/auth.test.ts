@@ -25,21 +25,26 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { AuthState } from './auth';
 import {
   activeOrganizationOf,
   canWrite,
   isOpenDeployment,
   isReadOnly,
-  orgSlugFromPath,
   organizationsOf,
+  orgSlugFromPath,
   probeAuth,
   shouldOfferLogin,
 } from './auth';
-import type { AuthState } from './auth';
 
 /** A signed-in cookie session with the given memberships. */
 const signedIn = (
-  organizations: readonly { id: string; slug: string; name: string; role: 'owner' | 'admin' | 'member' }[],
+  organizations: readonly {
+    id: string;
+    slug: string;
+    name: string;
+    role: 'owner' | 'admin' | 'member';
+  }[],
   method: 'cookie' | 'bearer' | 'disabled' = 'cookie',
 ): AuthState => ({
   kind: 'signed-in',

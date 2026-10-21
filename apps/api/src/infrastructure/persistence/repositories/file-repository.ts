@@ -1,6 +1,18 @@
 import { and, eq, sql } from "drizzle-orm";
+import {
+	DestinationExistsError,
+	isUniqueViolation,
+} from "../../../application/shared/utils/credentials";
 import type { File, NewFile } from "../../../domain/entities/file";
-import type { IFileRepository, S3FileRecord } from "../../../domain/ports/file-repository";
+import type {
+	BucketUsage,
+	IFileManagementRepository,
+	IFileRepository,
+	ObjectSearchHit,
+	OrganizationUsage,
+	S3FileRecord,
+} from "../../../domain/ports/file-repository";
+import { config } from "../../../env";
 import { db, files as fileSchema } from "../drizzle/index";
 import type { FileRow } from "../drizzle/schema";
 
@@ -76,7 +88,7 @@ const mapDbRowToS3Record = (row: Record<string, unknown>): S3FileRecord => ({
  * Delegates to the same SQL queries as the original `infrastructure/persistence/repositories/file-repository.ts` and
  * `infrastructure/persistence/repositories/file-repository.ts` modules while presenting a clean domain interface.
  */
-export class DrizzleFileRepository implements IFileRepository {
+export class DrizzleFileRepository implements IFileRepository, IFileManagementRepository {
 	/**
 	 * {@inheritDoc IFileRepository.findByHash}
 	 */
@@ -217,6 +229,142 @@ export class DrizzleFileRepository implements IFileRepository {
 			sql`SELECT count(*) as count FROM files WHERE bucket_id = ${bucketId}::uuid AND is_deleted = false`
 		)) as unknown as Record<string, unknown>[];
 		return Number(result[0]?.count || 0);
+	}
+
+	/**
+	 * {@inheritDoc IFileRepository.usageByBucket}
+	 *
+	 * `COALESCE` is load-bearing: `SUM` over zero rows is NULL, not 0, and
+	 * `Number(null)` is 0 only by accident of JavaScript's coercion.
+	 */
+	async usageByBucket(bucketId: string): Promise<BucketUsage> {
+		const result = (await db.execute(
+			sql`SELECT COALESCE(SUM(size_bytes), 0) AS bytes, count(*) AS objects FROM files WHERE bucket_id = ${bucketId}::uuid AND is_deleted = false`
+		)) as unknown as Record<string, unknown>[];
+		const row = result[0] ?? {};
+		return { bytes: Number(row.bytes ?? 0), objects: Number(row.objects ?? 0) };
+	}
+
+	/**
+	 * {@inheritDoc IFileRepository.usageByOrganization}
+	 *
+	 * One query joining files to their buckets, rather than a per-bucket fan-out:
+	 * the dashboard header needs a single number, and N round trips for it would
+	 * scale with the tenant's bucket count.
+	 */
+	async usageByOrganization(organizationId: string): Promise<OrganizationUsage> {
+		const result = (await db.execute(
+			sql`SELECT COALESCE(SUM(f.size_bytes), 0) AS bytes, count(f.id) AS objects, count(DISTINCT b.id) AS buckets
+			    FROM buckets b LEFT JOIN files f ON f.bucket_id = b.id AND f.is_deleted = false
+			    WHERE b.organization_id = ${organizationId}::uuid`
+		)) as unknown as Record<string, unknown>[];
+		const row = result[0] ?? {};
+		return {
+			bytes: Number(row.bytes ?? 0),
+			objects: Number(row.objects ?? 0),
+			buckets: Number(row.buckets ?? 0),
+		};
+	}
+
+	/**
+	 * {@inheritDoc IFileRepository.moveObject}
+	 *
+	 * A single UPDATE, so the uniqueness index arbitrates in one statement: a
+	 * separate existence check followed by an update would admit a race where two
+	 * moves to the same destination both pass the check and one destroys the
+	 * other. The `23505` catch is that arbitration, not a fallback.
+	 */
+	async moveObject(
+		bucketId: string,
+		fromKey: string,
+		toKey: string
+	): Promise<"moved" | "missing" | "destination-exists"> {
+		try {
+			const result = (await db.execute(
+				sql`UPDATE files SET s3_key = ${toKey}, updated_at = NOW() WHERE bucket_id = ${bucketId}::uuid AND s3_key = ${fromKey} AND is_deleted = false RETURNING id`
+			)) as unknown as Record<string, unknown>[];
+			return result.length > 0 ? "moved" : "missing";
+		} catch (error: unknown) {
+			if (isUniqueViolation(error)) return "destination-exists";
+			throw error;
+		}
+	}
+
+	/**
+	 * {@inheritDoc IFileRepository.movePrefix}
+	 *
+	 * All-or-nothing by construction: the `NOT EXISTS` guard is evaluated inside
+	 * the same statement as the UPDATE, and it excludes rows that are themselves
+	 * part of the moving set — otherwise a rename INTO a descendant of itself
+	 * would collide with the rows it is carrying.
+	 */
+	async movePrefix(bucketId: string, fromPrefix: string, toPrefix: string): Promise<number> {
+		const source = fromPrefix.endsWith("/") ? fromPrefix : `${fromPrefix}/`;
+		const destination = toPrefix.endsWith("/") ? toPrefix : `${toPrefix}/`;
+		if (source === destination) return 0;
+
+		const collision = (await db.execute(
+			sql`SELECT 1 FROM files target
+			    WHERE target.bucket_id = ${bucketId}::uuid
+			      AND target.is_deleted = false
+			      AND target.s3_key LIKE ${`${escapeLike(destination)}%`}
+			      AND target.s3_key NOT LIKE ${`${escapeLike(source)}%`}
+			    LIMIT 1`
+		)) as unknown as Record<string, unknown>[];
+		if (collision.length > 0) {
+			throw new DestinationExistsError(`An object already exists under "${destination}"`);
+		}
+
+		const result = (await db.execute(
+			// `substr(s3_key, $n)` rather than the SQL-standard
+			// `substring(s3_key FROM $n)`. Verified against a real database: in the
+			// `FROM`-clause form postgres-js sends the offset as an untyped parameter,
+			// Postgres cannot infer its type, resolves the whole call to NULL, and the
+			// UPDATE writes `NULL` into a NOT NULL column — every folder rename failed
+			// while both mock tests and a constant-only query passed. The two-argument
+			// `substr` infers `integer` from its position and returns the right suffix,
+			// so the cast is unnecessary and the intent stays readable.
+			sql`UPDATE files SET s3_key = ${destination} || substr(s3_key, ${source.length + 1}), updated_at = NOW()
+			    WHERE bucket_id = ${bucketId}::uuid AND is_deleted = false AND s3_key LIKE ${`${escapeLike(source)}%`}
+			    RETURNING id`
+		)) as unknown as Record<string, unknown>[];
+		return result.length;
+	}
+
+	/**
+	 * {@inheritDoc IFileRepository.searchByKey}
+	 *
+	 * `ILIKE` on the escaped substring, joined to `buckets` for the name and
+	 * scoped by `b.organization_id` — the tenant predicate is on the JOIN, so a
+	 * bucket from another organization cannot appear even if a key matched.
+	 */
+	async searchByKey(
+		organizationId: string,
+		query: string,
+		limit: number
+	): Promise<ObjectSearchHit[]> {
+		if (query.length === 0) return [];
+
+		const result = (await db.execute(
+			sql`SELECT b.name AS bucket, f.s3_key, f.file_name, f.mime_type, f.size_bytes, f.file_hash, f.created_at, f.public_id
+			    FROM files f JOIN buckets b ON b.id = f.bucket_id
+			    WHERE b.organization_id = ${organizationId}::uuid
+			      AND f.is_deleted = false
+			      AND f.s3_key ILIKE ${`%${escapeLike(query)}%`}
+			    ORDER BY f.created_at DESC NULLS LAST
+			    LIMIT ${limit}`
+		)) as unknown as Record<string, unknown>[];
+
+		return result.map((row) => ({
+			bucket: row.bucket as string,
+			key: row.s3_key as string,
+			fileName: row.file_name as string,
+			mimeType: row.mime_type as string,
+			sizeBytes: toNumber(row.size_bytes),
+			etag: (row.file_hash as string | null) ?? null,
+			lastModified: new Date(row.created_at as string).toISOString(),
+			downloadUrl: `${config.baseUrl}/f/${row.public_id as string}`,
+		}));
 	}
 
 	/**

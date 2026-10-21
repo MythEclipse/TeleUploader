@@ -1,10 +1,14 @@
 import { createHmac } from "node:crypto";
 import type { AuthSession } from "../../../application/dto/auth";
 import { timingSafeCompare } from "../../../application/shared/utils/crypto";
+import { hashSessionToken } from "../../../application/shared/utils/session";
 import type { MemberRole } from "../../../domain/ports/identity-repository";
 import { config } from "../../../env";
+import {
+	resolveBetterAuthSession,
+	resolveBridgedUserId,
+} from "../../../infrastructure/auth/session-resolver";
 import { identityRepository } from "../../../infrastructure/di";
-import { hashSessionToken } from "../../../infrastructure/persistence/repositories/identity-repository";
 
 /**
  * Authentication middleware — cookie sessions, bearer admin token, and the
@@ -243,6 +247,34 @@ export const getAuthenticatedCaller = async (
 	req: Request,
 	options: Pick<CookieOptions, "cookieName"> = {}
 ): Promise<AuthenticatedCaller | null> => {
+	// ── better-auth FIRST, the legacy table second ────────────────────────────
+	//
+	// better-auth owns new sign-ins; `sessions` is now a drain-only path for
+	// cookies minted before it was installed, so it empties as they expire. Both
+	// are consulted because dropping the second would log out every existing
+	// session on deploy.
+	//
+	// This runs BEFORE the legacy cookie read on purpose: the two use different
+	// cookie names (`tu_session` here, better-auth's own prefix), so there is no
+	// ambiguity to resolve — but checking the going concern first means the
+	// common case is one lookup, not two.
+	const bridged = await resolveBetterAuthSession(req);
+	if (bridged) {
+		return {
+			session: bridged.session,
+			// better-auth's `auth_user.id` is a TEXT column, while every consumer
+			// of `caller.userId` treats it as a `users.id` UUID — it becomes a
+			// `$org=` membership lookup and an `uploader_user_id` foreign value.
+			// Resolving the bridged `users` row keeps the two id spaces from being
+			// conflated; `findUserIdByBetterAuthId` is a single indexed read and
+			// is what makes "the same person" true across both models.
+			userId: await resolveBridgedUserId(bridged.userId),
+			email: bridged.email,
+			name: bridged.name,
+			isSharedAdminToken: false,
+		};
+	}
+
 	const token = readSessionToken(req, getCookieName(options.cookieName));
 
 	if (token) {

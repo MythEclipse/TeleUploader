@@ -24,12 +24,12 @@
 
 import { ApiError, http } from './client';
 import {
-  bucketUrl,
   bucketsUrl,
+  bucketUrl,
   copyUrl,
   downloadUrl,
-  objectUrl,
   objectsUrl,
+  objectUrl,
   organizationsUrl,
   uploadUrl,
 } from './keys';

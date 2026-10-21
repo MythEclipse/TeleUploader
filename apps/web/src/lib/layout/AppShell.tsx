@@ -7,24 +7,47 @@
  * controls into the content area, so bucket/prefix live in search params and cannot be
  * clobbered by a stale input.
  *
- * ## What changed with multi-user auth
+ * ## The active nav item comes from the ROUTER, not from a literal
  *
- * `NAV_ITEMS` used to be one entry — `Files` → `/` — with a comment explaining that a
- * nav item for `/$orgSlug/dashboard` "would need an org slug that does not exist yet".
- * That is no longer true: the auth store knows the caller's organizations, so the shell
- * can link to the ACTIVE one's dashboard. The link is derived, not hardcoded, and it is
- * absent when there is no organization to point at — a nav item to nowhere is worse than
- * no nav item.
+ * The previous version hardcoded `aria-current="page"` on the Files link, so every page
+ * announced itself as the file browser — a screen-reader user was told they were on
+ * `/` while looking at the dashboard. `useRouterState` reads the resolved pathname and
+ * each item compares against it.
+ *
+ * The comparison is prefix-based for the dashboard (which owns `/<org>/dashboard`) and
+ * exact for Files, because Files is `/` — a prefix match on `/` would match everything.
+ *
+ * ## The Dashboard link is derived, and absent when it cannot exist
+ *
+ * `activeOrg` comes from the auth store. When the caller has no organization there is no
+ * valid `$orgSlug` to put in the href, and a nav item to nowhere is worse than no nav
+ * item. Same reasoning as the previous version, kept.
  */
 
-import { Outlet } from '@tanstack/react-router';
+import { Outlet, useRouterState } from '@tanstack/react-router';
+import { useActiveOrganization } from '../auth-store';
 import { AppLink } from './AppLink';
 import { AuthControls } from './AuthControls';
 import { OrgSwitcher } from './OrgSwitcher';
-import { useActiveOrganization } from '../auth-store';
+
+/**
+ * Whether a nav href is the current page.
+ *
+ * Exact match for `/` (a prefix test would match every route) and prefix match for
+ * everything else, so `/<org>/dashboard` stays current on a nested path.
+ *
+ * @param pathname - The router's resolved pathname.
+ * @param href - The nav item's destination.
+ * @returns Whether to mark the item as the current page.
+ */
+const isCurrent = (pathname: string, href: string): boolean =>
+  href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
 
 export const AppShell = (): React.JSX.Element => {
   const activeOrg = useActiveOrganization();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  const dashboardHref = activeOrg ? `/${activeOrg.slug}/dashboard` : null;
 
   return (
     <div className="app-shell">
@@ -34,13 +57,16 @@ export const AppShell = (): React.JSX.Element => {
         </AppLink>
 
         <nav aria-label="Primary">
-          <AppLink href="/" aria-current="page">
+          <AppLink href="/" aria-current={isCurrent(pathname, '/') ? 'page' : undefined}>
             Files
           </AppLink>
-          {/* Only when an organization is known: `to` is type-checked against the
-              generated route tree, and a `$orgSlug` we do not have cannot be named. */}
-          {activeOrg ? (
-            <AppLink href={`/${activeOrg.slug}/dashboard`}>Dashboard</AppLink>
+          {dashboardHref ? (
+            <AppLink
+              href={dashboardHref}
+              aria-current={isCurrent(pathname, dashboardHref) ? 'page' : undefined}
+            >
+              Dashboard
+            </AppLink>
           ) : null}
         </nav>
 

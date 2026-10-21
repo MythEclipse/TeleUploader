@@ -1,19 +1,22 @@
 /**
  * Wire types for the dashboard's HTTP surface.
  *
- * Every type here is transcribed from a real response body in
+ * Every type here is transcribed from a real response in
  * `apps/api/src/presentation/http/controllers/`, not guessed. Where a column is
  * nullable in the Drizzle schema the type says `| null`.
  *
- * ## What changed with multi-user auth
+ * ## Why these are hand-written rather than imported from `@teleuploader/api`
  *
- * `MeResponse` used to be `{ username, expiresAt }` — the session carried a
- * hardcoded `"admin"` username and nothing else, because there was no user row.
- * It now carries a real identity, the organizations the caller may switch between,
- * and whether Google sign-in is available on this deployment.
+ * Kana's rule is that the web app imports TYPES ONLY from the API package, and a
+ * shared type is the ideal. The blocker is that the API package exports no types
+ * at all: `apps/api/package.json` has no `exports` map, so `@teleuploader/api` is
+ * not resolvable from the web package, and the oRPC `AppRouter` type lives behind
+ * a server entry point that pulls Hono and Drizzle along with it.
  *
- * `LoginRequest` is GONE: there is no token form to POST. Sign-in is a browser
- * navigation to `/api/v1/auth/google/start`.
+ * Declaring them here keeps `verbatimModuleSyntax` honest and the bundle free of
+ * server code. The oRPC procedures added for this surface return the same shapes,
+ * so when the API package grows an `exports` map these can be replaced by a
+ * re-export without touching a call site.
  */
 
 /** One organization the caller belongs to, as `GET /api/v1/auth/me` reports it. */
@@ -42,21 +45,12 @@ export interface MeResponse {
   /**
    * How the caller authenticated.
    *
-   * `disabled` means the deployment has no authentication configured at all — the
-   * documented open mode, where writes ARE accepted. It is not a fourth flavour of
-   * "not signed in": the server reports it with a 200 precisely so the client does
-   * not mislabel an open deployment as read-only.
+   * `disabled` means the deployment has no authentication configured at all.
    */
   readonly method: 'cookie' | 'bearer' | 'disabled';
   /** Organizations the caller may switch to, ordered by name. */
   readonly organizations: OrganizationMembership[];
-  /**
-   * Whether the server has Google sign-in configured.
-   *
-   * Read from the response rather than guessed from the hostname: a deployment
-   * without Google credentials answers 503 on the OAuth start route, and a login
-   * button that leads to a 503 is worse than one that explains why it is disabled.
-   */
+  /** Whether the server has Google sign-in configured. */
   readonly googleEnabled: boolean;
 }
 
@@ -102,9 +96,6 @@ export interface CreateBucketResponse {
  *
  * `handleListObjectsV1` maps these off a Drizzle row:
  * `key` <- `s3Key`, `etag` <- `fileHash`, `sizeBytes` <- `Number(sizeBytes)`.
- *
- * `etag` is `string | null` because `files.file_hash` is a nullable column and the
- * handler does not coalesce it.
  */
 export interface ObjectSummary {
   key: string;
@@ -124,8 +115,7 @@ export interface ObjectSummary {
  *
  * `isTruncated` is always `false` and `nextContinuationToken` always `null` today:
  * `file-repository.ts` queries `LIMIT maxKeys + 1` and folds the extra row into
- * `prefixes`, so a paginator built on these fields would never advance. The UI says
- * so rather than offering a control that cannot work.
+ * `prefixes`, so a paginator built on these fields would never advance.
  */
 export interface ListObjectsResponse {
   objects: ObjectSummary[];
@@ -166,4 +156,108 @@ export interface CopyObjectResponse {
   sourceKey: string;
   destKey: string;
   destBucket: string;
+}
+
+/** `GET /api/v1/buckets/{bucket}/usage` success body. `handleBucketUsageV1`. */
+export interface BucketUsageResponse {
+  name: string;
+  /** Sum of `size_bytes` over live objects. */
+  bytes: number;
+  objects: number;
+}
+
+/** One entry of `GET /api/v1/storage` -> `buckets[]`. `handleStorageUsageV1`. */
+export interface StorageBucketUsage {
+  id: string;
+  name: string;
+  bytes: number;
+  objects: number;
+}
+
+/**
+ * `GET /api/v1/storage` success body.
+ *
+ * Reports the tenant total AND every bucket in one round trip, so the header and
+ * the per-bucket rows cannot disagree while both are loading.
+ */
+export interface StorageUsageResponse {
+  organization: { bytes: number; objects: number };
+  buckets: StorageBucketUsage[];
+}
+
+/** `GET /api/v1/storage/endpoint` success body. */
+export interface StorageEndpointResponse {
+  /** The absolute S3 endpoint a client should be pointed at. */
+  endpoint: string;
+  region: string;
+  /** Whether the S3 surface is usable at all on this deployment. */
+  s3Enabled: boolean;
+}
+
+/** One entry of `GET /api/v1/search` -> `results[]`. `handleSearchObjectsV1`. */
+export interface ObjectSearchHit {
+  /** The bucket the object lives in. */
+  bucket: string;
+  key: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  etag: string | null;
+  /** ISO-8601. */
+  lastModified: string;
+  downloadUrl: string;
+}
+
+/** `GET /api/v1/search` success body. */
+export interface SearchObjectsResponse {
+  query: string;
+  results: ObjectSearchHit[];
+  /** True when the result list hit the server's cap. */
+  truncated: boolean;
+  limit: number;
+}
+
+/**
+ * One entry of `GET /api/v1/credentials` -> `credentials[]`.
+ *
+ * NEVER carries a secret. `SUMMARY_COLUMNS` in the repository omits `secret_key`
+ * entirely, so no listing endpoint can leak one.
+ */
+export interface CredentialSummary {
+  id: string;
+  organizationId: string;
+  accessKey: string;
+  /** Human label, or `null` when it was seeded from the environment. */
+  label: string | null;
+  /** ISO-8601, or `null` for a key that has never signed a request. */
+  lastUsedAt: string | null;
+  createdAt: string | null;
+}
+
+/** `GET /api/v1/credentials` success body. */
+export interface ListCredentialsResponse {
+  credentials: CredentialSummary[];
+}
+
+/**
+ * `POST /api/v1/credentials` success body (201).
+ *
+ * `secretKey` appears in THIS response and no other — the column stores what the
+ * client signs with, and no listing query selects it. The UI must show it once
+ * and say so.
+ */
+export interface CreateCredentialResponse {
+  credential: CredentialSummary;
+  secretKey: string;
+  endpoint: string;
+  region: string;
+}
+
+/** `POST /api/v1/buckets/{bucket}/move` success body. `handleMoveObjectV1`. */
+export interface MoveObjectResponse {
+  /** How many objects moved — `1` for a rename, N for a folder. */
+  moved: number;
+  fromKey: string;
+  toKey: string;
+  kind: 'object' | 'folder' | 'none';
 }

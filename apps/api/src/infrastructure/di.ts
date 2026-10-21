@@ -10,7 +10,7 @@
 
 import type { IBucketRepository } from "../domain/ports/bucket-repository";
 import type { IFilePartRepository } from "../domain/ports/file-part-repository";
-import type { IFileRepository } from "../domain/ports/file-repository";
+import type { IFileManagementRepository, IFileRepository } from "../domain/ports/file-repository";
 import type { IIdentityRepository } from "../domain/ports/identity-repository";
 import type { IMultipartRepository } from "../domain/ports/multipart-repository";
 import type { IOrganizationRepository } from "../domain/ports/organization-repository";
@@ -28,8 +28,29 @@ import { ChunkedStorage } from "./telegram/chunked-storage";
 
 // ─── Repository Singletons ──────────────────────────────────────────
 
+/**
+ * The one file repository instance, created once and bound twice.
+ *
+ * A single `new DrizzleFileRepository()` assigned to a local, then published
+ * under two narrow types. Constructing it twice would give the dashboard and the
+ * bot separate objects; harmless today because the class is stateless, and
+ * exactly the kind of duplication that stops being harmless the moment someone
+ * adds a cache to it.
+ */
+const fileRepositoryInstance = new DrizzleFileRepository();
+
 /** Singleton IFileRepository instance backed by Drizzle ORM. */
-export const fileRepository: IFileRepository = new DrizzleFileRepository();
+export const fileRepository: IFileRepository = fileRepositoryInstance;
+
+/**
+ * The same instance, typed as the management port.
+ *
+ * `DrizzleFileRepository` implements both interfaces; the two bindings exist so
+ * a consumer declares which half it needs. The dashboard takes this one, the
+ * bot takes {@link fileRepository}, and neither has to know about the other's
+ * methods.
+ */
+export const fileManagementRepository: IFileManagementRepository = fileRepositoryInstance;
 
 /** Singleton IBucketRepository instance backed by Drizzle ORM. */
 export const bucketRepository: IBucketRepository = new DrizzleBucketRepository();

@@ -1,13 +1,18 @@
 import { implement, os } from "@orpc/server";
 import { z } from "zod";
 import type { AppRouterContext } from "../context";
+import { type CredentialsHandlers, credentialsNamespace } from "./credentials";
+import { type MeHandlers, meNamespace } from "./me";
+import { type OrganizationHandlers, organizationNamespace } from "./organization";
+import { controllerRequest, jsonPayload } from "./shared";
+import { type StorageHandlers, storageNamespace } from "./storage";
 
 /**
- * Bucket management procedures (P2c).
+ * The oRPC contract and the bucket/object namespace (P2c).
  *
- * The handlers are NOT migrated in this commit: `web-api-controller.ts` keeps
- * serving `/api/v1/*` unchanged. What is new is a typed procedure surface that
- * P4's React app consumes through the oRPC client, and that P3 scopes to an
+ * The handlers are NOT migrated: `web-api-controller.ts` keeps serving
+ * `/api/v1/*` unchanged. What is new is a typed procedure surface that P4's
+ * React app consumes through the oRPC client, and that P3 scopes to an
  * organization.
  *
  * Why add rather than replace: `/api/v1/*` is asserted by 9 test files and is
@@ -18,10 +23,11 @@ import type { AppRouterContext } from "../context";
  * Each procedure delegates to the same controller the HTTP route uses, so both
  * surfaces behave identically until P4 retires the old one.
  *
- * Written contract-first via `implement(...).$context()` rather than bare `os`.
- * The package-level `os` is typed with an empty context, which makes `{ context }`
- * resolve to `Record<never, never>`; `$context<AppRouterContext>()` is the
- * supported way to declare it.
+ * This file owns the ROOT CONTRACT for every namespace, not just buckets.
+ * `$context<AppRouterContext>()` must be applied exactly once, at the root —
+ * declaring it per namespace would give each one its own incompatible builder
+ * type, and the package-level `os` is typed with an EMPTY context, which makes
+ * `{ context }` resolve to `Record<never, never>`.
  */
 
 const bucketName = z
@@ -36,7 +42,10 @@ const bucketName = z
 /** Object key within a bucket. May contain slashes. */
 const objectPath = z.string().min(1).describe("Object key within the bucket");
 
-/** The controller functions this router delegates to. */
+/** Percent-encode each path segment while preserving `/` separators. */
+const encodeKey = (key: string): string => key.split("/").map(encodeURIComponent).join("/");
+
+/** The controller functions the bucket namespace delegates to. */
 export interface BucketHandlers {
 	listBuckets: (organizationId: string) => Promise<Response>;
 	createBucket: (req: Request, organizationId: string) => Promise<Response>;
@@ -49,26 +58,26 @@ export interface BucketHandlers {
 		key: string,
 		organizationId: string
 	) => Promise<Response>;
+	/**
+	 * Download an object.
+	 *
+	 * Still here, and still delegating, but note the procedure below parses the
+	 * body as JSON — which is why the DASHBOARD does not use it for downloads.
+	 * The binary route stays `GET /api/v1/buckets/{bucket}/download/{key}`; see
+	 * `jsonPayload` in `./shared.ts` for the mechanism that makes an RPC
+	 * round-trip lossy for bytes.
+	 */
 	downloadObject: (
 		req: Request,
 		bucket: string,
 		key: string,
 		organizationId: string
 	) => Promise<Response>;
+	/** `GET /api/v1/buckets/{bucket}/usage` — totals for one bucket. */
+	bucketUsage: (bucket: string, organizationId: string) => Promise<Response>;
+	/** `POST /api/v1/buckets/{bucket}/move` — rename an object or a folder. */
+	moveObject: (req: Request, bucket: string, organizationId: string) => Promise<Response>;
 }
-
-/**
- * Build the Web `Request` a controller expects.
- *
- * The controllers take a Request rather than typed arguments, so this adapts.
- * `baseUrl` comes from BASE_URL so that relative asset URLs inside responses
- * resolve exactly as they did over HTTP.
- */
-const bucketRequest = (context: AppRouterContext, path: string, init?: RequestInit): Request =>
-	new Request(new URL(path, context.baseUrl).href, init);
-
-/** Percent-encode each path segment while preserving `/` separators. */
-const encodeKey = (key: string): string => key.split("/").map(encodeURIComponent).join("/");
 
 /** Contract: routes, inputs, and OpenAPI metadata, with no implementation. */
 const bucketNamespace = {
@@ -122,54 +131,101 @@ const bucketNamespace = {
 		summary: "Delete an object (soft delete)",
 	}),
 
+	// DECLARED, BUT NOT THE DASHBOARD'S DOWNLOAD PATH.
+	//
+	// `jsonPayload` calls `res.json()`, which parses the controller's body — and
+	// that destroys a binary one. A real download therefore cannot cross this
+	// surface: it stays at `GET /api/v1/buckets/{bucket}/download/{key}` and the
+	// web client reaches it through `lib/client.ts`. The same reason keeps upload
+	// off oRPC, at `POST /api/v1/buckets/{bucket}/upload`: oRPC serialises INPUT
+	// as JSON too, so a `File` cannot cross it either.
+	//
+	// The procedure is kept for API-shape completeness (and because the OpenAPI
+	// generator reads this contract), but the client must not treat it as a
+	// substitute for the binary route.
 	downloadObject: os.input(z.object({ bucket: bucketName, key: objectPath })).meta({
 		method: "GET",
 		path: "/api/v1/buckets/{bucket}/download/{key}",
 		summary: "Download an object",
 	}),
+
+	// ── File-manager operations ──────────────────────────────────────────────
+	usage: os.input(z.object({ bucket: bucketName })).meta({
+		method: "GET",
+		path: "/api/v1/buckets/{bucket}/usage",
+		summary: "Storage totals for one bucket",
+	}),
+
+	move: os
+		.input(
+			z.object({
+				bucket: bucketName,
+				// The controller validates these further (control characters, a
+				// leading slash, backslashes). Length is checked here so an
+				// obviously oversized key never makes the round trip.
+				fromKey: objectPath,
+				toKey: objectPath,
+			})
+		)
+		.meta({
+			method: "POST",
+			path: "/api/v1/buckets/{bucket}/move",
+			summary: "Rename an object or a folder",
+		}),
 };
 
 /**
- * Root contract: namespaces are declared here so `$context<AppRouterContext>()`
- * is applied ONCE at the root rather than per-router.
+ * Root contract: every namespace on ONE object so `$context<AppRouterContext>()`
+ * is applied once, at the root, rather than per namespace.
+ *
+ * A procedure added to any of these namespace objects appears in the typed
+ * client and in the generated OpenAPI document without either being edited —
+ * `presentation/orpc/openapi.ts` walks this object, not a hand-written list.
  */
-export const rootContract = { bucket: bucketNamespace };
+export const rootContract = {
+	bucket: bucketNamespace,
+	me: meNamespace,
+	organization: organizationNamespace,
+	storage: storageNamespace,
+	credentials: credentialsNamespace,
+};
 
 /** The builder produced by applying this app's context to the root contract. */
 const typedBuilder = () => implement(rootContract).$context<AppRouterContext>();
 
-/** Typed builder for this app's context. */
-export type BucketBase = ReturnType<typeof typedBuilder>;
+/** Typed builder for this app's context, shared by every namespace builder. */
+export type RouterBase = ReturnType<typeof typedBuilder>;
 
 /** The bound bucket router shape. */
-export type BucketRouter = ReturnType<ReturnType<BucketBase["bucket"]["router"]>>;
+export type BucketRouter = ReturnType<ReturnType<RouterBase["bucket"]["router"]>>;
+
 /**
- * Convert a controller's JSON `Response` into an RPC payload.
+ * Every controller function the router delegates to, grouped by namespace.
  *
- * The procedures return the controller response directly, which is wrong: oRPC
- * serialises the returned VALUE, and a `Response` serialises to `{}`. Verified —
- * the client received `{"json":{}}` before this adapter existed. So the body is
- * parsed here and the HTTP status is preserved by throwing on a non-2xx, which
- * oRPC maps to an error rather than a success carrying an error payload.
+ * One interface rather than five loose parameters, because `buildRouter` is the
+ * composition root: a missing group must be a compile error at the call site
+ * rather than a procedure that throws on its first invocation in production.
  */
-const jsonPayload = async <T>(res: Response): Promise<T> => {
-	if (!res.ok) {
-		const body = await res.json().catch(() => undefined);
-		throw new Error(
-			`controller responded ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body ?? {})}`
-		);
-	}
-	return (await res.json()) as T;
-};
+export interface RouterHandlers {
+	readonly bucket: BucketHandlers;
+	readonly me: MeHandlers;
+	readonly organization: OrganizationHandlers;
+	readonly storage: StorageHandlers;
+	readonly credentials: CredentialsHandlers;
+}
 
 /**
  * Bind the bucket contract's procedures to their controller delegates.
  *
  * Takes the typed builder as a parameter so the ROOT router can implement one
- * contract containing both this namespace and any future ones, applying
- * `$context<AppRouterContext>()` exactly once.
+ * contract containing every namespace, applying `$context<AppRouterContext>()`
+ * exactly once.
+ *
+ * @param base - The root builder.
+ * @param handlers - The bucket and object controller functions.
+ * @returns The bound `bucket` router.
  */
-export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): BucketRouter =>
+export const buildBucketRouter = (base: RouterBase, handlers: BucketHandlers): BucketRouter =>
 	base.bucket.router({
 		listBuckets: base.bucket.listBuckets.handler(async ({ context }) =>
 			jsonPayload(await handlers.listBuckets(context.organizationId))
@@ -178,7 +234,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 		createBucket: base.bucket.createBucket.handler(async ({ input, context }) =>
 			jsonPayload(
 				await handlers.createBucket(
-					bucketRequest(context, "/api/v1/buckets", {
+					controllerRequest(context, "/api/v1/buckets", {
 						method: "POST",
 						headers: { "content-type": "application/json" },
 						body: JSON.stringify({ name: input.name }),
@@ -191,7 +247,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 		deleteBucket: base.bucket.deleteBucket.handler(async ({ input, context }) =>
 			jsonPayload(
 				await handlers.deleteBucket(
-					bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}`, {
+					controllerRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}`, {
 						method: "DELETE",
 					}),
 					input.bucket,
@@ -209,7 +265,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 			const path = `/api/v1/buckets/${encodeURIComponent(input.bucket)}/objects`;
 			return jsonPayload(
 				await handlers.listObjects(
-					bucketRequest(context, qs ? `${path}?${qs}` : path),
+					controllerRequest(context, qs ? `${path}?${qs}` : path),
 					input.bucket,
 					context.organizationId
 				)
@@ -219,7 +275,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 		copyObject: base.bucket.copyObject.handler(async ({ input, context }) =>
 			jsonPayload(
 				await handlers.copyObject(
-					bucketRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}/copy`, {
+					controllerRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}/copy`, {
 						method: "POST",
 						headers: { "content-type": "application/json" },
 						body: JSON.stringify({
@@ -237,7 +293,7 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 		deleteObject: base.bucket.deleteObject.handler(async ({ input, context }) =>
 			jsonPayload(
 				await handlers.deleteObject(
-					bucketRequest(
+					controllerRequest(
 						context,
 						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/${encodeKey(input.key)}`,
 						{ method: "DELETE" }
@@ -252,12 +308,30 @@ export const buildBucketRouter = (base: BucketBase, handlers: BucketHandlers): B
 		downloadObject: base.bucket.downloadObject.handler(async ({ input, context }) =>
 			jsonPayload(
 				await handlers.downloadObject(
-					bucketRequest(
+					controllerRequest(
 						context,
 						`/api/v1/buckets/${encodeURIComponent(input.bucket)}/download/${encodeKey(input.key)}`
 					),
 					input.bucket,
 					input.key,
+					context.organizationId
+				)
+			)
+		),
+
+		usage: base.bucket.usage.handler(async ({ input, context }) =>
+			jsonPayload(await handlers.bucketUsage(input.bucket, context.organizationId))
+		),
+
+		move: base.bucket.move.handler(async ({ input, context }) =>
+			jsonPayload(
+				await handlers.moveObject(
+					controllerRequest(context, `/api/v1/buckets/${encodeURIComponent(input.bucket)}/move`, {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ fromKey: input.fromKey, toKey: input.toKey }),
+					}),
+					input.bucket,
 					context.organizationId
 				)
 			)

@@ -20,7 +20,8 @@
     "noEmit": true,
 
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@api/*": ["../api/src/*"]
     }
   },
   "include": ["src", "vite.config.ts"],

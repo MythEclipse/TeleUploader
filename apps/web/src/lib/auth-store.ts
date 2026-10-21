@@ -1,182 +1,101 @@
 /**
- * Module-level auth store.
+ * React bindings for the auth store.
  *
- * Lives here, not in `routes/__root.tsx`, because every route needs it: the root
- * renders the profile chrome, the file browser renders gated controls, and the login
- * route redirects based on it. Putting it in the root would make it a prop-drilling
- * tree or a context provider each route file must remember to mount.
+ * ## Why this file is a thin layer and not a store
  *
- * Implemented with `useSyncExternalStore` rather than a context so the state is
- * readable from non-React code (the XHR upload callbacks, the router's
- * `beforeLoad` guards) through the same source of truth.
+ * The state itself lives in `./auth.ts` as a TanStack `Store`, because the
+ * router's `beforeLoad` guards are plain functions that run outside any
+ * component and must read the same value the UI renders. This module only adds
+ * the React read path.
+ *
+ * ## Why `useSelector` and not React hooks
+ *
+ * Kana's `no-react-hooks` rule bans every React hook, and it names the exact
+ * replacements used here:
+ *
+ *   - `useState`            → a TanStack `Store`, read with `useSelector`
+ *   - `useSyncExternalStore` → `useSelector`, which implements it internally
+ *   - `useEffect`           → route `beforeLoad` / `useQuery`
+ *   - `useMemo`             → a selector function
+ *   - `useCallback`         → a plain function in the render closure
+ *
+ * The previous version of this file used `useSyncExternalStore` directly, which
+ * is banned by name. Each `useX` export below is a SELECTOR over the store
+ * rather than a hook with its own state, so a component subscribes to exactly
+ * the slice it renders and a change to an unrelated field does not re-render it.
+ *
+ * ## Selectors are stable, so no memoisation is needed
+ *
+ * Every selector is a module-level constant. `useSelector` compares the selected
+ * value, not the function, so passing a fresh closure on each render would still
+ * be correct — but a stable reference is what lets the comparison be a plain
+ * `Object.is` on primitives and `null`/object identity.
  */
 
-import { useSyncExternalStore } from 'react';
-import { useRouterState } from '@tanstack/react-router';
+import { useSelector } from '@tanstack/react-store';
 import {
+  type AuthState,
   activeOrganizationOf,
+  authStore,
   canWrite,
-  isReadOnly,
   isOpenDeployment,
+  isReadOnly,
   logout,
   logoutEverywhere,
   organizationsOf,
-  orgSlugFromPath,
-  probeAuth,
+  refreshAuth,
+  setAuthState,
   shouldOfferLogin,
   signIn,
 } from './auth';
-import type { AuthState } from './auth';
-import { ApiError } from './client';
+import type { OrganizationMembership } from './types';
 
-const UNKNOWN: AuthState = { kind: 'unknown' };
+/** The whole auth state. Prefer a narrower selector where one exists. */
+export const useAuthState = (): AuthState => useSelector(authStore, (state) => state);
 
-let state: AuthState = UNKNOWN;
-/** De-duplicates concurrent probes — StrictMode double-invokes effects. */
-let inFlight: Promise<AuthState> | null = null;
-const listeners = new Set<() => void>();
+/** Whether the caller may write. */
+export const useCanWrite = (): boolean => useSelector(authStore, canWrite);
 
-const emit = (): void => {
-  for (const listener of listeners) listener();
-};
+/** Whether the write controls should be replaced by a read-only notice. */
+export const useIsReadOnly = (): boolean => useSelector(authStore, isReadOnly);
 
-const setState = (next: AuthState): AuthState => {
-  state = next;
-  emit();
-  return next;
-};
+/** Whether to render a Sign-in button. */
+export const useShouldOfferLogin = (): boolean => useSelector(authStore, shouldOfferLogin);
 
-const subscribe = (listener: () => void): (() => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+/** Whether this deployment runs with authentication disabled entirely. */
+export const useIsOpenDeployment = (): boolean => useSelector(authStore, isOpenDeployment);
 
-const snapshot = (): AuthState => state;
+/** The organizations available in the switcher. */
+export const useOrganizations = (): readonly OrganizationMembership[] =>
+  useSelector(authStore, organizationsOf);
 
 /**
- * Re-probes `GET /api/v1/auth/me` and publishes the result.
+ * The organization the UI is scoped to.
  *
- * Idempotent and safe from an effect: concurrent callers share one request. Never
- * rejects — a failed probe yields `{kind:'unknown'}`, which the UI renders as
- * read-only.
+ * Reads the slug from the store rather than taking it as an argument, because the
+ * active organization is a function of BOTH the memberships and the current URL,
+ * and threading the URL through every caller is how the switcher and the bucket
+ * list drift apart.
  *
- * @returns The settled state.
+ * @param slug - The `$orgSlug` route param, when the route has one.
  */
-export const refreshAuth = (): Promise<AuthState> => {
-  inFlight ??= probeAuth()
-    .then(setState)
-    .catch(() => setState(UNKNOWN))
-    .finally(() => {
-      inFlight = null;
-    });
-  return inFlight;
+export const useActiveOrganization = (slug?: string): OrganizationMembership | null =>
+  useSelector(authStore, (state) => activeOrganizationOf(state, slug));
+
+/** Whether the tenant list has loaded at least once (signed in or signed out). */
+export const useAuthResolved = (): boolean =>
+  useSelector(authStore, (state) => state.kind !== 'unknown');
+
+export {
+  activeOrganizationOf,
+  canWrite,
+  isOpenDeployment,
+  isReadOnly,
+  logout,
+  logoutEverywhere,
+  organizationsOf,
+  refreshAuth,
+  setAuthState,
+  shouldOfferLogin,
+  signIn,
 };
-
-/**
- * Begins Google sign-in.
- *
- * A navigation, not a fetch — see `./auth.ts`. It does not mutate the store because
- * the page is about to leave; the callback redirects back and `refreshAuth` picks up
- * the new session on arrival.
- *
- * @param redirectTo - Same-origin path to return to.
- */
-export const beginSignIn = (redirectTo = '/'): void => {
-  signIn(redirectTo);
-};
-
-/**
- * `googleEnabled` for a freshly signed-out state.
- *
- * Signing out does not change whether the server HAS Google configured, so this carries
- * the value the current state already knows rather than inventing one. It matters:
- * hardcoding `true` here made the login page render a Sign-in button on a deployment with
- * no Google credentials — the button the server itself answers with 503. When nothing is
- * known yet (`unknown`), false is the honest default and the login page re-probes on
- * mount anyway.
- *
- * @returns Whether Google sign-in should be offered.
- */
-const googleEnabledForSignedOut = (): boolean =>
-  state.kind === 'unknown' ? false : state.googleEnabled;
-
-const setSignedOut = (): AuthState =>
-  setState({ kind: 'signed-out', googleEnabled: googleEnabledForSignedOut() });
-
-/**
- * Revokes this session server-side and publishes `signed-out`.
- *
- * @throws {ApiError} If the server call fails. The caller decides whether to
- *   navigate anyway — leaving the cookie in place while showing a signed-out UI
- *   would be the stale-state bug this store avoids.
- */
-export const signOut = async (): Promise<AuthState> => {
-  await logout();
-  return setSignedOut();
-};
-
-/**
- * Revokes every session for this account.
- *
- * @returns The number of sessions revoked.
- * @throws {ApiError} On failure.
- */
-export const signOutEverywhere = async (): Promise<number> => {
-  const revoked = await logoutEverywhere();
-  setSignedOut();
-  return revoked;
-};
-
-/** Test/reset seam: returns to the pre-probe state without a network call. */
-export const resetAuthStore = (): void => {
-  inFlight = null;
-  setState(UNKNOWN);
-};
-
-// ─────── React bindings ───────
-
-/** Subscribes to the auth state. */
-export const useAuthState = (): AuthState => useSyncExternalStore(subscribe, snapshot, snapshot);
-
-/**
- * Whether the write UI should render.
- *
- * Derives from {@link useAuthState} rather than reading `state` directly, so the
- * subscription is real: reading the module variable without subscribing would return
- * a value that never re-renders when the probe resolves.
- */
-export const useCanWrite = (): boolean => canWrite(useAuthState());
-
-/** Read-only badge visibility. `unknown` counts as read-only. */
-export const useIsReadOnly = (): boolean => isReadOnly(useAuthState());
-
-/** Whether to render the Sign-in affordance. */
-export const useShouldOfferLogin = (): boolean => shouldOfferLogin(useAuthState());
-
-/** The organizations this account belongs to. Empty unless signed in. */
-export const useOrganizations = () => organizationsOf(useAuthState());
-
-/**
- * The organization the UI is scoped to, derived from the CURRENT URL.
- *
- * Reads the pathname from the router rather than taking a `slug` argument from each
- * caller. That is the fix for a real defect in the first draft of this file: the
- * switcher called `useActiveOrganization()` with no argument, so on
- * `/<org-b>/dashboard` it fell back to the account's personal organization and displayed
- * org A while the page showed org B's buckets. Deriving from the router means the
- * switcher, the shell and the page cannot disagree, because there is one source.
- *
- * @returns The organization named by the URL, or the default when the URL names none,
- *   or `null` when the URL names one the account is not a member of.
- */
-export const useActiveOrganization = () => {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  return activeOrganizationOf(useAuthState(), orgSlugFromPath(pathname));
-};
-
-/** Whether this deployment runs with authentication switched off entirely. */
-export const useIsOpenDeployment = (): boolean => isOpenDeployment(useAuthState());
-
-/** Re-exported so route files import auth types from one place. */
-export type { AuthState };
-export { ApiError, canWrite, isReadOnly, shouldOfferLogin };

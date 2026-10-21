@@ -1,139 +1,178 @@
 /**
- * `/login` — Sign in with Google.
+ * `/login` — the sign-in page.
  *
- * ## What the wire actually does now
+ * ## A SIBLING of `_authenticated`, not a child
  *
- * There is no token form any more. `POST /api/v1/auth/login` is gone; the route was
- * removed in the same change that introduced per-user tenancy, because a single
- * shared token cannot identify a person and every dashboard request now resolves its
- * tenant from a real session.
+ * The underscore layout's guard redirects an unauthenticated visitor TO this route.
+ * If this route lived inside that layout, the redirect would target a page the guard
+ * also protects, and the browser would loop until it gave up with
+ * `ERR_TOO_MANY_REDIRECTS`. Being a sibling is what makes it reachable in every
+ * state — including the signed-in one, where it offers a way back.
  *
- * The flow is a browser navigation:
+ * ## `?redirect=` is validated by the SERVER, not here
  *
- *   1. this page links to `/api/v1/auth/google/start?redirect=<path>`;
- *   2. the server mints `state` + PKCE, persists them, and 302s to Google;
- *   3. Google 302s back to `/api/v1/auth/google/callback?code=…&state=…`;
- *   4. the server verifies the ID token, upserts the user, provisions their personal
- *      organization, sets the HttpOnly session cookie, and 302s to `redirect`;
- *   5. the SPA loads, `refreshAuth()` probes `/auth/me`, and the shell renders signed
- *      in.
+ * The value is only ever a same-origin path: this page passes it to
+ * `/api/v1/auth/google/start?redirect=…`, and the server refuses anything absolute
+ * before writing a `Location` header. A client-side check here would be a second,
+ * weaker copy of a rule the server already enforces — and the one that matters is the
+ * server's, because the redirect is emitted by the server.
  *
- * ## Why this is an `<a href>` and not a `fetch`
+ * ## Why the Google button is an `<a href>` and not a fetch
  *
- * The cookie is `HttpOnly` and set by the API origin at the END of a cross-origin
- * redirect chain. Fetching the start URL would follow the 302s inside an XHR, land on
- * Google's HTML, and never store the cookie. A real navigation is the only thing that
- * works, so `beginSignIn` assigns `window.location`.
+ * The flow is a top-level redirect chain: server 302 → Google → callback → server 302
+ * → app, with the session cookie set on the last hop. A `fetch` cannot follow that
+ * (the cookie is HttpOnly and the chain crosses origins), so the button navigates.
+ * That also means it works with JavaScript disabled, which a `fetch`-based sign-in
+ * would not.
  *
- * ## Where "onward" goes, and why `?redirect` is validated on BOTH sides
+ * ## States, and what each one says
  *
- * `validateSearch` accepts an optional `redirect` so any page can send the user here
- * and back. It is constrained to a same-origin **path** — a value containing `://`, a
- * scheme-relative `//`, or a backslash is discarded rather than forwarded.
- *
- * The server validates the same value again before writing it into a `Location`
- * header on the callback (`safeRedirectPath`). Two checks for one value is deliberate:
- * this page's check protects the browser from being sent somewhere odd, and the
- * server's protects against a hand-crafted request that never touched this page. Only
- * the second is a real trust boundary.
- *
- * Relative imports, NOT `@/`: `tsconfig.json` declares the alias but `vite.config.ts`
- * has no `resolve.alias`, so `@/…` typechecks and then fails the Rollup build.
+ * | Auth state | What renders |
+ * |---|---|
+ * | `signed-out` + `googleEnabled` | the Sign-in button |
+ * | `signed-out` + no Google | the configuration notice — NOT a dead button |
+ * | `signed-in` | "already signed in" plus a way into the app |
+ * | `unknown` | a retry, because the probe failed rather than answering |
  */
 
-import { createFileRoute } from '@tanstack/react-router';
-import { useEffect } from 'react';
-import { useAuthState, refreshAuth } from '../lib/auth-store';
-import { AppLink } from '../lib/layout/AppLink';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { refreshAuth, useAuthState } from '../lib/auth-store';
 
-/**
- * Constrains `?redirect` to a same-origin path.
- *
- * @param raw - The untrusted search value.
- * @returns A safe path, defaulting to `/`.
- */
-export const safeRedirect = (raw: unknown): string => {
-  if (typeof raw !== 'string' || raw.length === 0) return '/';
-  if (!raw.startsWith('/')) return '/';
-  if (raw.startsWith('//')) return '/';
-  if (raw.includes('\\')) return '/';
-  if (raw.includes('://')) return '/';
-  return raw;
-};
+/** The URL-side state of this route. */
+export interface LoginSearch {
+  /**
+   * Where to land after signing in.
+   *
+   * `''` means "the default landing page". Constrained to a same-origin path at the
+   * server; see the file header.
+   */
+  redirect: string;
+}
 
 export const Route = createFileRoute('/login')({
-  validateSearch: (search: Record<string, unknown>): { redirect: string } => ({
-    redirect: safeRedirect(search.redirect),
+  validateSearch: (search: Record<string, unknown>): LoginSearch => ({
+    // Only a leading-slash path is kept. A value like `https://evil.example` is
+    // reduced to '' rather than passed on: the server would refuse it anyway, and
+    // forwarding a value this page already knows is invalid just produces a worse
+    // error message than the default landing page.
+    redirect: normaliseRedirect(search.redirect),
   }),
-  component: LoginPage,
+
+  /**
+   * Re-probes auth on every visit.
+   *
+   * `force` because this page's whole job is to answer "am I signed in?" — a cached
+   * `signed-in` from before a sign-out elsewhere would render "already signed in" over
+   * a dead session.
+   */
+  beforeLoad: async () => {
+    await refreshAuth({ force: true });
+  },
+
+  component: LoginRoute,
 });
 
-function LoginPage(): React.JSX.Element {
+/**
+ * Keeps only a same-origin absolute path.
+ *
+ * @param value - The raw `?redirect=` value.
+ * @returns A path starting with `/`, or `''`.
+ */
+function normaliseRedirect(value: unknown): string {
+  if (typeof value !== 'string' || !value.startsWith('/')) return '';
+  // `//host` is a protocol-relative URL — a browser treats it as another origin, so it
+  // is an open redirect even though it starts with a slash.
+  if (value.startsWith('//')) return '';
+  return value;
+}
+
+/**
+ * The page.
+ *
+ * @returns The sign-in card.
+ */
+function LoginRoute(): React.JSX.Element {
+  const state = useAuthState();
   const { redirect } = Route.useSearch();
-  const auth = useAuthState();
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    // The probe may not have run yet on a cold load of this route.
-    void refreshAuth();
-  }, []);
-
-  // Already signed in: this page has nothing to offer. `replace` so the back button
-  // does not bounce between here and the destination.
-  useEffect(() => {
-    if (auth.kind === 'signed-in') {
-      window.location.replace(redirect);
-    }
-  }, [auth.kind, redirect]);
-
-  if (auth.kind === 'signed-in') {
+  if (state.kind === 'unknown') {
     return (
       <div className="login-page">
-        <p className="muted">Signed in as {auth.email} — redirecting…</p>
+        <h1>FileDrop</h1>
+        <p className="muted">
+          Could not reach the server to check your session. This is a network or deployment problem,
+          not a sign-in problem.
+        </p>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => {
+            void refreshAuth({ force: true });
+          }}
+        >
+          Try again
+        </button>
       </div>
     );
   }
 
-  if (auth.kind === 'unknown') {
+  if (state.kind === 'signed-in') {
     return (
       <div className="login-page">
-        <p className="muted">Checking your session…</p>
+        <h1>Already signed in</h1>
+        <p className="muted">
+          You are signed in as <strong>{state.email || state.userId}</strong>.
+        </p>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => {
+            void navigate({ to: redirect || '/' });
+          }}
+        >
+          Go to your files
+        </button>
       </div>
     );
   }
+
+  // A genuine 401 with Google NOT configured. Rendering a Sign-in button here would
+  // dead-end at a 503 from `/auth/google/start`, so the page states the deployment
+  // gap instead. This is the arm that made `googleEnabled` worth reading off the 401.
+  if (!state.googleEnabled) {
+    return (
+      <div className="login-page">
+        <h1>Sign-in is not configured</h1>
+        <p className="muted">
+          This deployment has no Google OAuth credentials, so it cannot sign anyone in. An
+          administrator needs to set <code>GOOGLE_CLIENT_ID</code> and{' '}
+          <code>GOOGLE_CLIENT_SECRET</code> and restart the service.
+        </p>
+      </div>
+    );
+  }
+
+  const target = redirect || '/';
+  const startHref = `/api/v1/auth/google/start?redirect=${encodeURIComponent(target)}`;
 
   return (
     <div className="login-page">
-      <h1>Sign in</h1>
+      <h1>FileDrop</h1>
       <p className="muted">
-        FileDrop stores files in your own workspace. Sign in with Google to continue.
+        Sign in with Google to reach your buckets. Every account gets its own workspace and its own
+        S3 credentials; nobody else can see your files.
       </p>
-
-      {auth.googleEnabled ? (
-        <a
-          className="button google-signin"
-          href={`/api/v1/auth/google/start?redirect=${encodeURIComponent(redirect)}`}
-        >
-          Sign in with Google
-        </a>
-      ) : (
-        // A button that led to a 503 would be worse than an explanation. The server
-        // reports `googleEnabled` on `/auth/me`, so this branch is a fact about the
-        // deployment rather than a guess about the hostname.
-        <div className="notice-banner" role="status">
-          <strong>Sign-in is not configured on this server.</strong>
-          <p>
-            An administrator must set <code>GOOGLE_CLIENT_ID</code> and{' '}
-            <code>GOOGLE_CLIENT_SECRET</code> before anyone can sign in. Machine callers
-            can still authenticate with the <code>ADMIN_API_TOKEN</code> bearer
-            credential.
-          </p>
-        </div>
-      )}
-
-      <p className="muted small">
-        <AppLink href="/">Continue without signing in</AppLink> — public share links keep
-        working, but the file browser needs a session.
+      {/* A NAVIGATION, not a fetch — see the file header. */}
+      <a className="button google-signin" href={startHref}>
+        Continue with Google
+      </a>
+      <p className="field-help">
+        You will be redirected to Google and back. Only your email, display name and avatar are
+        stored.
       </p>
     </div>
   );
 }
+
+export default Route;
