@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/asepharyana/TeleUploader/compare/v1.5.1...v1.6.0) (2026-10-22)
+
+
+### Features
+
+* restore public file listing on homepage and separate private workspace ([c797cbb](https://github.com/asepharyana/TeleUploader/commit/c797cbbde099a17c52555c7dc9c143c2bd2fdd49))
+
 ## [1.5.1](https://github.com/asepharyana/TeleUploader/compare/v1.5.0...v1.5.1) (2026-10-21)
 
 
