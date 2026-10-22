@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/asepharyana/TeleUploader/compare/v1.6.0...v1.6.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **auth:** send nonce to Google so ID token passes verification ([c1358fe](https://github.com/asepharyana/TeleUploader/commit/c1358feba6d0f08b4c7693b19d6ec3262d215bf4))
+
 # [1.6.0](https://github.com/asepharyana/TeleUploader/compare/v1.5.1...v1.6.0) (2026-10-22)
 
 
