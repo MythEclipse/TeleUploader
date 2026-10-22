@@ -35,8 +35,31 @@ setEnv("ADMIN_API_TOKEN", "route-secret-token");
 setEnv("SESSION_COOKIE_NAME", "route_session");
 setEnv("SESSION_COOKIE_MAX_AGE_SECONDS", "3600");
 
-/** In-memory OAuth state ledger, standing in for the `oauth_states` table. */
-const oauthStates = new Map<string, { codeVerifier: string; redirectTo: string }>();
+/**
+ * In-memory OAuth state ledger, standing in for the `oauth_states` table.
+ *
+ * ## Why `nonce` is stored and NOT derived from `state`
+ *
+ * The `nonce` is a separate credential with a separate job, and the test must
+ * model that or it cannot catch the bug it was written for. The previous suite
+ * set `nonce: state` on the stubbed ID token — i.e. it assumed the flow sent
+ * `state` to Google as the nonce parameter, which it never did. That is exactly
+ * why the suite was green while sign-in was broken: the test asserted a
+ * behaviour the code did not have, and a test that assumes the bug away is
+ * worse than no test.
+ *
+ * So the mock now behaves the way Google does: the stubbed token carries a
+ * `nonce` claim only when the authorize URL carried a `nonce` parameter, and it
+ * carries THAT value.
+ */
+const oauthStates = new Map<string, { nonce: string; codeVerifier: string; redirectTo: string }>();
+
+/**
+ * The nonce from the most recent `google/start`. Mirrors Google echoing the
+ * authorize request's `nonce` parameter into the ID token; read by the token
+ * endpoint stub below.
+ */
+let lastIssuedNonce: string | null = null;
 
 /** Sessions keyed by token hash, standing in for the `sessions` table. */
 const sessions = new Map<
@@ -99,11 +122,12 @@ vi.mock("../src/infrastructure/di", () => ({
 	identityRepository: {
 		createOAuthState: async (
 			state: string,
+			nonce: string,
 			codeVerifier: string,
 			redirectTo: string,
 			_expiresAt: Date
 		) => {
-			oauthStates.set(state, { codeVerifier, redirectTo });
+			oauthStates.set(state, { nonce, codeVerifier, redirectTo });
 		},
 		consumeOAuthState: async (state: string) => {
 			// DELETE-returning semantics: the read destroys the row, which is what makes
@@ -236,7 +260,17 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 	const url = typeof input === "string" ? input : input.toString();
 
 	if (url.includes("oauth2.googleapis.com/token")) {
-		return Response.json({ id_token: await makeIdToken(idTokenClaims) });
+		// Model Google's contract: the ID token carries a `nonce` claim only
+		// when the authorize request carried a `nonce` parameter — and the
+		// claim's value IS that parameter. Stubs that set `nonce: state` were
+		// asserting behaviour the code never had, which is why they stayed
+		// green while sign-in was broken.
+		//
+		// A test that explicitly sets idTokenClaims.nonce (the mismatch case)
+		// wins: Google never fabricates a nonce the request didn't ask for.
+		const claims = { ...idTokenClaims };
+		if (!claims.nonce && lastIssuedNonce) claims.nonce = lastIssuedNonce;
+		return Response.json({ id_token: await makeIdToken(claims) });
 	}
 	if (url.includes("googleapis.com/oauth2/v3/certs")) {
 		return Response.json({ keys: [publicJwk] });
@@ -307,8 +341,38 @@ describe("GET /api/v1/auth/google/start", () => {
 		expect(location).not.toContain("code_verifier");
 		expect(res.headers.get("cache-control")).toBe("no-store");
 
+		// The nonce MUST be on the authorize URL, and it MUST differ from `state`.
+		// This is the regression test for the bug that broke every Google sign-in:
+		// with no `nonce` parameter Google omits the `nonce` claim from the ID
+		// token, so the callback's claim check failed on a perfectly good token.
+		const params = new URL(location).searchParams;
+		const nonce = params.get("nonce") ?? "";
+		expect(nonce.length, "the authorize URL must carry a nonce").toBeGreaterThan(0);
+		expect(
+			nonce,
+			"the nonce must NOT be the state value — state is CSRF, nonce is id-token binding"
+		).not.toBe(params.get("state"));
+
 		// The state was persisted, so the callback can resolve it.
 		expect(oauthStates.size).toBe(1);
+		// ...and its nonce was persisted with it, which is what the callback
+		// compares the token's claim against.
+		const stored = [...oauthStates.values()][0];
+		expect(stored.nonce).toBe(nonce);
+	});
+
+	it("refuses to start a flow without a nonce", async () => {
+		// A nonce-less authorization URL is the exact defect that made every
+		// sign-in fail. `buildAuthorizationUrl` guards it, and this pins the
+		// guard so a future refactor cannot quietly drop the parameter.
+		expect(() =>
+			OAuth.buildAuthorizationUrl(
+				{ clientId: "id", clientSecret: "secret", redirectUri: "https://example.com/cb" },
+				"state-value",
+				"challenge-value",
+				""
+			)
+		).toThrow();
 	});
 
 	it("answers 503 when Google sign-in is not configured", async () => {
@@ -329,11 +393,13 @@ describe("personal bucket provisioning at sign-in", () => {
 	 * bucket, without performing a setup step. Asserting the 302 alone would pass
 	 * with the provisioning removed, so this checks the SIDE EFFECT.
 	 */
-	const start = async (): Promise<string> => {
+	const start = async (): Promise<[string, string]> => {
 		await handleGoogleStart(new Request("https://example.com/api/v1/auth/google/start"));
 		const state = [...oauthStates.keys()][0];
 		if (!state) throw new Error("start did not persist a state");
-		return state;
+		const nonce = oauthStates.get(state)!.nonce;
+		lastIssuedNonce = nonce;
+		return [state, nonce];
 	};
 
 	beforeEach(() => {
@@ -341,8 +407,7 @@ describe("personal bucket provisioning at sign-in", () => {
 	});
 
 	it("creates a bucket derived from the signer's email on first sign-in", async () => {
-		const state = await start();
-		idTokenClaims = { ...idTokenClaims, nonce: state };
+		const [state] = await start();
 
 		const res = await handleGoogleCallback(
 			new Request(`https://example.com/api/v1/auth/google/callback?code=auth-code&state=${state}`)
@@ -357,8 +422,7 @@ describe("personal bucket provisioning at sign-in", () => {
 
 	it("does not create a second bucket on a returning sign-in", async () => {
 		for (let attempt = 0; attempt < 2; attempt += 1) {
-			const state = await start();
-			idTokenClaims = { ...idTokenClaims, nonce: state };
+			const [state] = await start();
 			await handleGoogleCallback(
 				new Request(`https://example.com/api/v1/auth/google/callback?code=auth-code&state=${state}`)
 			);
@@ -372,17 +436,18 @@ describe("personal bucket provisioning at sign-in", () => {
 });
 
 describe("GET /api/v1/auth/google/callback", () => {
-	/** Runs the start step and returns the issued state. */
-	const start = async (): Promise<string> => {
+	/** Runs the start step and returns `[state, nonce]`. */
+	const start = async (): Promise<[string, string]> => {
 		await handleGoogleStart(new Request("https://example.com/api/v1/auth/google/start"));
 		const state = [...oauthStates.keys()][0];
 		if (!state) throw new Error("start did not persist a state");
-		return state;
+		const nonce = oauthStates.get(state)!.nonce;
+		lastIssuedNonce = nonce;
+		return [state, nonce];
 	};
 
 	it("exchanges the code, verifies the ID token, and sets a session cookie", async () => {
-		const state = await start();
-		idTokenClaims = { ...idTokenClaims, nonce: state };
+		const [state] = await start();
 
 		const res = await handleGoogleCallback(
 			new Request(`https://example.com/api/v1/auth/google/callback?code=auth-code&state=${state}`)
@@ -400,8 +465,7 @@ describe("GET /api/v1/auth/google/callback", () => {
 	});
 
 	it("rejects a replayed state", async () => {
-		const state = await start();
-		idTokenClaims = { ...idTokenClaims, nonce: state };
+		const [state] = await start();
 
 		const first = await handleGoogleCallback(
 			new Request(`https://example.com/api/v1/auth/google/callback?code=c1&state=${state}`)
@@ -433,10 +497,10 @@ describe("GET /api/v1/auth/google/callback", () => {
 	});
 
 	it("rejects an ID token minted for a different client", async () => {
-		const state = await start();
+		const [state] = await start();
 		// `aud` is the check most often omitted, and omitting it means an ID token
 		// minted for ANY other Google app authenticates here.
-		idTokenClaims = { ...idTokenClaims, nonce: state, aud: "someone-elses-client-id" };
+		idTokenClaims = { ...idTokenClaims, aud: "someone-elses-client-id" };
 
 		const res = await handleGoogleCallback(
 			new Request(`https://example.com/api/v1/auth/google/callback?code=c&state=${state}`)
@@ -449,10 +513,9 @@ describe("GET /api/v1/auth/google/callback", () => {
 	});
 
 	it("rejects an expired ID token", async () => {
-		const state = await start();
+		const [state] = await start();
 		idTokenClaims = {
 			...idTokenClaims,
-			nonce: state,
 			exp: Math.floor(Date.now() / 1000) - 60,
 		};
 
@@ -467,7 +530,9 @@ describe("GET /api/v1/auth/google/callback", () => {
 	});
 
 	it("rejects a nonce that does not match this request", async () => {
-		const state = await start();
+		const [state] = await start();
+		// Override the stored nonce with a mismatched one: Google echoed the stored
+		// nonce into the token, so the claim check must reject it.
 		idTokenClaims = { ...idTokenClaims, nonce: "some-other-nonce" };
 
 		const res = await handleGoogleCallback(
@@ -481,8 +546,8 @@ describe("GET /api/v1/auth/google/callback", () => {
 	});
 
 	it("rejects an untrusted issuer", async () => {
-		const state = await start();
-		idTokenClaims = { ...idTokenClaims, nonce: state, iss: "https://evil.example" };
+		const [state] = await start();
+		idTokenClaims = { ...idTokenClaims, iss: "https://evil.example" };
 
 		const res = await handleGoogleCallback(
 			new Request(`https://example.com/api/v1/auth/google/callback?code=c&state=${state}`)

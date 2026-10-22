@@ -279,7 +279,7 @@ export const sessions = pgTable(
 );
 
 /**
- * In-flight OAuth authorizations — the `state`/PKCE ledger.
+ * In-flight OAuth authorizations — the `state`/`nonce`/PKCE ledger.
  *
  * Kept in the database rather than a cookie for two reasons that both matter
  * here: the PKCE `code_verifier` is a server secret that must not travel to the
@@ -294,6 +294,17 @@ export const oauthStates = pgTable(
 	{
 		/** The random `state` parameter. Primary key makes reuse impossible. */
 		state: varchar("state", { length: 128 }).primaryKey(),
+		/**
+		 * The random `nonce` parameter, required in the ID token's `nonce` claim.
+		 *
+		 * Separate from `state` on purpose. `state` is CSRF: it comes back in the
+		 * callback's query string. `nonce` is ID-token binding: it is sent to
+		 * Google as the authorization request's `nonce` parameter and Google
+		 * echoes it inside the SIGNED token. Without this column there is nothing
+		 * to compare the claim against, and without sending it Google omits the
+		 * claim entirely — so every sign-in fails "nonce does not match".
+		 */
+		nonce: varchar("nonce", { length: 128 }).notNull(),
 		codeVerifier: text("code_verifier").notNull(),
 		redirectTo: text("redirect_to").notNull().default("/"),
 		expiresAt: timestamp("expires_at").notNull(),

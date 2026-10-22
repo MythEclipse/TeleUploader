@@ -10,6 +10,7 @@ import {
 	buildAuthorizationUrl,
 	createCodeChallenge,
 	createCodeVerifier,
+	createNonce,
 	createState,
 	exchangeCodeForProfile,
 	OAuthError,
@@ -31,12 +32,13 @@ import {
  * ## The flow, end to end
  *
  *   1. `GET  /api/v1/auth/google/start?redirect=/some/path`
- *        mints `state` + a PKCE verifier, persists both in `oauth_states`, and 302s
- *        to Google. Nothing in the query string is trusted except a same-origin
- *        path, validated by {@link safeRedirectPath}.
+ *        mints `state`, a PKCE verifier, AND a `nonce`, persists all three in
+ *        `oauth_states`, and 302s to Google. Nothing in the query string is
+ *        trusted except a same-origin path, validated by {@link safeRedirectPath}.
  *   2. `GET  /api/v1/auth/google/callback?code=…&state=…`
  *        consumes `state` (a single-use DELETE, which IS the replay check),
- *        exchanges the code, verifies the ID token, upserts the user, provisions
+ *        exchanges the code, verifies the ID token — including its `nonce` claim
+ *        against the `nonce` stored at step 1 — upserts the user, provisions
  *        their personal organization, mints a session, sets the cookie, and 302s
  *        onward.
  *   3. `GET  /api/v1/auth/me`
@@ -114,10 +116,12 @@ export const handleGoogleStart = async (req: Request): Promise<Response> => {
 	const redirectTo = safeRedirectPath(url.searchParams.get("redirect"));
 
 	const state = createState();
+	const nonce = createNonce();
 	const codeVerifier = createCodeVerifier();
 
 	await identityRepository.createOAuthState(
 		state,
+		nonce,
 		codeVerifier,
 		redirectTo,
 		new Date(Date.now() + OAUTH_STATE_TTL_MS)
@@ -126,9 +130,9 @@ export const handleGoogleStart = async (req: Request): Promise<Response> => {
 	return new Response(null, {
 		status: 302,
 		headers: {
-			location: buildAuthorizationUrl(google, state, createCodeChallenge(codeVerifier)),
-			// The authorize URL carries `state`, a one-time credential for this flow.
-			// A shared cache must never store it.
+			location: buildAuthorizationUrl(google, state, createCodeChallenge(codeVerifier), nonce),
+			// The authorize URL carries `state` and `nonce`, both one-time
+			// credentials for this flow. A shared cache must never store it.
 			"cache-control": "no-store",
 		},
 	});
@@ -172,9 +176,11 @@ export const handleGoogleCallback = async (req: Request): Promise<Response> => {
 			google,
 			code,
 			pending.codeVerifier,
-			// `state` doubles as the nonce: server-generated, unguessable, and already
-			// bound to this single authorization.
-			state
+			// The nonce STORED at the start of this flow — not the `state` value.
+			// `state` was never sent to Google as the `nonce` parameter, so Google
+			// never put it in the token; comparing the claim against it rejected
+			// every correct sign-in.
+			pending.nonce
 		);
 	} catch (cause: unknown) {
 		if (cause instanceof OAuthError) {

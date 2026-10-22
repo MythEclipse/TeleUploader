@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { GoogleProfile } from "../../domain/ports/identity-repository";
 import logger from "../observability/logger";
 
@@ -30,6 +30,28 @@ import logger from "../observability/logger";
  *    anyone mint any identity.
  * 4. **`nonce`** ties the ID token to this specific authorization request, on top
  *    of `state` protecting the code exchange.
+ *
+ * ## Why `nonce` and `state` are now TWO values, not one
+ *
+ * An earlier version reused the `state` value as the nonce, on the reasoning
+ * that it was "unguessable, single-use, and server-generated". That is true of
+ * `state` as a CSRF token and FALSE of it as an OIDC nonce, and the difference
+ * is not academic — it is the bug this file existed to prevent:
+ *
+ * Google puts a `nonce` claim in the ID token ONLY when the authorization
+ * request carried a `nonce` parameter. Omitting it (which the reused-`state`
+ * version did) means Google returns an ID token with **no** `nonce` claim, and
+ * {@link verifyIdToken} then rejects every legitimate sign-in with "ID token
+ * nonce does not match this request". The nonce must be a SEPARATE value that
+ * is actually SENT to Google, and only then is it worth comparing.
+ *
+ * So the three values in a flow are distinct on purpose:
+ *
+ *   - `state`  — CSRF: proves the callback belongs to a flow this server started.
+ *   - `nonce`  — replay/id-token binding: proves the ID token was minted in
+ *                answer to THIS authorization request, not replayed from
+ *                another one.
+ *   - `code_verifier` — PKCE: proves the code exchanger is the flow's originator.
  */
 
 /** Google's OIDC endpoints. Fixed, not configurable — these are not secrets. */
@@ -120,6 +142,9 @@ export const createState = (): string => b64url(randomBytes(32));
  * @param config - Client id and callback URL.
  * @param state - The `state` value already persisted server-side.
  * @param codeChallenge - S256 challenge for the stored verifier.
+ * @param nonce - The `nonce` value already persisted server-side. MUST be
+ *   supplied: without the parameter Google omits the `nonce` claim from the ID
+ *   token, and {@link verifyIdToken} then rejects a correct sign-in.
  * @param loginHint - Optional email to pre-fill. Cosmetic only.
  * @returns The absolute Google authorization URL.
  */
@@ -127,10 +152,17 @@ export const buildAuthorizationUrl = (
 	config: GoogleOAuthConfig,
 	state: string,
 	codeChallenge: string,
+	nonce: string,
 	loginHint?: string
 ): string => {
 	if (!config.clientId) {
 		throw new OAuthError("config", "GOOGLE_CLIENT_ID is not set");
+	}
+	if (!nonce) {
+		// Fail loudly rather than emitting a URL Google will answer with an
+		// ID token that cannot pass verification. A missing nonce here is a
+		// programming error at the call site, not a runtime condition.
+		throw new OAuthError("config", "A nonce is required for the authorization request");
 	}
 
 	const params = new URLSearchParams({
@@ -139,6 +171,7 @@ export const buildAuthorizationUrl = (
 		response_type: "code",
 		scope: SCOPE,
 		state,
+		nonce,
 		code_challenge: codeChallenge,
 		code_challenge_method: "S256",
 		// `select_account` rather than `consent`: forcing consent on every sign-in
@@ -158,8 +191,9 @@ export const buildAuthorizationUrl = (
  * @param config - Client credentials.
  * @param code - The `code` query parameter from the callback.
  * @param codeVerifier - The verifier stored alongside this `state`.
- * @param nonce - Expected `nonce` claim. Currently the `state` value, which is
- *   sufficient: it is unguessable, single-use, and server-generated.
+ * @param nonce - The `nonce` stored for this authorization request, which MUST
+ *   match the ID token's `nonce` claim. Sent to Google at authorize time and
+ *   echoed back by it, so this binds the token to THIS flow.
  * @returns The verified Google profile.
  * @throws {OAuthError} At the stage that failed.
  */
@@ -414,5 +448,15 @@ const parseJson = <T>(segment: string): T | null => {
 	}
 };
 
-/** Re-exported so callers generate a nonce from the same source as `state`. */
-export const createNonce = (): string => randomUUID();
+/**
+ * Generates the opaque `nonce` value sent to Google and required in the ID
+ * token.
+ *
+ * Distinct from {@link createState} because it is sent to Google as the `nonce`
+ * parameter: reusing the `state` value meant the parameter was never sent at
+ * all, so Google never echoed the claim back and every sign-in failed the nonce
+ * check. See the module header.
+ *
+ * @returns 32 random bytes, base64url — 43 characters, unguessable.
+ */
+export const createNonce = (): string => b64url(randomBytes(32));

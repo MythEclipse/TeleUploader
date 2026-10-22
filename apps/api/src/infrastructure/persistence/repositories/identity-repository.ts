@@ -397,6 +397,7 @@ export class DrizzleIdentityRepository implements IIdentityRepository {
 	/** {@inheritDoc IIdentityRepository.createOAuthState} */
 	async createOAuthState(
 		state: string,
+		nonce: string,
 		codeVerifier: string,
 		redirectTo: string,
 		expiresAt: Date
@@ -404,8 +405,8 @@ export class DrizzleIdentityRepository implements IIdentityRepository {
 		// `expiresAt.toISOString()` for the same reason as `createSession`: a bare Date
 		// does not survive `db.execute()`'s raw parameter path.
 		await db.execute(sql`
-			INSERT INTO oauth_states (state, code_verifier, redirect_to, expires_at)
-			VALUES (${state}, ${codeVerifier}, ${redirectTo}, ${expiresAt.toISOString()})
+			INSERT INTO oauth_states (state, nonce, code_verifier, redirect_to, expires_at)
+			VALUES (${state}, ${nonce}, ${codeVerifier}, ${redirectTo}, ${expiresAt.toISOString()})
 		`);
 	}
 
@@ -425,12 +426,13 @@ export class DrizzleIdentityRepository implements IIdentityRepository {
 		const rows = (await db.execute(sql`
 			DELETE FROM oauth_states
 			WHERE state = ${state} AND expires_at > (now() AT TIME ZONE 'UTC')
-			RETURNING code_verifier, redirect_to
+			RETURNING nonce, code_verifier, redirect_to
 		`)) as unknown as QueryResult;
 
 		const row = rows[0];
 		if (!row) return null;
 		return {
+			nonce: row.nonce as string,
 			codeVerifier: row.code_verifier as string,
 			redirectTo: row.redirect_to as string,
 		};

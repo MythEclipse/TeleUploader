@@ -1,0 +1,38 @@
+-- OIDC `nonce` for the hand-written Google flow.
+--
+-- WHY THIS COLUMN EXISTS
+--
+-- `oauth_states` stored `state` and the PKCE `code_verifier`, and the callback
+-- verified the ID token's `nonce` claim against... the `state` value. That
+-- reasoning was wrong, and it broke every Google sign-in:
+--
+--   Google puts a `nonce` claim in the ID token ONLY when the authorization
+--   request carried a `nonce` parameter. This flow never sent one — it relied
+--   on the `state` value instead — so Google returned an ID token with NO
+--   `nonce` claim, and `verifyIdToken` rejected every legitimate sign-in with
+--   "ID token nonce does not match this request".
+--
+-- The nonce must therefore be a SEPARATE, actually-TRANSMITTED value:
+--
+--   state  — CSRF. Returned in the callback's query string.
+--   nonce  — ID-token binding. Sent as the authorization request's `nonce`
+--            parameter; Google echoes it inside the SIGNED token, so matching
+--            it proves the token was minted for THIS authorization request.
+--
+-- A token without the claim must still be rejected: the check is fail-closed,
+-- and silently accepting a token whose nonce cannot be verified would remove
+-- the replay protection the claim provides.
+--
+-- PURELY ADDITIVE, and idempotent: ADD COLUMN IF NOT EXISTS. `NOT NULL` is safe
+-- here because every row this table will ever hold is written by the new code
+-- path, and pre-existing rows (if any) are in-flight authorizations that have
+-- already failed or expired — they are swept by `pruneExpired`.
+--
+-- NOTE: the column is NOT NULL with no default. A database that already holds
+-- `oauth_states` rows would fail this ALTER. No such database can exist in
+-- production: the table is created by 0004, written only by the hand-written
+-- Google flow, and its rows expire in 10 minutes. If a legacy database is ever
+-- encountered, delete the expired rows first (`DELETE FROM oauth_states`) and
+-- re-run — that loses nothing, since a consumed or expired state is worthless.
+
+ALTER TABLE "oauth_states" ADD COLUMN IF NOT EXISTS "nonce" varchar(128) NOT NULL;

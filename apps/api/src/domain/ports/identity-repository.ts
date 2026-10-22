@@ -59,6 +59,17 @@ export interface GoogleProfile {
 /** An in-flight OAuth authorization. */
 export interface PendingOAuth {
 	readonly codeVerifier: string;
+	/**
+	 * The OIDC `nonce` this authorization was started with.
+	 *
+	 * Stored separately from `state` because it is a DIFFERENT credential with a
+	 * different job: `state` is the CSRF token Google returns verbatim in the
+	 * query string, while `nonce` goes into the signed ID token and must match
+	 * what was sent as the authorization request's `nonce` parameter. Reusing
+	 * `state` for it meant no `nonce` parameter was ever sent, so Google omitted
+	 * the claim and every sign-in failed verification.
+	 */
+	readonly nonce: string;
 	readonly redirectTo: string;
 }
 
@@ -170,12 +181,16 @@ export interface IIdentityRepository {
 	 * Store a pending OAuth authorization.
 	 *
 	 * @param state - Random `state` value; the primary key, so single-use.
+	 * @param nonce - Random `nonce` value; required in the ID token's `nonce`
+	 *   claim, and sent to Google as the authorization request's `nonce`
+	 *   parameter so Google actually echoes it back.
 	 * @param codeVerifier - PKCE verifier. Server-side only.
 	 * @param redirectTo - A validated same-origin path.
 	 * @param expiresAt - Absolute expiry (short — minutes).
 	 */
 	createOAuthState(
 		state: string,
+		nonce: string,
 		codeVerifier: string,
 		redirectTo: string,
 		expiresAt: Date

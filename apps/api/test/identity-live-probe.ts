@@ -178,6 +178,7 @@ const main = async (): Promise<void> => {
 	const state = `probe-state-${Date.now()}`;
 	await repo.createOAuthState(
 		state,
+		`probe-nonce-${Date.now()}`,
 		"verifier-value",
 		"/after-login",
 		new Date(Date.now() + 60_000)
@@ -185,12 +186,19 @@ const main = async (): Promise<void> => {
 
 	const consumed = await repo.consumeOAuthState(state);
 	check("oauth state is consumable once", consumed?.codeVerifier === "verifier-value");
+	check("oauth state carries the nonce", consumed?.nonce === `probe-nonce-${state.split("-")[2]}`);
 	check("oauth state carries the redirect", consumed?.redirectTo === "/after-login");
 	check("a REPLAYED oauth state returns null", (await repo.consumeOAuthState(state)) === null);
 
 	// An expired state must not be consumable.
 	const expiredState = `probe-expired-${Date.now()}`;
-	await repo.createOAuthState(expiredState, "v", "/", new Date(Date.now() - 1000));
+	await repo.createOAuthState(
+		expiredState,
+		`probe-expired-nonce`,
+		"v",
+		"/",
+		new Date(Date.now() - 1000)
+	);
 	check(
 		"an EXPIRED oauth state returns null",
 		(await repo.consumeOAuthState(expiredState)) === null
