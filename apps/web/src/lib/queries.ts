@@ -42,6 +42,7 @@ import { queryOptions } from '@tanstack/react-query';
 import { api } from './api';
 import { keys } from './query-keys';
 import { currentTenant } from './rpc';
+import type { ListPublicFilesResponse } from './types';
 
 /** A tenant scope. Omit the slug inside the `$orgSlug` layout; see the file header. */
 export interface TenantScope {
@@ -139,4 +140,24 @@ export const searchQuery = (scope: TenantScope, term: string) =>
     queryKey: keys.search(slugFor(scope), term),
     queryFn: () => api.search(term),
     enabled: term.trim().length > 0,
+  });
+
+/**
+ * Public files listing query. Unauthenticated and open to the public homepage.
+ */
+export const publicFilesQuery = (cursor?: string | null, limit = 50) =>
+  queryOptions({
+    queryKey: ['public-files', cursor ?? '', limit] as const,
+    queryFn: async (): Promise<ListPublicFilesResponse> => {
+      const url = new URL('/api/v1/files/public', window.location.origin);
+      url.searchParams.set('limit', String(limit));
+      if (cursor) url.searchParams.set('cursor', cursor);
+      const res = await fetch(url.toString(), {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load public files: ${res.statusText}`);
+      }
+      return (await res.json()) as ListPublicFilesResponse;
+    },
   });

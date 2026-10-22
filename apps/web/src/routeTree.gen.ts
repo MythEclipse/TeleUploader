@@ -9,13 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedOrgSlugRouteImport } from './routes/_authenticated/$orgSlug'
 import { Route as AuthenticatedOrgSlugBucketNameRouteImport } from './routes/_authenticated/$orgSlug/$bucketName'
 import { Route as AuthenticatedOrgSlugDashboardRouteImport } from './routes/_authenticated/$orgSlug/dashboard'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -24,11 +29,6 @@ const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedOrgSlugRoute = AuthenticatedOrgSlugRouteImport.update({
   id: '/$orgSlug',
@@ -49,25 +49,25 @@ const AuthenticatedOrgSlugDashboardRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthenticatedIndexRoute
+  '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
   '/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
   '/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
-  '/': typeof AuthenticatedIndexRoute
   '/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
   '/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/_authenticated/$orgSlug': typeof AuthenticatedOrgSlugRouteWithChildren
-  '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/$orgSlug/$bucketName': typeof AuthenticatedOrgSlugBucketNameRoute
   '/_authenticated/$orgSlug/dashboard': typeof AuthenticatedOrgSlugDashboardRoute
 }
@@ -81,28 +81,36 @@ export interface FileRouteTypes {
     | '/$orgSlug/dashboard'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/login'
     | '/$orgSlug'
-    | '/'
     | '/$orgSlug/$bucketName'
     | '/$orgSlug/dashboard'
   id:
     | '__root__'
+    | '/'
     | '/_authenticated'
     | '/login'
     | '/_authenticated/$orgSlug'
-    | '/_authenticated/'
     | '/_authenticated/$orgSlug/$bucketName'
     | '/_authenticated/$orgSlug/dashboard'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -116,13 +124,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/': {
-      id: '/_authenticated/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/$orgSlug': {
       id: '/_authenticated/$orgSlug'
@@ -163,12 +164,10 @@ const AuthenticatedOrgSlugRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedOrgSlugRoute: typeof AuthenticatedOrgSlugRouteWithChildren
-  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedOrgSlugRoute: AuthenticatedOrgSlugRouteWithChildren,
-  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -176,6 +175,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
 }

@@ -187,6 +187,7 @@ describe("Telegram Bot Handler", () => {
 			softDeleteBatch: vi.fn(() => Promise.resolve(0)),
 			countByBucket: vi.fn(() => Promise.resolve(0)),
 			findOrphansByBucket: vi.fn(() => Promise.resolve([])),
+			listPublic: vi.fn(() => Promise.resolve([])),
 		};
 	});
 

@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { nanoid } from "nanoid";
 import { writeBodyToFile } from "../../../application/shared/utils/file-sink";
 import { locateZipEntry } from "../../../application/shared/utils/zip";
+import { config } from "../../../env";
 import { chunkedStorage, fileRepository } from "../../../infrastructure/di";
 import { cleanupTempFile, formatCreatedAt, getErrorMessage } from "../../../infrastructure/file";
 import logger from "../../../infrastructure/observability/logger";
@@ -214,6 +215,47 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
 		);
 	} catch (error: unknown) {
 		logger.error("File info error", { publicId, error: getErrorMessage(error) });
+		return fail(500, "Server error");
+	}
+};
+
+/**
+ * Handles public file listing.
+ *
+ * Lists non-deleted files ordered newest first, with cursor-based pagination.
+ *
+ * @param req - Incoming HTTP request.
+ * @returns A JSON response with array of files and nextCursor.
+ */
+export const handleListPublicFiles = async (req: Request): Promise<Response> => {
+	try {
+		const url = new URL(req.url);
+		const limit = Number.parseInt(url.searchParams.get("limit") || "50", 10);
+		const cursor = url.searchParams.get("cursor");
+
+		const files = await fileRepository.listPublic(limit, cursor);
+		const nextCursor =
+			files.length > 0 && files.length >= Math.min(Math.max(1, limit), 100)
+				? files[files.length - 1]?.createdAt.toISOString()
+				: null;
+
+		return Response.json(
+			{
+				files: files.map((f) => ({
+					public_id: f.publicId,
+					file_name: f.fileName,
+					mime_type: f.mimeType,
+					size_bytes: f.sizeBytes,
+					file_type: f.fileType,
+					created_at: formatCreatedAt(f.createdAt),
+					download_url: `${config.baseUrl}/f/${f.publicId}`,
+				})),
+				next_cursor: nextCursor,
+			},
+			{ status: 200 }
+		);
+	} catch (error: unknown) {
+		logger.error("List public files error", { error: getErrorMessage(error) });
 		return fail(500, "Server error");
 	}
 };

@@ -53,6 +53,9 @@ const mockHandleFileRedirect = vi.fn(() =>
 vi.mock("../src/presentation/http/controllers/file-controller", () => ({
 	handleFileRedirect: mockHandleFileRedirect,
 	handleFileInfo: vi.fn(),
+	handleListPublicFiles: vi.fn(() =>
+		Promise.resolve(Response.json({ files: [], next_cursor: null }))
+	),
 }));
 const mockHandleHealth = vi.fn();
 vi.mock("../src/presentation/http/controllers/health-controller", () => ({

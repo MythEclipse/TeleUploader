@@ -261,3 +261,20 @@ export interface MoveObjectResponse {
   toKey: string;
   kind: 'object' | 'folder' | 'none';
 }
+
+/** One public file entry from `GET /api/v1/files/public`. */
+export interface PublicFileItem {
+  public_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  file_type: string;
+  created_at: string;
+  download_url: string;
+}
+
+/** `GET /api/v1/files/public` success body. */
+export interface ListPublicFilesResponse {
+  files: PublicFileItem[];
+  next_cursor: string | null;
+}

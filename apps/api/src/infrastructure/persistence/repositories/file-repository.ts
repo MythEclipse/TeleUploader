@@ -378,4 +378,24 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 			.limit(100);
 		return rows.map(mapFileRow);
 	}
+
+	/**
+	 * {@inheritDoc IFileRepository.listPublic}
+	 */
+	async listPublic(limit = 50, before?: string | Date | null): Promise<File[]> {
+		const safeLimit = Math.min(Math.max(1, limit), 100);
+		let query = sql`
+			SELECT * FROM files
+			WHERE is_deleted IS NOT TRUE
+		`;
+
+		if (before) {
+			const cursorDate = before instanceof Date ? before.toISOString() : before;
+			query = sql`${query} AND created_at < ${cursorDate}::timestamp`;
+		}
+
+		query = sql`${query} ORDER BY created_at DESC LIMIT ${safeLimit}`;
+		const rows = (await db.execute(query)) as unknown as Record<string, unknown>[];
+		return rows.map(mapDbRowToS3Record);
+	}
 }

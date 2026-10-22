@@ -9,7 +9,11 @@ import {
 	handleLogoutAll,
 	handleMe,
 } from "./controllers/auth-controller";
-import { handleFileInfo, handleFileRedirect } from "./controllers/file-controller";
+import {
+	handleFileInfo,
+	handleFileRedirect,
+	handleListPublicFiles,
+} from "./controllers/file-controller";
 import { handleHealth } from "./controllers/health-controller";
 import { handleS3Request } from "./controllers/s3-controller";
 import { serveSpaFile, serveSpaIndex } from "./controllers/spa-controller";
@@ -361,6 +365,7 @@ export const createApp = (): Hono => {
 	app.post("/api/upload", limited(handleUpload));
 	app.get("/f/:public_id", adapt(handleFileRedirect));
 	app.get("/file/:public_id/info", adapt(handleFileInfo));
+	app.get("/api/v1/files/public", adapt(handleListPublicFiles));
 
 	// ── oRPC management surface, mounted BEFORE the REST routes (P2c) ───────
 	// `/rpc` is a distinct prefix, so there is no overlap with `/api/v1/*`; the

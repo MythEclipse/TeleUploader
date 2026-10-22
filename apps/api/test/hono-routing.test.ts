@@ -51,6 +51,7 @@ vi.mock("../src/presentation/http/controllers/upload-controller", () => ({
 vi.mock("../src/presentation/http/controllers/file-controller", () => ({
 	handleFileRedirect: handlers.fileRedirect,
 	handleFileInfo: handlers.fileInfo,
+	handleListPublicFiles: handlers.fileInfo,
 }));
 vi.mock("../src/presentation/http/controllers/web-api-controller", () => ({
 	handleWebApiV1: handlers.webApi,

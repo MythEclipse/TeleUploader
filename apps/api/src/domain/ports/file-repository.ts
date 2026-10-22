@@ -105,6 +105,15 @@ export interface IFileRepository {
 	 * @returns An array of orphaned file records.
 	 */
 	findOrphansByBucket(bucketId: string): Promise<File[]>;
+
+	/**
+	 * List publicly uploaded files ordered by newest first with cursor pagination.
+	 *
+	 * @param limit - Maximum number of records to return.
+	 * @param before - Optional cursor (ISO timestamp string or Date) to page backwards.
+	 * @returns An array of public file records.
+	 */
+	listPublic(limit: number, before?: string | Date | null): Promise<File[]>;
 }
 
 /**
