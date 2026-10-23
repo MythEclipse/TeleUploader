@@ -1,3 +1,10 @@
+## [1.9.4](https://github.com/asepharyana/TeleUploader/compare/v1.9.3...v1.9.4) (2026-10-23)
+
+
+### Bug Fixes
+
+* **web:** use location.searchStr for redirect; restore semantic CSS for migrated routes ([7bed430](https://github.com/asepharyana/TeleUploader/commit/7bed4309c29204f4e6303eb1a1f1e2d1ad877d9d))
+
 ## [1.9.3](https://github.com/asepharyana/TeleUploader/compare/v1.9.2...v1.9.3) (2026-10-23)
 
 ## [1.9.2](https://github.com/asepharyana/TeleUploader/compare/v1.9.1...v1.9.2) (2026-10-23)
