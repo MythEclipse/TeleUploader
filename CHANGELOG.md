@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/asepharyana/TeleUploader/compare/v1.9.1...v1.9.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* **web:** hapus CSS manual pakai Tailwind inline ([0132ae7](https://github.com/asepharyana/TeleUploader/commit/0132ae7799b14759fb0fbdd10df4e76e298e4e56))
+
 ## [1.9.1](https://github.com/asepharyana/TeleUploader/compare/v1.9.0...v1.9.1) (2026-10-23)
 
 
