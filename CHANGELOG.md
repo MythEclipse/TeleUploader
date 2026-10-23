@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/asepharyana/TeleUploader/compare/v1.9.0...v1.9.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **web:** migrate CSS ke Tailwind penuh ([ae5d237](https://github.com/asepharyana/TeleUploader/commit/ae5d237fafc2ea35e4a31a2d3deb4d3cac947c4a))
+
 # [1.9.0](https://github.com/asepharyana/TeleUploader/compare/v1.8.0...v1.9.0) (2026-10-23)
 
 
