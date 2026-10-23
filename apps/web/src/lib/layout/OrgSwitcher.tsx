@@ -12,22 +12,23 @@ export const OrgSwitcher = (): React.JSX.Element | null => {
   if (auth.kind !== 'signed-in') return null;
 
   if (organizations.length === 0) {
-    return <span className="org-switcher org-empty" title="No workspace available">No workspace</span>;
+    return <span className="text-sm text-slate-500" title="No workspace available">No workspace</span>;
   }
 
   if (!active) {
-    return <span className="org-switcher org-empty" title="This workspace is not available">No workspace</span>;
+    return <span className="text-sm text-slate-500" title="This workspace is not available">No workspace</span>;
   }
 
   const multiple = organizations.length > 1;
 
   return (
-    <label className="org-switcher" title={multiple ? 'Switch workspace' : active.name}>
-      <span className="visually-hidden">Organization</span>
+    <label className="flex items-center gap-2" title={multiple ? 'Switch workspace' : active.name}>
+      <span className="sr-only">Organization</span>
       <select
         aria-label="Organization"
         disabled={!multiple}
         value={active.slug}
+        className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-md text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
         onChange={(event) => {
           const slug = event.target.value;
           void navigate({ to: '/$orgSlug/dashboard', params: { orgSlug: slug } });

@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useAuthState } from '../lib/auth-store';
 import { formatDate, formatSize } from '../lib/format';
-import { AppLink } from '../lib/layout/AppLink';
 import { publicFilesQuery } from '../lib/queries';
 
 export interface HomeSearch {
@@ -33,93 +32,72 @@ function PublicHomeRoute(): React.JSX.Element {
   const error = query.error instanceof Error ? query.error.message : null;
 
   return (
-    <div className="browser-page public-home">
-      <section className="public-hero">
-        <div className="hero-content">
-          <h1>TeleUploader Public File Explorer</h1>
-          <p className="hero-description">
-            Browse and download publicly shared files directly through Telegram storage.
-            {auth.kind !== 'signed-in' ? (
-              <>
-                {' '}
-                Want your own private S3 buckets and credentials?{' '}
-                <AppLink to="/login" className="btn btn-primary">
-                  Sign in with Google
-                </AppLink>
-              </>
-            ) : null}
-          </p>
-        </div>
+    <div className="p-5">
+      <section className="max-w-4xl mx-auto mb-8 text-center">
+        <h1 className="text-3xl font-bold mb-2">TeleUploader Public File Explorer</h1>
+        <p className="text-slate-400 max-w-2xl mx-auto">
+          Browse and download publicly shared files directly through Telegram storage.
+          {auth.kind !== 'signed-in' ? (
+            <div className="mt-4">
+              Want your own private S3 buckets and credentials?{' '}
+              <a href="/login" className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                Sign in with Google
+              </a>
+            </div>
+          ) : null}
+        </p>
       </section>
 
       {error ? (
-        <div className="error-banner" role="alert">
+        <div className="max-w-4xl mx-auto mb-4 p-4 bg-red-500/10 border border-red-500 text-red-500 rounded-lg" role="alert">
           {error}
         </div>
       ) : null}
 
-      <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Public Files ({files.length})</h2>
+      <div className="max-w-4xl mx-auto bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-slate-700 bg-slate-900/50">
+          <h2 className="font-semibold">Public Files ({files.length})</h2>
         </div>
-        <div className="card-content">
+        <div className="p-4">
           {files.length === 0 && !query.isPending ? (
-            <div className="empty-state">
-              <p>No public files available.</p>
+            <div className="py-12 text-center text-slate-400">
+              No public files available.
             </div>
           ) : (
-            <div className="table-responsive">
-              <table className="file-table">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
                 <thead>
-                  <tr>
-                    <th scope="col" className="name-col">
-                      File Name
-                    </th>
-                    <th scope="col" className="size-col">
-                      Size
-                    </th>
-                    <th scope="col" className="type-col">
-                      Type
-                    </th>
-                    <th scope="col" className="date-col">
-                      Date
-                    </th>
-                    <th scope="col" className="actions-col">
-                      Actions
-                    </th>
+                  <tr className="bg-slate-900/50">
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">File Name</th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Size</th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Type</th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Date</th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {files.map((file) => (
-                    <tr key={file.public_id} className="file-row">
-                      <td className="name-cell" title={file.file_name}>
-                        <span className="file-icon" aria-hidden="true">
-                          {file.mime_type.startsWith('image/')
-                            ? '🖼️'
-                            : file.mime_type.startsWith('video/')
-                              ? '🎬'
-                              : file.mime_type.startsWith('audio/')
-                                ? '🎵'
-                                : '📄'}
-                        </span>
-                        <span className="file-name-text">{file.file_name}</span>
+                    <tr key={file.public_id} className="hover:bg-slate-900/30 transition">
+                      <td className="p-3">
+                        <span className="mr-2">{file.mime_type.startsWith('image/') ? '🖼️' : file.mime_type.startsWith('video/') ? '🎬' : file.mime_type.startsWith('audio/') ? '🎵' : '📄'}</span>
+                        <span className="font-medium break-all" title={file.file_name}>{file.file_name}</span>
                       </td>
-                      <td className="size-cell">{formatSize(file.size_bytes)}</td>
-                      <td className="type-cell">{file.file_type || file.mime_type}</td>
-                      <td className="date-cell">{formatDate(file.created_at)}</td>
-                      <td className="actions-cell">
+                      <td className="p-3">{formatSize(file.size_bytes)}</td>
+                      <td className="p-3">{file.file_type || file.mime_type}</td>
+                      <td className="p-3">{formatDate(file.created_at)}</td>
+                      <td className="p-3 space-x-2">
                         <a
                           href={file.download_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="btn btn-secondary btn-sm"
+                          className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 text-sm transition"
                           download={file.file_name}
                         >
                           Download
                         </a>
                         <button
                           type="button"
-                          className="btn btn-ghost btn-sm"
+                          className="inline-flex items-center justify-center px-3 py-1.5 bg-transparent text-slate-300 rounded-lg hover:bg-slate-700 text-sm transition"
                           onClick={() => {
                             void navigator.clipboard.writeText(file.download_url);
                           }}
@@ -135,14 +113,14 @@ function PublicHomeRoute(): React.JSX.Element {
             </div>
           )}
         </div>
-        <div className="card-footer">
+        <div className="p-3 border-t border-slate-700 bg-slate-900/50 flex justify-end">
           {data?.next_cursor ? (
-            <AppLink
-              to={`/?cursor=${encodeURIComponent(data.next_cursor)}`}
-              className="btn btn-primary"
+            <a
+              href={`/?cursor=${encodeURIComponent(data.next_cursor)}`}
+              className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
             >
               Next Page →
-            </AppLink>
+            </a>
           ) : null}
         </div>
       </div>

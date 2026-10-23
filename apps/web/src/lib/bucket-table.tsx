@@ -1,6 +1,4 @@
-/**
- * The bucket list, with create and delete.
- */
+/** The bucket list, with create and delete. */
 
 import { useForm } from '@tanstack/react-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -80,58 +78,54 @@ export function BucketTable({
   });
 
   return (
-    <div className="browser-page">
+    <div className="px-5 py-4">
       {notice ? (
         <NoticeBanner notice={notice} onDismiss={() => patchBucketUi({ notice: null })} />
       ) : null}
 
-      <div className="browser-toolbar">
-        <h2 className="browser-toolbar-title">Buckets</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-200">Buckets</h2>
         {canWrite ? <CreateBucketButton orgSlug={orgSlug} onCreated={onOpen} /> : null}
       </div>
 
       {buckets.length === 0 ? (
-        <div className="empty-state">
-          <h2>No buckets yet</h2>
-          <p>
-            {canWrite ? 'Use "New bucket" above to create one.' : 'Sign in to create a bucket.'}
-          </p>
+        <div className="py-12 text-center text-slate-400">
+          <h2 className="text-lg text-slate-300 mb-2">No buckets yet</h2>
+          <p>{canWrite ? 'Use "New bucket" above to create one.' : 'Sign in to create a bucket.'}</p>
         </div>
       ) : (
-        <div className="panel">
-          <div className="table-responsive">
-            <table className="file-table">
-              <caption className="visually-hidden">Buckets in this workspace</caption>
+        <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <caption className="sr-only">Buckets in this workspace</caption>
               <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col" className="numeric">
-                    Objects
-                  </th>
-                  <th scope="col">Created</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Actions</span>
+                <tr className="bg-slate-900/50">
+                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Name</th>
+                  <th scope="col" className="text-right text-xs uppercase text-slate-400 font-semibold p-3">Objects</th>
+                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Created</th>
+                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                    <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-700">
                 {buckets.map((bucket) => (
-                  <tr key={bucket.id}>
-                    <th scope="row" className="name-cell">
+                  <tr key={bucket.id} className="hover:bg-slate-900/30 transition">
+                    <th scope="row" className="p-3">
                       <button
                         type="button"
-                        className="bucket-link"
+                        className="font-medium text-blue-400 hover:text-blue-300"
                         onClick={() => onOpen(bucket.name)}
                       >
                         {bucket.name}
                       </button>
                     </th>
-                    <td className="numeric">{bucket.objectCount}</td>
-                    <td className="muted">{formatDate(bucket.createdAt)}</td>
-                    <td className="actions-cell">
+                    <td className="p-3 text-right text-slate-300">{bucket.objectCount}</td>
+                    <td className="p-3 text-slate-500">{formatDate(bucket.createdAt)}</td>
+                    <td className="p-3 space-x-2">
                       <button
                         type="button"
-                        className="btn-ghost"
+                        className="text-slate-400 hover:text-slate-200 px-2 py-1 text-sm"
                         onClick={() => onOpen(bucket.name)}
                       >
                         Open
@@ -139,7 +133,7 @@ export function BucketTable({
                       {canWrite ? (
                         <button
                           type="button"
-                          className="btn-ghost danger"
+                          className="text-red-400 hover:text-red-300 px-2 py-1 text-sm disabled:opacity-50"
                           disabled={pending === bucket.name}
                           onClick={() => patchBucketUi({ confirming: bucket })}
                         >
@@ -163,8 +157,8 @@ export function BucketTable({
           onCancel={() => patchBucketUi({ confirming: null })}
           onConfirm={() => deleteMutation.mutate(confirming)}
         >
-          <p>
-            Delete the bucket <strong>{confirming.name}</strong>? This cannot be undone. The server
+          <p className="text-slate-200">
+            Delete the bucket <strong className="text-slate-100">{confirming.name}</strong>? This cannot be undone. The server
             refuses if it still contains objects.
           </p>
         </ConfirmDialog>
@@ -208,7 +202,7 @@ function CreateBucketButton({
     return (
       <button
         type="button"
-        className="btn-primary"
+        className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
         onClick={() => dialogOpenStore.setState(() => true)}
       >
         New bucket
@@ -226,8 +220,8 @@ function CreateBucketButton({
     >
       <form.Field name="name">
         {(field) => (
-          <label className="dialog-field">
-            <span className="field-label">Bucket name</span>
+          <div className="mb-4">
+            <label className="block text-xs uppercase text-slate-400 font-semibold mb-2">Bucket name</label>
             <input
               type="text"
               value={field.state.value}
@@ -239,20 +233,21 @@ function CreateBucketButton({
                 event.preventDefault();
                 void form.handleSubmit();
               }}
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-          </label>
+          </div>
         )}
       </form.Field>
 
-      <p className="field-help">
+      <p className="text-sm text-slate-500 mb-4">
         Lowercase, 3-63 characters, no underscores. The server enforces this and reports its own
         message when a name is rejected.
       </p>
 
       {createMutation.isError ? (
-        <p className="notice-banner error" role="alert">
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-500 rounded-lg text-sm">
           {messageOf(createMutation.error)}
-        </p>
+        </div>
       ) : null}
     </ConfirmDialog>
   );

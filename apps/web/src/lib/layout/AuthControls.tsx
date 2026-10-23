@@ -22,16 +22,16 @@ export const AuthControls = (): React.JSX.Element => {
   const signingOut = useSelector(signingOutStore, (value) => value);
 
   if (state.kind === 'unknown') {
-    return <span className="auth-status">Checking session…</span>;
+    return <span className="text-sm text-slate-400">Checking session…</span>;
   }
 
   return (
     <>
       {state.kind === 'signed-in' ? (
-        <span className="account" title={state.email}>
+        <div className="flex items-center gap-2" title={state.email}>
           {state.avatarUrl ? (
             <img
-              className="avatar"
+              className="w-6 h-6 rounded-full border border-slate-600"
               src={state.avatarUrl}
               alt=""
               width={24}
@@ -39,14 +39,14 @@ export const AuthControls = (): React.JSX.Element => {
               referrerPolicy="no-referrer"
             />
           ) : null}
-          <span className="account-name">{accountLabel(state.name, state.email)}</span>
-        </span>
+          <span className="text-sm text-slate-300 truncate max-w-[140px]">{accountLabel(state.name, state.email)}</span>
+        </div>
       ) : null}
 
-      {!canWrite ? <span className="readonly-badge">read-only</span> : null}
+      {!canWrite ? <span className="px-2 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs text-slate-500">read-only</span> : null}
 
       {offerLogin ? (
-        <AppLink className="btn btn-secondary" to={LOGIN_HREF}>
+        <AppLink className="px-3 py-1.5 bg-slate-700 text-white rounded-md hover:bg-slate-600 text-sm transition" to={LOGIN_HREF}>
           Sign in
         </AppLink>
       ) : null}
@@ -54,7 +54,7 @@ export const AuthControls = (): React.JSX.Element => {
       {state.kind === 'signed-in' ? (
         <button
           type="button"
-          className="btn btn-danger"
+          className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-60 text-sm transition"
           disabled={signingOut}
           title="Signs out and revokes this session on the server."
           onClick={() => {
