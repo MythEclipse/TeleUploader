@@ -1,6 +1,4 @@
-/**
- * The object browser: the app's main working surface.
- */
+/** The object browser: the app's main working surface. */
 
 import { Debouncer } from '@tanstack/pacer';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -224,18 +222,18 @@ export function FileBrowser({
   const hasRows = objects.length > 0 || prefixes.length > 0;
 
   return (
-    <div className="file-browser">
+    <div className="px-5 py-4">
       {notice ? <NoticeBanner notice={notice} onDismiss={() => patchUi({ notice: null })} /> : null}
 
       {listing.isError ? (
-        <p className="error-banner" role="alert">
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-500 rounded-lg" role="alert">
           {describeApiError(listing.error)}
-        </p>
+        </div>
       ) : null}
 
-      <div className="browser-toolbar">
-        <label className="filter-field">
-          <span className="field-label">Filter prefix</span>
+      <div className="mb-4 flex flex-wrap gap-4 items-center">
+        <label className="flex flex-col gap-1 min-w-[200px]">
+          <span className="text-xs uppercase text-slate-400 font-semibold">Filter prefix</span>
           <input
             type="text"
             value={prefix}
@@ -243,11 +241,12 @@ export function FileBrowser({
             autoComplete="off"
             placeholder="a/b/"
             onChange={(event) => navigateDebounced.maybeExecute(asPrefix(event.target.value))}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </label>
         <button
           type="button"
-          className="btn-ghost"
+          className="px-3 py-1.5 text-slate-400 hover:text-slate-200 disabled:opacity-50 text-sm"
           onClick={() => {
             navigateDebounced.cancel();
             onNavigate({ prefix: '' });
@@ -258,8 +257,8 @@ export function FileBrowser({
         </button>
 
         {buckets.some((candidate) => candidate.name !== bucket) ? (
-          <label className="bucket-select">
-            <span className="field-label">Switch bucket</span>
+          <label className="flex flex-col gap-1 min-w-[160px]">
+            <span className="text-xs uppercase text-slate-400 font-semibold">Switch bucket</span>
             <select
               value=""
               onChange={(event) => {
@@ -268,6 +267,7 @@ export function FileBrowser({
                 navigateDebounced.cancel();
                 onNavigate({ bucket: name, prefix: '' });
               }}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">— Switch to… —</option>
               {buckets
@@ -282,7 +282,7 @@ export function FileBrowser({
         ) : null}
       </div>
 
-      <p className="field-help">
+      <p className="text-sm text-slate-500 mb-4">
         Filters by object-key prefix, server-side. Folder and breadcrumb clicks write to the same
         URL, so this box always follows navigation.
       </p>
@@ -297,17 +297,17 @@ export function FileBrowser({
       />
 
       {mayBeTruncated ? (
-        <p className="notice-banner" role="status">
-          Showing the first {MAX_KEYS} entries of <strong>{bucket}</strong>
+        <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500 text-amber-500 rounded-lg text-sm">
+          Showing the first {MAX_KEYS} entries of <strong className="text-amber-400">{bucket}</strong>
           {prefix ? ` under ${prefix}` : ''}. The API offers no usable continuation token — its{' '}
-          <code>isTruncated</code> is always <code>false</code> — so entries beyond this page are
+          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">isTruncated</code> is always <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">false</code> — so entries beyond this page are
           not reachable from here.
-        </p>
+        </div>
       ) : null}
 
       {!hasRows && !listing.isPending ? (
-        <div className="empty-state">
-          <h2>{prefix ? 'This folder is empty' : 'This bucket is empty'}</h2>
+        <div className="py-12 text-center text-slate-400">
+          <h2 className="text-lg text-slate-300 mb-2">{prefix ? 'This folder is empty' : 'This bucket is empty'}</h2>
           {canWrite ? <p>Drop files below to upload.</p> : null}
         </div>
       ) : null}
@@ -343,11 +343,11 @@ export function FileBrowser({
           onCancel={() => patchUi({ confirming: null })}
           onConfirm={() => deleteMutation.mutate(confirming)}
         >
-          <p>
-            Delete <strong>{confirming.key}</strong>? This cannot be undone.
+          <p className="text-slate-200">
+            Delete <strong className="text-slate-100">{confirming.key}</strong>? This cannot be undone.
           </p>
-          <p className="field-help">
-            The API returns <code>{'{"success":true}'}</code> whether or not anything was removed,
+          <p className="text-sm text-slate-500 mt-2">
+            The API returns <code className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">{"{\"success\":true}"}</code> whether or not anything was removed,
             so this dialog reports success only after re-listing the prefix and confirming the key
             is gone.
           </p>
@@ -374,7 +374,9 @@ function DropZone({ onFiles }: { onFiles: (files: readonly File[]) => void }): R
 
   return (
     <label
-      className={dragging ? 'dropzone dragover' : 'dropzone'}
+      className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition mb-4 ${
+        dragging ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:bg-slate-800/50'
+      }`}
       onDragOver={(event) => {
         event.preventDefault();
         draggingStore.setState(() => true);
@@ -387,11 +389,12 @@ function DropZone({ onFiles }: { onFiles: (files: readonly File[]) => void }): R
         if (dropped.length > 0) onFiles(dropped);
       }}
     >
-      <span className="visually-hidden">Upload files</span>📁 Drop files here, or click to browse
+      <span className="sr-only">Upload files</span>
+      📁 Drop files here, or click to browse
       <input
         type="file"
         multiple
-        className="visually-hidden"
+        className="sr-only"
         onChange={(event) => {
           const picked = event.target.files ? Array.from(event.target.files) : [];
           if (picked.length > 0) onFiles(picked);
@@ -412,8 +415,8 @@ function UploadPanel({
   if (slots.length === 0) return null;
 
   return (
-    <section className="upload-panel" aria-live="polite" aria-label="Upload progress">
-      <ul>
+    <section className="mb-4 p-4 bg-slate-800 border border-slate-700 rounded-lg" aria-live="polite" aria-label="Upload progress">
+      <ul className="space-y-3">
         {slots.map((slot) => {
           const pct =
             slot.total > 0 ? Math.min(100, Math.round((slot.loaded / slot.total) * 100)) : 0;
@@ -426,10 +429,14 @@ function UploadPanel({
                   ? 'failed'
                   : 'uploading…';
           return (
-            <li key={slot.id} className={`upload-slot ${slot.phase}`}>
-              <span className="upload-name">{slot.name}</span>
-              <progress value={pct} max={100} aria-label={`${slot.name}: ${label}`} />
-              <span className="upload-status">
+            <li key={slot.id} className="flex items-center gap-3">
+              <span className="flex-1 text-sm text-slate-300 truncate">{slot.name}</span>
+              <progress value={pct} max={100} className="w-24 h-2 rounded-full overflow-hidden" aria-label={`${slot.name}: ${label}`}>
+                <div className="relative w-full h-full bg-slate-700 rounded-full">
+                  <div className={`h-full rounded-full transition-all duration-200 ${slot.phase === 'done' ? 'bg-green-500' : slot.phase === 'failed' ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }} />
+                </div>
+              </progress>
+              <span className="text-xs text-slate-400 min-w-[80px]">
                 {label}
                 {slot.phase === 'transferring' ? ` ${pct}%` : ''}
                 {slot.error ? ` — ${slot.error}` : ''}
@@ -438,9 +445,11 @@ function UploadPanel({
           );
         })}
       </ul>
-      <button type="button" className="btn-ghost" onClick={onDismiss}>
-        Dismiss
-      </button>
+      <div className="mt-3 flex justify-end">
+        <button type="button" className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-sm" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
     </section>
   );
 }

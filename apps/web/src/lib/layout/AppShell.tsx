@@ -1,10 +1,11 @@
-/** The shared chrome: top bar, nav, organization switcher, account controls. */
+/** The shared chrome: modern top bar with controls. */
 
 import { Outlet, useRouterState } from '@tanstack/react-router';
 import { useActiveOrganization } from '../auth-store';
 import { AppLink } from './AppLink';
 import { AuthControls } from './AuthControls';
 import { OrgSwitcher } from './OrgSwitcher';
+import { ThemeToggle } from '../../components/theme-toggle';
 
 const isCurrent = (pathname: string, to: string): boolean =>
   to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
@@ -15,9 +16,9 @@ export const AppShell = (): React.JSX.Element => {
   const dashboardHref = activeOrg ? `/${activeOrg.slug}/dashboard` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      <header className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 sticky top-0 z-50">
-        <AppLink to="/" className="font-bold text-lg text-slate-900 no-underline">
+    <div className="flex flex-col min-h-screen bg-slate-900">
+      <header className="h-16 px-5 border-b border-slate-700 bg-slate-800 flex items-center gap-4 sticky top-0 z-50">
+        <AppLink to="/" className="font-bold text-blue-500 text-lg tracking-tight">
           FileDrop
         </AppLink>
 
@@ -25,11 +26,7 @@ export const AppShell = (): React.JSX.Element => {
           <AppLink
             to="/"
             aria-current={isCurrent(pathname, '/') ? 'page' : undefined}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              isCurrent(pathname, '/')
-                ? 'bg-blue-50 text-blue-600'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
+            className="px-3 py-1.5 rounded-md text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition text-sm font-medium"
           >
             Files
           </AppLink>
@@ -37,11 +34,7 @@ export const AppShell = (): React.JSX.Element => {
             <AppLink
               to={dashboardHref}
               aria-current={isCurrent(pathname, dashboardHref) ? 'page' : undefined}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                isCurrent(pathname, dashboardHref)
-                  ? 'bg-blue-50 text-blue-600'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+              className="px-3 py-1.5 rounded-md text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition text-sm font-medium"
             >
               Dashboard
             </AppLink>
@@ -49,12 +42,14 @@ export const AppShell = (): React.JSX.Element => {
         </nav>
 
         <div className="flex-1" />
-
-        <OrgSwitcher />
-        <AuthControls />
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <OrgSwitcher />
+          <AuthControls />
+        </div>
       </header>
 
-      <main className="flex-1 max-w-4xl mx-auto px-4 py-8">
+      <main className="flex-1">
         <Outlet />
       </main>
     </div>
