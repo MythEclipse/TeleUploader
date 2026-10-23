@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/asepharyana/TeleUploader/compare/v1.6.1...v1.6.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* **web:** resolve RPC URL against origin so oRPC link doesn't throw Invalid URL ([069f750](https://github.com/asepharyana/TeleUploader/commit/069f750d403be0d714e5dde84701b10f82307d1d))
+
 ## [1.6.1](https://github.com/asepharyana/TeleUploader/compare/v1.6.0...v1.6.1) (2026-10-22)
 
 
