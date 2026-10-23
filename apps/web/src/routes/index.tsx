@@ -50,7 +50,7 @@ function PublicHomeRoute(): React.JSX.Element {
               <>
                 {' '}
                 Want your own private S3 buckets and credentials?{' '}
-                <AppLink href="/login" className="hero-cta-link">
+                <AppLink to="/login" className="hero-cta-link">
                   Sign in with Google
                 </AppLink>
               </>
@@ -145,7 +145,7 @@ function PublicHomeRoute(): React.JSX.Element {
         {data?.next_cursor ? (
           <div className="pagination-bar">
             <AppLink
-              href={`/?cursor=${encodeURIComponent(data.next_cursor)}`}
+              to={`/?cursor=${encodeURIComponent(data.next_cursor)}`}
               className="button secondary"
             >
               Next Page →

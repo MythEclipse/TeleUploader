@@ -44,7 +44,7 @@ const DEFAULT_REGION = 'us-east-1';
 
 export const Route = createFileRoute('/_authenticated/$orgSlug/dashboard')({
   /**
-   * Prefetches the three reads this page needs.
+   * Prefetches the reads this page needs.
    *
    * The tenant is already published by the parent `$orgSlug` guard, so these calls are
    * scoped correctly without taking a slug argument.
@@ -76,14 +76,18 @@ function DashboardRoute(): React.JSX.Element {
 
   return (
     <div className="dashboard">
-      <section className="dashboard-controls" aria-label="Storage totals">
-        <div className="empty-state" style={{ flex: 1, padding: 'var(--fd-space-5)' }}>
-          <h2>{formatSize(totalBytes)}</h2>
-          <p className="muted">stored across {perBucket.length} bucket(s)</p>
+      <section className="hero" aria-label="Storage totals">
+        <div>
+          <p className="field-label">Total storage</p>
+          <p className="hero-number">{formatSize(totalBytes)}</p>
         </div>
-        <div className="empty-state" style={{ flex: 1, padding: 'var(--fd-space-5)' }}>
-          <h2>{totalObjects.toLocaleString()}</h2>
-          <p className="muted">objects</p>
+        <div>
+          <p className="field-label">Objects</p>
+          <p className="hero-number">{totalObjects.toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="field-label">Buckets</p>
+          <p className="hero-number">{perBucket.length}</p>
         </div>
       </section>
 
@@ -121,7 +125,7 @@ function DashboardRoute(): React.JSX.Element {
                   <td className="numeric">{row.objects.toLocaleString()}</td>
                   <td className="numeric">{formatSize(row.bytes)}</td>
                   <td className="actions-cell">
-                    <AppLink className="button small" href={`/${orgSlug}/${row.name}`}>
+                    <AppLink className="button small" to={`/${orgSlug}/${row.name}`}>
                       Open
                     </AppLink>
                   </td>

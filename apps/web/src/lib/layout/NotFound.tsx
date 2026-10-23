@@ -21,7 +21,7 @@ const NotFound = ({
     <h2>{title}</h2>
     {detail ? <p>{detail}</p> : null}
     <p>
-      <AppLink href="/">Back to files</AppLink>
+      <AppLink to="/">Back to files</AppLink>
     </p>
   </div>
 );

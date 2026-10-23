@@ -9,19 +9,20 @@
  *
  * ## The active nav item comes from the ROUTER, not from a literal
  *
- * The previous version hardcoded `aria-current="page"` on the Files link, so every page
- * announced itself as the file browser — a screen-reader user was told they were on
- * `/` while looking at the dashboard. `useRouterState` reads the resolved pathname and
- * each item compares against it.
+ * `useRouterState` reads the resolved pathname and each item compares against it, so
+ * only the page the user is actually on announces itself to screen readers.
  *
- * The comparison is prefix-based for the dashboard (which owns `/<org>/dashboard`) and
- * exact for Files, because Files is `/` — a prefix match on `/` would match everything.
+ * ## Nav items
+ *
+ * Files (`/`) is exact-match; Dashboard (`/<org>/dashboard`) is prefix-matched so a
+ * nested bucket path keeps the Dashboard item current. Public home (`/`) and Dashboard
+ * both link to real routes, so `<Link>` works.
  *
  * ## The Dashboard link is derived, and absent when it cannot exist
  *
- * `activeOrg` comes from the auth store. When the caller has no organization there is no
- * valid `$orgSlug` to put in the href, and a nav item to nowhere is worse than no nav
- * item. Same reasoning as the previous version, kept.
+ * `activeOrg` comes from the auth store. When the caller has no organization there is
+ * no valid `$orgSlug` to put in the href, and a nav item to nowhere is worse than no
+ * nav item. Same reasoning as the previous version, kept.
  */
 
 import { Outlet, useRouterState } from '@tanstack/react-router';
@@ -31,17 +32,17 @@ import { AuthControls } from './AuthControls';
 import { OrgSwitcher } from './OrgSwitcher';
 
 /**
- * Whether a nav href is the current page.
+ * Whether a nav `to` matches the current page.
  *
  * Exact match for `/` (a prefix test would match every route) and prefix match for
  * everything else, so `/<org>/dashboard` stays current on a nested path.
  *
  * @param pathname - The router's resolved pathname.
- * @param href - The nav item's destination.
+ * @param to - The nav item's destination.
  * @returns Whether to mark the item as the current page.
  */
-const isCurrent = (pathname: string, href: string): boolean =>
-  href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
+const isCurrent = (pathname: string, to: string): boolean =>
+  to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
 
 export const AppShell = (): React.JSX.Element => {
   const activeOrg = useActiveOrganization();
@@ -51,17 +52,17 @@ export const AppShell = (): React.JSX.Element => {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <AppLink href="/" className="logo">
+        <AppLink to="/" className="logo">
           FileDrop
         </AppLink>
 
         <nav aria-label="Primary">
-          <AppLink href="/" aria-current={isCurrent(pathname, '/') ? 'page' : undefined}>
+          <AppLink to="/" aria-current={isCurrent(pathname, '/') ? 'page' : undefined}>
             Files
           </AppLink>
           {dashboardHref ? (
             <AppLink
-              href={dashboardHref}
+              to={dashboardHref}
               aria-current={isCurrent(pathname, dashboardHref) ? 'page' : undefined}
             >
               Dashboard

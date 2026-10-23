@@ -486,6 +486,29 @@ input::placeholder {
   gap: var(--fd-space-3);
 }
 
+/* ── Hero stats ────────────────────────────────────────────────────────────── */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-6);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-lg);
+  background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-2) 100%);
+}
+
+.hero h2 {
+  font-size: var(--fd-text-xl);
+}
+
+.hero .hero-number {
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
 /* ── Toolbars and fields ───────────────────────────────────────────────────── */
 
 .browser-toolbar {
@@ -493,6 +516,90 @@ input::placeholder {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--fd-space-3);
+}
+
+/* ── Panels ─────────────────────────────────────────────────────────────────── */
+
+.panel,
+.file-list-panel {
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius);
+  background: var(--fd-surface);
+  box-shadow: var(--fd-shadow);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--fd-space-3);
+  padding: var(--fd-space-3) var(--fd-space-4);
+  border-bottom: 1px solid var(--fd-border);
+}
+
+.panel-header h2 {
+  font-size: var(--fd-text-base);
+}
+
+.panel-body {
+  padding: var(--fd-space-4);
+}
+
+/* ── Tables inside panels / responsive wrappers ─────────────────────────────── */
+
+.table-responsive {
+  overflow-x: auto;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding: var(--fd-space-3);
+}
+
+/* ── Public home ───────────────────────────────────────────────────────────── */
+
+.public-home {
+  gap: var(--fd-space-5);
+}
+
+.public-hero {
+  padding: var(--fd-space-8) var(--fd-space-6);
+  border: 1px solid var(--fd-border);
+  border-radius: var(--fd-radius-lg);
+  background: linear-gradient(135deg, var(--fd-surface) 0%, var(--fd-surface-2) 100%);
+  text-align: center;
+}
+
+.public-hero .hero-content {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fd-space-3);
+}
+
+.public-hero h1 {
+  font-size: 1.875rem;
+  letter-spacing: -0.02em;
+}
+
+.public-hero .hero-description {
+  color: var(--fd-muted);
+  font-size: var(--fd-text-base);
+}
+
+.public-hero .hero-cta-link {
+  font-weight: 600;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+
+.button.secondary {
+  background: var(--fd-surface);
+}
+
+.button.secondary:hover {
+  background: var(--fd-surface-hover);
 }
 
 .bucket-select,
@@ -632,6 +739,43 @@ input::placeholder {
 .file-table .actions-cell button,
 .file-table .actions-cell .button {
   margin-left: var(--fd-space-2);
+}
+
+/* Column variants used by listing tables (name/size/type/date/actions + row). */
+
+.file-table .actions-col {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.file-table .name-col {
+  min-width: 0;
+}
+
+.file-table .size-col,
+.file-table .type-col,
+.file-table .date-col {
+  white-space: nowrap;
+}
+
+.file-table .size-cell,
+.file-table .type-cell,
+.file-table .date-cell {
+  vertical-align: middle;
+}
+
+.file-table .file-row:hover {
+  background: var(--fd-surface-hover);
+}
+
+.file-table .file-icon {
+  font-size: 1em;
+  margin-right: var(--fd-space-1);
+}
+
+.file-table .file-name-text {
+  font-weight: 500;
+  color: var(--fd-fg);
 }
 
 /* Row content --------------------------------------------------------------- */

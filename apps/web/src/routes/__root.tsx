@@ -56,7 +56,7 @@ const ErrorState = ({ error, reset }: { error: unknown; reset: () => void }): Re
       <button type="button" onClick={reset}>
         Try again
       </button>
-      <AppLink href="/">Back to files</AppLink>
+      <AppLink to="/">Back to files</AppLink>
     </div>
   </div>
 );

@@ -18,17 +18,23 @@
 
 | Decision | Rationale |
 |----------|-----------|
-| Fix RPC URL absolut | oRPC butuh base URL absolut; string relatif tidak valid untuk `new URL()`. |
-| Rombakan topbar | Tambah link ke public home (`/`) dan Files, aktif state dari router. |
-| Rombakan dashboard | Tambah per-bucket list + CTA "Open bucket". |
-| Rombakan error boundary | Tambah link ke home/dashboard, pesan error lebih informatif. |
+| Fix RPC URL absolut | oRPC butuh base URL absolut; string relatif tidak valid untuk `new URL()`. Sudah di-deploy via `069f750`. |
+| Rombakan CSS | >25 class yang dirujuk route belum ada di `index.css` → render tanpa gaya. Ditambahkan semua class: `panel`, `file-list-panel`, `panel-header`, `table-responsive`, `pagination-bar`, `public-hero`, `hero-content`, `hero-description`, `hero-cta-link`, `public-home`, `name-col`, `size-col`, `type-col`, `date-col`, `actions-col`, `size-cell`, `type-cell`, `date-cell`, `file-icon`, `file-name-text`, `file-row`, `secondary`, `hero`, `hero-number`. |
+| SPA navigation via `Link` | `AppLink` sekarang wrapper di atas TanStack `Link` (`to`) agar navigasi internal adalah client-side transition, bukan full document reload (`<a href>`). |
+| Dashboard hero | Dua blok `empty-state` diganti section `hero` dengan angka Total storage / Objects / Buckets yang memukau, diikuti tabel per-bucket. |
+| Public home | Pakai `panel`, `table-responsive`, `pagination-bar`, baris berkelas (`file-row`, `name-col`…), dan `secondary` button untuk paginasi. |
 
 ## Resources
 
 - `apps/web/src/lib/rpc.ts`
 - `apps/web/src/routes/_authenticated/$orgSlug/dashboard.tsx`
 - `apps/web/src/lib/layout/AppShell.tsx`
+- `apps/web/src/lib/layout/AppLink.tsx`
+- `apps/web/src/lib/layout/AuthControls.tsx`
+- `apps/web/src/lib/layout/NotFound.tsx`
 - `apps/web/src/routes/__root.tsx`
+- `apps/web/src/routes/index.tsx`
+- `apps/web/src/index.css`
 
 ---
 

@@ -25,10 +25,20 @@
   - Rewrote `apps/web/src/lib/layout/AppShell.tsx`: active nav state via `isCurrent(pathname, href)`; Files exact, dashboard prefix.
   - Rewrote `apps/web/src/routes/__root.tsx`: error boundary preserved, describeError, links.
   - Rewrote `apps/web/src/routes/_authenticated/$orgSlug/dashboard.tsx`: added per-bucket table with Open link, S3 access section, credentials panel.
+  - UX rombakan (second pass):
+    - Added missing CSS for every class the routes emit: `panel`, `file-list-panel`, `panel-header`, `table-responsive`, `pagination-bar`, `public-hero`, `hero-content`, `hero-description`, `hero-cta-link`, `public-home`, `name-col`, `size-col`, `type-col`, `date-col`, `actions-col`, `size-cell`, `type-cell`, `date-cell`, `file-icon`, `file-name-text`, `file-row`, `secondary`, `hero`, `hero-number`, `field-label`, `field-help`.
+    - Replaced `<a href>` AppLink with TanStack `Link`-backed AppLink (`to`) for client-side SPA navigation instead of full document reload.
+    - Replaced dashboard's two `empty-state` stat blocks with a `hero` section: Total storage / Objects / Buckets numbers, per-bucket table below.
+    - Public home now uses `panel`, `table-responsive`, `pagination-bar`, row classes.
 - Files created/modified:
+  - `apps/web/src/lib/layout/AppLink.tsx`
   - `apps/web/src/lib/layout/AppShell.tsx`
-  - `apps/web/src/routes/__root.tsx`
   - `apps/web/src/routes/_authenticated/$orgSlug/dashboard.tsx`
+  - `apps/web/src/routes/index.tsx`
+  - `apps/web/src/lib/layout/NotFound.tsx`
+  - `apps/web/src/routes/__root.tsx`
+  - `apps/web/src/lib/layout/AuthControls.tsx`
+  - `apps/web/src/index.css`
 
 ### Phase 4: Testing & Verification
 - **Status:** complete
@@ -41,7 +51,16 @@
   - `bun test apps/api/test/auth.test.ts` → 13 pass, 0 fail.
 
 ### Phase 5: Delivery
-- **Status:** in_progress
+- **Status:** complete
+- **Started:** 2026-10-23
+- Actions taken:
+  - Committed `330cb08 feat(web): improve dashboard bucket navigation and error boundary UX`.
+  - Committed UX rombakan second pass (CSS + hero + Link navigation).
+  - `bun run typecheck` → exit 0
+  - `bun run lint` → exit 0
+  - `bun test` → 28 pass, 0 fail
+  - `bun run build` → exit 0
+  - Pushed to origin/main
 - **Started:** 2026-10-23
 - Actions taken:
   - Committed `330cb08 feat(web): improve dashboard bucket navigation and error boundary UX`.
@@ -52,7 +71,6 @@
   - Health `/health`, `/healthz`, `/` → all 200.
 
 ## Test Results
-
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
 | web typecheck | tsc --noEmit | exit 0 | exit 0 | PASS |
@@ -61,19 +79,25 @@
 | web auth tests | bun test auth.test.ts | 28 pass | 28 pass | PASS |
 | api auth tests | bun test auth.test.ts | 13 pass | 13 pass | PASS |
 
-## Error Log
+## Browser audit (dev preview on localhost:4173)
+| Check | Result |
+|------|--------|
+| Home `/` loads | SPA renders; title "FileDrop · S3 File Manager"; JS bundle active; CSS (16.6 KB) applied |
+| Navigate `/login` | TanStack Router transitions client-side; login card renders |
+| Public files error | "Not Found" — preview serves SPA only, no backend API; not a UI defect |
+| Router | Works end-to-end (no full page reload between `/` and `/login`) |
 
+## Error Log
 | Timestamp | Error | Attempt | Resolution |
 |-----------|-------|---------|------------|
 | 2026-10-23 | `Failed to construct 'URL': Invalid URL` | 1 | Di-fix rpc.ts absolut; deploy 069f750. |
 | 2026-10-23 | biome organize imports | 1 | Di-fix via `biome check --write src`. |
 
 ## 5-Question Reboot Check
-
 | Question | Answer |
 |----------|--------|
 | Where am I? | Phase 5 delivery. |
 | Where am I going? | Deliver final report. |
 | What's the goal? | Rombakan FE + fix error Invalid URL. |
 | What have I learned? | Lihat findings.md. |
-| What have I done? | Fix + rombakan FE + verifikasi lolos. |
+| What have I done? | Fix + rombakan FE + verifikasi lolos + browser audit. |

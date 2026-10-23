@@ -94,7 +94,7 @@ export const AuthControls = (): React.JSX.Element => {
       {!canWrite ? <span className="readonly-badge">read-only</span> : null}
 
       {offerLogin ? (
-        <AppLink className="ghost button" href={LOGIN_HREF}>
+        <AppLink className="ghost button" to={LOGIN_HREF}>
           Sign in
         </AppLink>
       ) : null}
