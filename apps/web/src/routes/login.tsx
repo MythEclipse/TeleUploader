@@ -1,6 +1,4 @@
-/**
- * `/login` — the sign-in page.
- */
+/** `/login` — the sign-in page. */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ThemeToggle } from '../components/theme-toggle';
@@ -43,7 +41,7 @@ function LoginRoute(): React.JSX.Element {
         </p>
         <button
           type="button"
-          className="btn-primary"
+          className="btn btn-primary"
           onClick={() => {
             void refreshAuth({ force: true });
           }}
@@ -63,7 +61,7 @@ function LoginRoute(): React.JSX.Element {
         </p>
         <button
           type="button"
-          className="btn-primary"
+          className="btn btn-primary"
           onClick={() => {
             void navigate({ to: redirect || '/' });
           }}
@@ -97,14 +95,13 @@ function LoginRoute(): React.JSX.Element {
         Sign in with Google to reach your buckets. Every account gets its own workspace and its own
         S3 credentials; nobody else can see your files.
       </p>
-      <a className="btn-primary google-signin" href={startHref}>
+      <a className="btn btn-primary google-signin" href={startHref}>
         Continue with Google
       </a>
       <p className="field-help">
         You will be redirected to Google and back. Only your email, display name and avatar are
         stored.
       </p>
-      <ThemeToggle />
     </div>
   );
 }

@@ -1,6 +1,4 @@
-/**
- * Bucket-scoped route: bucket table + file browser for `/<org>/<bucket>`.
- */
+/** Bucket-scoped route: bucket table + file browser for `/<org>/<bucket>`. */
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router';

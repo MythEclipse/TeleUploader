@@ -1,6 +1,4 @@
-/**
- * Dashboard route — storage totals, buckets table, S3 access, credentials.
- */
+/** Dashboard route — storage totals, buckets table, S3 access, credentials. */
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
@@ -53,17 +51,15 @@ function DashboardRoute(): React.JSX.Element {
       </section>
 
       {usageError ? (
-        <p className="error-banner" role="alert">
+        <div className="error-banner" role="alert">
           Could not read storage usage: {usageError}
-        </p>
+        </div>
       ) : null}
 
       {perBucket.length > 0 ? (
         <section aria-label="Buckets">
-          <div className="browser-toolbar">
-            <h2 className="browser-toolbar-title">Buckets</h2>
-          </div>
-          <div className="panel">
+          <h2 className="browser-toolbar-title">Buckets</h2>
+          <div className="card">
             <div className="table-responsive">
               <table className="file-table">
                 <caption className="visually-hidden">Storage per bucket</caption>
@@ -88,7 +84,7 @@ function DashboardRoute(): React.JSX.Element {
                       <td className="numeric">{row.objects.toLocaleString()}</td>
                       <td className="numeric">{formatSize(row.bytes)}</td>
                       <td className="actions-cell">
-                        <AppLink className="btn-secondary btn-sm" to={`/${orgSlug}/${row.name}`}>
+                        <AppLink className="btn btn-secondary btn-sm" to={`/${orgSlug}/${row.name}`}>
                           Open
                         </AppLink>
                       </td>
@@ -102,13 +98,13 @@ function DashboardRoute(): React.JSX.Element {
       ) : null}
 
       <section aria-label="S3 access">
-        <h2>S3 access</h2>
+        <h2 className="browser-toolbar-title">S3 access</h2>
         <p className="field-help">
           Point <code>aws-cli</code>, <code>rclone</code> or the Docker registry client at these
           values. Credentials are per workspace, so one workspace's keys cannot reach another's
           buckets.
         </p>
-        <div className="panel">
+        <div className="card">
           <div className="table-responsive">
             <table className="file-table">
               <caption className="visually-hidden">S3 connection settings</caption>

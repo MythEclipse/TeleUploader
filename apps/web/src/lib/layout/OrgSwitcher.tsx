@@ -1,6 +1,4 @@
-/**
- * Organization switcher — a REAL control now.
- */
+/** Organization switcher — cleaner, functional control. */
 
 import { useNavigate } from '@tanstack/react-router';
 import { useActiveOrganization, useAuthState, useOrganizations } from '../auth-store';
@@ -14,19 +12,11 @@ export const OrgSwitcher = (): React.JSX.Element | null => {
   if (auth.kind !== 'signed-in') return null;
 
   if (organizations.length === 0) {
-    return (
-      <span className="org-switcher org-empty" title="No workspace is available for this account">
-        no workspace
-      </span>
-    );
+    return <span className="org-switcher org-empty" title="No workspace available">No workspace</span>;
   }
 
   if (!active) {
-    return (
-      <span className="org-switcher org-empty" title="This workspace is not available to you">
-        no workspace
-      </span>
-    );
+    return <span className="org-switcher org-empty" title="This workspace is not available">No workspace</span>;
   }
 
   const multiple = organizations.length > 1;

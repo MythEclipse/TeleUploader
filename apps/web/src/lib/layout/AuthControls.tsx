@@ -1,6 +1,4 @@
-/**
- * Sign in / sign out / account identity — the session gating in the top bar.
- */
+/** Sign in / sign out / account identity — the session gating in the top bar. */
 
 import { useSelector } from '@tanstack/react-store';
 import { Store } from '@tanstack/store';
@@ -48,7 +46,7 @@ export const AuthControls = (): React.JSX.Element => {
       {!canWrite ? <span className="readonly-badge">read-only</span> : null}
 
       {offerLogin ? (
-        <AppLink className="btn-ghost" to={LOGIN_HREF}>
+        <AppLink className="btn btn-secondary" to={LOGIN_HREF}>
           Sign in
         </AppLink>
       ) : null}
@@ -56,7 +54,7 @@ export const AuthControls = (): React.JSX.Element => {
       {state.kind === 'signed-in' ? (
         <button
           type="button"
-          className="btn-ghost"
+          className="btn btn-danger"
           disabled={signingOut}
           title="Signs out and revokes this session on the server."
           onClick={() => {
