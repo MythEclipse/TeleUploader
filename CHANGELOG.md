@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/asepharyana/TeleUploader/compare/v1.8.0...v1.9.0) (2026-10-23)
+
+
+### Features
+
+* **web:** rewrite as shadcn-style SPA (no React hooks, TanStack Stack) ([2ab9da0](https://github.com/asepharyana/TeleUploader/commit/2ab9da02d61ec9fabbb3e16ff5b78d00782c76dc))
+
 # [1.8.0](https://github.com/asepharyana/TeleUploader/compare/v1.7.0...v1.8.0) (2026-10-23)
 
 
