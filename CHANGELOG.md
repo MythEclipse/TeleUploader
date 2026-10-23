@@ -1,3 +1,10 @@
+## [1.9.5](https://github.com/asepharyana/TeleUploader/compare/v1.9.4...v1.9.5) (2026-10-23)
+
+
+### Bug Fixes
+
+* **web:** add missing semantic CSS classes file-browser upload public-home ([ad34f24](https://github.com/asepharyana/TeleUploader/commit/ad34f24b3b0563af3101e03be4e5948c77e550be))
+
 ## [1.9.4](https://github.com/asepharyana/TeleUploader/compare/v1.9.3...v1.9.4) (2026-10-23)
 
 
