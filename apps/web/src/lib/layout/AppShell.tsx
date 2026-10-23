@@ -46,7 +46,6 @@ const isCurrent = (pathname: string, href: string): boolean =>
 export const AppShell = (): React.JSX.Element => {
   const activeOrg = useActiveOrganization();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-
   const dashboardHref = activeOrg ? `/${activeOrg.slug}/dashboard` : null;
 
   return (

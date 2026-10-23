@@ -10,13 +10,6 @@
  * worst failure shape in this repo: a green build that shipped a broken router.
  * `src/routeTree.gen.ts` is written by the plugin — never edit it by hand.
  *
- * ## The Query cache is created here, once
- *
- * `createRootRouteWithContext` is the supported way to hand the `QueryClient` to
- * every route's `beforeLoad`. It is created in `lib/query.ts` at module scope (so
- * guards can prefetch through it before React mounts) and passed into the router in
- * `router.tsx`; this file only declares the context's type.
- *
  * ## Why there is no `useEffect` here
  *
  * Kana bans React hooks. The previous version fired the auth probe from a

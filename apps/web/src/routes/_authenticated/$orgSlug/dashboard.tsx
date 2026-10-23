@@ -36,14 +36,10 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCanWrite } from '../../../lib/auth-store';
 import { CredentialsPanel } from '../../../lib/credentials-panel';
 import { formatSize } from '../../../lib/format';
+import { AppLink } from '../../../lib/layout/AppLink';
 import { storageEndpointQuery, storageUsageQuery } from '../../../lib/queries';
 
-/**
- * Region shown when the API exposes nothing.
- *
- * This is `config.s3DefaultRegion`'s documented default, NOT a value read from the
- * server. Labelled as such in the UI.
- */
+/** The region shown when the API exposes nothing. */
 const DEFAULT_REGION = 'us-east-1';
 
 export const Route = createFileRoute('/_authenticated/$orgSlug/dashboard')({
@@ -65,7 +61,7 @@ export const Route = createFileRoute('/_authenticated/$orgSlug/dashboard')({
 /**
  * The page.
  *
- * @returns The overview, plus the credentials panel.
+ * @returns The overview, the credentials panel, and a way into the buckets.
  */
 function DashboardRoute(): React.JSX.Element {
   const { orgSlug } = Route.useRouteContext();
@@ -98,29 +94,42 @@ function DashboardRoute(): React.JSX.Element {
       ) : null}
 
       {perBucket.length > 0 ? (
-        <table className="file-table">
-          <caption className="visually-hidden">Storage per bucket</caption>
-          <thead>
-            <tr>
-              <th scope="col">Bucket</th>
-              <th scope="col" className="numeric">
-                Objects
-              </th>
-              <th scope="col" className="numeric">
-                Size
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {perBucket.map((row) => (
-              <tr key={row.id}>
-                <th scope="row">{row.name}</th>
-                <td className="numeric">{row.objects.toLocaleString()}</td>
-                <td className="numeric">{formatSize(row.bytes)}</td>
+        <section aria-label="Buckets">
+          <div className="browser-toolbar">
+            <h2 style={{ flex: 1 }}>Buckets</h2>
+          </div>
+          <table className="file-table">
+            <caption className="visually-hidden">Storage per bucket</caption>
+            <thead>
+              <tr>
+                <th scope="col">Bucket</th>
+                <th scope="col" className="numeric">
+                  Objects
+                </th>
+                <th scope="col" className="numeric">
+                  Size
+                </th>
+                <th scope="col">
+                  <span className="visually-hidden">Actions</span>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {perBucket.map((row) => (
+                <tr key={row.id}>
+                  <th scope="row">{row.name}</th>
+                  <td className="numeric">{row.objects.toLocaleString()}</td>
+                  <td className="numeric">{formatSize(row.bytes)}</td>
+                  <td className="actions-cell">
+                    <AppLink className="button small" href={`/${orgSlug}/${row.name}`}>
+                      Open
+                    </AppLink>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       ) : null}
 
       <section aria-label="S3 access">
