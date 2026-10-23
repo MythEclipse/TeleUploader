@@ -1,6 +1,4 @@
-/**
- * Dashboard route — storage totals, buckets table, S3 access, credentials.
- */
+/** Dashboard route — storage totals, buckets table, S3 access, credentials. */
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
@@ -36,59 +34,55 @@ function DashboardRoute(): React.JSX.Element {
   const usageError = usage.error instanceof Error ? usage.error.message : null;
 
   return (
-    <div className="dashboard">
-      <section className="hero" aria-label="Storage totals">
-        <div>
-          <p className="field-label">Total storage</p>
-          <p className="hero-number">{formatSize(totalBytes)}</p>
+    <div className="space-y-6">
+      <section className="grid grid-cols-3 gap-4" aria-label="Storage totals">
+        <div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Total storage</p>
+          <p className="text-3xl font-bold text-slate-900">{formatSize(totalBytes)}</p>
         </div>
-        <div>
-          <p className="field-label">Objects</p>
-          <p className="hero-number">{totalObjects.toLocaleString()}</p>
+        <div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Objects</p>
+          <p className="text-3xl font-bold text-slate-900">{totalObjects.toLocaleString()}</p>
         </div>
-        <div>
-          <p className="field-label">Buckets</p>
-          <p className="hero-number">{perBucket.length}</p>
+        <div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Buckets</p>
+          <p className="text-3xl font-bold text-slate-900">{perBucket.length}</p>
         </div>
       </section>
 
       {usageError ? (
-        <p className="error-banner" role="alert">
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg" role="alert">
           Could not read storage usage: {usageError}
-        </p>
+        </div>
       ) : null}
 
       {perBucket.length > 0 ? (
         <section aria-label="Buckets">
-          <div className="browser-toolbar">
-            <h2 className="browser-toolbar-title">Buckets</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">Buckets</h2>
           </div>
-          <div className="panel">
-            <div className="table-responsive">
-              <table className="file-table">
-                <caption className="visually-hidden">Storage per bucket</caption>
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr>
-                    <th scope="col">Bucket</th>
-                    <th scope="col" className="numeric">
-                      Objects
-                    </th>
-                    <th scope="col" className="numeric">
-                      Size
-                    </th>
-                    <th scope="col">
-                      <span className="visually-hidden">Actions</span>
-                    </th>
+                  <tr className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+                    <th className="px-4 py-3 font-semibold">Bucket</th>
+                    <th className="px-4 py-3 font-semibold text-right">Objects</th>
+                    <th className="px-4 py-3 font-semibold text-right">Size</th>
+                    <th className="px-4 py-3 font-semibold">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-200">
                   {perBucket.map((row) => (
-                    <tr key={row.id}>
-                      <th scope="row">{row.name}</th>
-                      <td className="numeric">{row.objects.toLocaleString()}</td>
-                      <td className="numeric">{formatSize(row.bytes)}</td>
-                      <td className="actions-cell">
-                        <AppLink className="btn-secondary btn-sm" to={`/${orgSlug}/${row.name}`}>
+                    <tr key={row.id} className="hover:bg-slate-50">
+                      <th className="px-4 py-3 font-medium text-slate-900">{row.name}</th>
+                      <td className="px-4 py-3 text-slate-600 text-right">{row.objects.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-600 text-right">{formatSize(row.bytes)}</td>
+                      <td className="px-4 py-3">
+                        <AppLink
+                          className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+                          to={`/${orgSlug}/${row.name}`}
+                        >
                           Open
                         </AppLink>
                       </td>
@@ -102,43 +96,43 @@ function DashboardRoute(): React.JSX.Element {
       ) : null}
 
       <section aria-label="S3 access">
-        <h2>S3 access</h2>
-        <p className="field-help">
-          Point <code>aws-cli</code>, <code>rclone</code> or the Docker registry client at these
+        <h2 className="text-lg font-semibold text-slate-900 mb-3">S3 access</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Point <code className="bg-slate-100 px-1.5 py-0.5 rounded text-red-600 font-mono">aws-cli</code>, <code className="bg-slate-100 px-1.5 py-0.5 rounded text-red-600 font-mono">rclone</code> or the Docker registry client at these
           values. Credentials are per workspace, so one workspace's keys cannot reach another's
           buckets.
         </p>
-        <div className="panel">
-          <div className="table-responsive">
-            <table className="file-table">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <caption className="visually-hidden">S3 connection settings</caption>
-              <tbody>
+              <tbody className="divide-y divide-slate-200">
                 <tr>
-                  <th scope="row">Endpoint</th>
-                  <td>
+                  <th className="px-4 py-3 font-medium text-slate-900 w-1/3">Endpoint</th>
+                  <td className="px-4 py-3">
                     {endpoint.isError ? (
-                      <span className="muted">
+                      <span className="text-slate-500">
                         unavailable —{' '}
                         {endpoint.error instanceof Error ? endpoint.error.message : 'unknown error'}
                       </span>
                     ) : (
-                      <code>{endpoint.data?.endpoint ?? '…'}</code>
+                      <code className="font-mono text-slate-900">{endpoint.data?.endpoint ?? '…'}</code>
                     )}
                   </td>
                 </tr>
                 <tr>
-                  <th scope="row">Region</th>
-                  <td>
-                    <code>{endpoint.data?.region ?? DEFAULT_REGION}</code>{' '}
-                    <span className="muted small">
+                  <th className="px-4 py-3 font-medium text-slate-900">Region</th>
+                  <td className="px-4 py-3">
+                    <code className="font-mono text-slate-900">{endpoint.data?.region ?? DEFAULT_REGION}</code>{' '}
+                    <span className="text-slate-500 text-sm">
                       (the deployment's default; the API does not report a region)
                     </span>
                   </td>
                 </tr>
                 <tr>
-                  <th scope="row">Addressing</th>
-                  <td>
-                    <span className="muted">
+                  <th className="px-4 py-3 font-medium text-slate-900">Addressing</th>
+                  <td className="px-4 py-3 text-slate-600">
+                    <span className="text-slate-500">
                       Path-style. Bucket names are the first key segment.
                     </span>
                   </td>

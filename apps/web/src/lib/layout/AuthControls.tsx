@@ -1,6 +1,4 @@
-/**
- * Sign in / sign out / account identity — the session gating in the top bar.
- */
+/** Sign in / sign out / account identity — the session gating in the top bar. */
 
 import { useSelector } from '@tanstack/react-store';
 import { Store } from '@tanstack/store';
@@ -24,16 +22,16 @@ export const AuthControls = (): React.JSX.Element => {
   const signingOut = useSelector(signingOutStore, (value) => value);
 
   if (state.kind === 'unknown') {
-    return <span className="auth-status">Checking session…</span>;
+    return <span className="text-sm text-slate-500">Checking session…</span>;
   }
 
   return (
     <>
       {state.kind === 'signed-in' ? (
-        <span className="account" title={state.email}>
+        <span className="flex items-center gap-2 text-sm text-slate-700" title={state.email}>
           {state.avatarUrl ? (
             <img
-              className="avatar"
+              className="w-6 h-6 rounded-full object-cover"
               src={state.avatarUrl}
               alt=""
               width={24}
@@ -41,14 +39,14 @@ export const AuthControls = (): React.JSX.Element => {
               referrerPolicy="no-referrer"
             />
           ) : null}
-          <span className="account-name">{accountLabel(state.name, state.email)}</span>
+          <span className="max-w-[160px] truncate">{accountLabel(state.name, state.email)}</span>
         </span>
       ) : null}
 
-      {!canWrite ? <span className="readonly-badge">read-only</span> : null}
+      {!canWrite ? <span className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-full border border-slate-200">read-only</span> : null}
 
       {offerLogin ? (
-        <AppLink className="btn-ghost" to={LOGIN_HREF}>
+        <AppLink className="px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md" to={LOGIN_HREF}>
           Sign in
         </AppLink>
       ) : null}
@@ -56,7 +54,7 @@ export const AuthControls = (): React.JSX.Element => {
       {state.kind === 'signed-in' ? (
         <button
           type="button"
-          className="btn-ghost"
+          className="px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
           disabled={signingOut}
           title="Signs out and revokes this session on the server."
           onClick={() => {

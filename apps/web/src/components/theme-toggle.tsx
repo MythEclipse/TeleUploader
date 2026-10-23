@@ -1,22 +1,19 @@
-/**
- * Light / dark theme toggle.
- */
-
-import { Moon, Sun } from 'lucide-react';
-import { useTheme } from 'next-themes';
+/** Theme toggle — pure Tailwind, no dependencies. */
 
 export function ThemeToggle(): React.JSX.Element {
-  const { resolvedTheme, setTheme } = useTheme();
-
   return (
     <button
       type="button"
-      className="theme-toggle"
-      onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+      className="p-2 rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+      onClick={() => {
+        const root = window.document.documentElement;
+        root.classList.toggle('dark');
+        localStorage.setItem('theme', root.classList.contains('dark') ? 'dark' : 'light');
+      }}
       aria-label="Toggle theme"
       title="Toggle theme"
     >
-      {resolvedTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+      <span className="text-xl">☀️</span>
     </button>
   );
 }
