@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/asepharyana/TeleUploader/compare/v1.6.2...v1.7.0) (2026-10-23)
+
+
+### Features
+
+* **web:** improve dashboard bucket navigation and error boundary UX ([330cb08](https://github.com/asepharyana/TeleUploader/commit/330cb080921929ed80ee4f2995bea72bcf160826))
+
 ## [1.6.2](https://github.com/asepharyana/TeleUploader/compare/v1.6.1...v1.6.2) (2026-10-23)
 
 
