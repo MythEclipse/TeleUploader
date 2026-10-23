@@ -6,7 +6,7 @@ Merombak frontend TeleUploader agar error "Failed to construct 'URL': Invalid UR
 
 ## Next Step
 
-Commit + push + monitor CI + check prod.
+Deliver final report ke user.
 
 ## Current Phase
 
@@ -35,14 +35,14 @@ Phase 5
 ### Phase 4: Testing & Verification
 - [x] Verify all requirements met
 - [x] Document test results in progress.md
-- [ ] Fix any issues found
-- **Status:** in_progress
+- [x] Fix any issues found
+- **Status:** complete
 
 ### Phase 5: Delivery
 - [ ] Review all output files
 - [ ] Ensure deliverables are complete
 - [ ] Deliver to user
-- **Status:** pending
+- **Status:** in_progress
 
 ## Key Questions
 
@@ -64,7 +64,7 @@ Phase 5
 | Error | Attempt | Resolution |
 |-------|---------|------------|
 | `Failed to construct 'URL': Invalid URL` | 1 | Di-fix di `apps/web/src/lib/rpc.ts` dengan URL absolut via `window.location.origin`. |
-| `biome check` organize imports | 1 | Di-fix dengan `biome check --write src`. |
+| `biome check` organize imports | 1 | Di-fix via `biome check --write src`. |
 
 ## Notes
 
