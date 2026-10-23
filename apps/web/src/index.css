@@ -484,3 +484,120 @@ body {
 .content {
   flex: 1;
 }
+
+
+/* ── File browser / upload / public home (missing semantic classes) ── */
+
+.file-browser {
+  padding: 0;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 200px;
+}
+
+.bucket-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #475569;
+  border-radius: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 1rem;
+}
+
+.dropzone.dragover {
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+}
+
+.hero-content {
+  max-width: 48rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.hero-description {
+  color: #94a3b8;
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
+.hero-cta-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  background-color: #2563eb;
+  color: #fff;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s;
+  text-decoration: none;
+}
+
+.hero-cta-link:hover {
+  background-color: #1d4ed8;
+}
+
+.public-home {
+  padding: 1.25rem;
+}
+
+.public-hero {
+  padding: 3rem 0;
+  text-align: center;
+}
+
+.public-home .file-list-panel {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid #334155;
+  background-color: rgba(15, 23, 42, 0.5);
+}
+
+.file-icon {
+  margin-right: 0.5rem;
+}
+
+.file-name-text {
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.file-row {
+  transition: background-color 0.2s;
+}
+
+.size-cell,
+.type-cell,
+.date-cell {
+  white-space: nowrap;
+}
+
+.size-col,
+.type-col,
+.date-col,
+.actions-col,
+.name-col {
+  white-space: nowrap;
+}
