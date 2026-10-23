@@ -13,7 +13,7 @@ export const Route = createFileRoute('/_authenticated')({
 
     throw redirect({
       to: '/login',
-      search: { redirect: location.pathname + location.search },
+      search: { redirect: location.pathname + location.searchStr },
     });
   },
   component: AuthenticatedLayout,
