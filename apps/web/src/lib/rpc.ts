@@ -77,20 +77,22 @@ export const currentTenant = (): string => tenantStore.state;
  * evaluation — the client is constructed once, long before a route knows which
  * organization the user is looking at.
  *
- * @returns `/rpc?org=<slug>`, or `/rpc` when no tenant is set yet.
+ * @returns An absolute `/rpc?org=<slug>` URL, or `/rpc` when no tenant is set yet.
  */
 const rpcUrl = (): string => {
   const slug = tenantStore.state;
-  return slug ? `/rpc?org=${encodeURIComponent(slug)}` : '/rpc';
+  const path = slug ? `/rpc?org=${encodeURIComponent(slug)}` : '/rpc';
+  return new URL(path, window.location.origin).toString();
 };
 
 /**
  * The link.
  *
- * Relative, so the client follows whatever origin served the SPA. `credentials` is
- * not set: `RPCLink`'s `fetch` option only receives `redirect`, and it does not need
- * to — the SPA is same-origin with the API, so `fetch`'s default `same-origin`
- * attaches the HttpOnly session cookie.
+ * `url` is a function so the tenant slug is read per call; the value handed to the
+ * link must be an absolute URL, hence the `rpcUrl()` resolution above.
+ * `credentials` is not set: `RPCLink`'s `fetch` option only receives `redirect`, and
+ * it does not need to — the SPA is same-origin with the API, so `fetch`'s default
+ * `same-origin` attaches the HttpOnly session cookie.
  */
 const link = new RPCLink({ url: rpcUrl });
 
