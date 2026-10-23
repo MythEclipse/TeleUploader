@@ -1,37 +1,5 @@
 /**
- * `_authenticated/$orgSlug/$bucketName` — a bucket-scoped, shareable view.
- *
- * ## Why this route exists alongside `/?bucket=`
- *
- * A bucket URL has to be shareable and restorable. `/<org>/<bucket>?prefix=a/b/` says
- * which workspace, which bucket and which folder with no client state at all. The index
- * route can express the same thing with `?bucket=`, but only under the root path — and a
- * link that names the workspace is a link a colleague can actually use.
- *
- * ## What is shared and what differs
- *
- * Everything visual is shared: `BucketTable` and `FileBrowser` from `lib/`. The
- * differences are exactly two:
- *
- *   - the bucket comes from `params.bucketName` instead of `?bucket=`;
- *   - the prefix is still a search param, so drilling into a folder does not change the
- *     path.
- *
- * ## The parent loader already proved the membership
- *
- * `$orgSlug` resolves the slug against the caller's memberships and 404s a non-member
- * before this loader runs, so `params.orgSlug` here is a tenant the account genuinely
- * belongs to. That is why there is no second membership check: duplicating it would cost
- * a request and could disagree with the parent.
- *
- * The security boundary is still the SERVER — it refuses a non-member slug on every
- * request regardless of what the client sends.
- *
- * ## Search params carry only the prefix
- *
- * `validateSearch` declares `prefix` alone. Declaring `bucket` too would let a link carry
- * two conflicting bucket names — a path segment and a query parameter — and the winner
- * would be whichever the loader read first. One source, one value.
+ * Bucket-scoped route: bucket table + file browser for `/<org>/<bucket>`.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -43,9 +11,7 @@ import NotFound from '../../../lib/layout/NotFound';
 import { asPrefix } from '../../../lib/prefix';
 import { bucketsQuery, objectListQuery } from '../../../lib/queries';
 
-/** The URL-side state of this route. */
 export interface BucketSearch {
-  /** Directory prefix, always `''` or ending in `/`. */
   prefix: string;
 }
 
@@ -54,15 +20,6 @@ export const Route = createFileRoute('/_authenticated/$orgSlug/$bucketName')({
     prefix: asPrefix(search.prefix),
   }),
 
-  /**
-   * Prefetches the bucket list and the first listing.
-   *
-   * The tenant was published by the parent guard, so these calls are scoped without
-   * taking a slug argument — but the slug is passed to the query key so the cache entry
-   * is namespaced by tenant.
-   *
-   * @throws {notFound} When the bucket does not exist in this workspace.
-   */
   beforeLoad: async ({ context, params, search }) => {
     const scope = { orgSlug: params.orgSlug };
 
@@ -86,11 +43,6 @@ export const Route = createFileRoute('/_authenticated/$orgSlug/$bucketName')({
   ),
 });
 
-/**
- * The page.
- *
- * @returns The bucket list plus the browser, scoped to the bucket in the path.
- */
 function BucketRoute(): React.JSX.Element {
   const { orgSlug, bucketName } = Route.useRouteContext();
   const { prefix } = Route.useSearch();
@@ -106,11 +58,7 @@ function BucketRoute(): React.JSX.Element {
         buckets={bucketRows}
         orgSlug={orgSlug}
         canWrite={canWrite}
-        selected={bucketName}
         onOpen={(name) => {
-          // A different bucket is a different PATH, not a different search param — the
-          // bucket is this route's segment. Resetting the prefix is deliberate: a prefix
-          // from another bucket would list nothing and read as data loss.
           void navigate({
             to: '/$orgSlug/$bucketName',
             params: { orgSlug, bucketName: name },
@@ -126,9 +74,6 @@ function BucketRoute(): React.JSX.Element {
         orgSlug={orgSlug}
         canWrite={canWrite}
         onNavigate={(next) => {
-          // Only the prefix is settable here. A `bucket` change in `next` is ignored
-          // rather than silently dropped: `BucketTable` above is what changes buckets,
-          // and it navigates by path.
           if (next.bucket && next.bucket !== bucketName) {
             void navigate({
               to: '/$orgSlug/$bucketName',

@@ -1,12 +1,5 @@
 /**
- * `/` — The Public Home & File Showcase.
- *
- * ## What this page is
- *
- * 1. An open, unauthenticated public view showing all files shared on TeleUploader.
- * 2. Anyone can search and download public files without needing an account.
- * 3. Shows prominent action controls in the topbar and hero section allowing users
- *    to sign in with Google to enter their own isolated, private S3 workspace.
+ * Public home — / — file showcase + public files table.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -39,6 +32,8 @@ function PublicHomeRoute(): React.JSX.Element {
   const data = query.data;
   const files = data?.files ?? [];
 
+  const error = query.error instanceof Error ? query.error.message : null;
+
   return (
     <div className="browser-page public-home">
       <section className="public-hero">
@@ -59,9 +54,9 @@ function PublicHomeRoute(): React.JSX.Element {
         </div>
       </section>
 
-      {query.isError ? (
+      {error ? (
         <p className="error-banner" role="alert">
-          {query.error instanceof Error ? query.error.message : 'Failed to load public files'}
+          {error}
         </p>
       ) : null}
 
@@ -119,14 +114,14 @@ function PublicHomeRoute(): React.JSX.Element {
                         href={file.download_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="button small"
+                        className="btn-secondary btn-sm"
                         download={file.file_name}
                       >
                         Download
                       </a>
                       <button
                         type="button"
-                        className="button ghost small"
+                        className="btn-ghost btn-sm"
                         onClick={() => {
                           void navigator.clipboard.writeText(file.download_url);
                         }}
@@ -146,7 +141,7 @@ function PublicHomeRoute(): React.JSX.Element {
           <div className="pagination-bar">
             <AppLink
               to={`/?cursor=${encodeURIComponent(data.next_cursor)}`}
-              className="button secondary"
+              className="btn-secondary"
             >
               Next Page →
             </AppLink>

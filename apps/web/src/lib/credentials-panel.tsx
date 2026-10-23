@@ -1,32 +1,5 @@
 /**
  * The S3 credentials panel: issue, list and revoke key pairs.
- *
- * ## The one-shot secret
- *
- * `POST /api/v1/credentials` returns `secretKey` exactly once. The listing path never
- * selects that column (`SUMMARY_COLUMNS` omits it), so no later read can reproduce it —
- * by design, because an S3 secret is a bearer credential and storing it recoverably
- * would make a database read equivalent to every tenant's storage access.
- *
- * That shapes the whole component:
- *
- *   - the create response is held in a TanStack `Store` and rendered in a dedicated
- *     "copy this now" block;
- *   - the block is dismissed explicitly, and dismissing it is the only way to lose the
- *     value — there is no re-fetch to fall back on;
- *   - the list shows `accessKey`, label and `lastUsedAt` and NEVER claims to show a
- *     secret.
- *
- * ## Why the secret is not put in the table row
- *
- * A row can be re-rendered, re-sorted or scrolled past; a one-shot credential in a table
- * is a credential the user will fail to copy. It gets its own block above the table with
- * a copy button, and the block survives a refetch of the list.
- *
- * ## Why `canWrite` gates the create and revoke controls
- *
- * Both are mutations on shared tenant state. The server enforces it; the UI does not
- * render a button that would answer 403.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,9 +12,7 @@ import { credentialsQuery } from './queries';
 import { keys } from './query-keys';
 import type { CreateCredentialResponse, CredentialSummary } from './types';
 
-/** The freshly-issued key pair, plus the panel's transient UI state. */
 interface CredentialUiState {
-  /** The one-shot secret from the last successful create. */
   readonly issued: CreateCredentialResponse | null;
   readonly notice: Notice | null;
   readonly confirming: CredentialSummary | null;
@@ -59,18 +30,11 @@ const patchUi = (change: Partial<CredentialUiState>): void => {
   credentialStore.setState((state) => ({ ...state, ...change }));
 };
 
-/** Props for {@link CredentialsPanel}. */
 export interface CredentialsPanelProps {
-  /** Organization slug, used only for the query-key namespace. */
   readonly orgSlug: string;
   readonly canWrite: boolean;
 }
 
-/**
- * The panel.
- *
- * @param props - See {@link CredentialsPanelProps}.
- */
 export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): React.JSX.Element {
   const queryClient = useQueryClient();
   const issued = useSelector(credentialStore, (state) => state.issued);
@@ -84,8 +48,6 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
   const createMutation = useMutation({
     mutationFn: async () => api.createCredential(),
     onSuccess: (created) => {
-      // The secret is kept in `issued` and NOWHERE else — not in the cache, not in a
-      // URL, not in local storage. Dismissing the block is the only way it is lost.
       patchUi({ issued: created, notice: null });
     },
     onError: (error) => {
@@ -157,7 +119,7 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
           <div className="modal-actions">
             <button
               type="button"
-              className="primary"
+              className="btn-primary"
               onClick={() => {
                 void navigator.clipboard
                   .writeText(
@@ -178,7 +140,7 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
             >
               Copy as env vars
             </button>
-            <button type="button" className="ghost" onClick={() => patchUi({ issued: null })}>
+            <button type="button" className="btn-ghost" onClick={() => patchUi({ issued: null })}>
               I have saved it
             </button>
           </div>
@@ -190,7 +152,7 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
         {canWrite ? (
           <button
             type="button"
-            className="primary"
+            className="btn-primary"
             disabled={createMutation.isPending}
             onClick={() => createMutation.mutate()}
           >
@@ -217,48 +179,50 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
       ) : null}
 
       {credentials.length > 0 ? (
-        <table className="file-table">
-          <caption className="visually-hidden">S3 key pairs for this workspace</caption>
-          <thead>
-            <tr>
-              <th scope="col">Access key</th>
-              <th scope="col">Label</th>
-              <th scope="col">Last used</th>
-              <th scope="col">Created</th>
-              <th scope="col">
-                <span className="visually-hidden">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {credentials.map((credential) => (
-              <tr key={credential.id}>
-                <th scope="row">
-                  <code>{credential.accessKey}</code>
-                </th>
-                <td>{credential.label}</td>
-                <td className="muted">
-                  {/* `null` means never used, which is worth distinguishing from
-                      "used long ago" — an unused key is a candidate for revocation. */}
-                  {credential.lastUsedAt ? formatDate(credential.lastUsedAt) : 'never'}
-                </td>
-                <td className="muted">{formatDate(credential.createdAt)}</td>
-                <td className="actions-cell">
-                  {canWrite ? (
-                    <button
-                      type="button"
-                      className="ghost danger"
-                      disabled={pendingId === credential.id}
-                      onClick={() => patchUi({ confirming: credential })}
-                    >
-                      {pendingId === credential.id ? 'Revoking…' : 'Revoke'}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="panel">
+          <div className="table-responsive">
+            <table className="file-table">
+              <caption className="visually-hidden">S3 key pairs for this workspace</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Access key</th>
+                  <th scope="col">Label</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {credentials.map((credential) => (
+                  <tr key={credential.id}>
+                    <th scope="row">
+                      <code>{credential.accessKey}</code>
+                    </th>
+                    <td>{credential.label}</td>
+                    <td className="muted">
+                      {credential.lastUsedAt ? formatDate(credential.lastUsedAt) : 'never'}
+                    </td>
+                    <td className="muted">{formatDate(credential.createdAt)}</td>
+                    <td className="actions-cell">
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          className="btn-ghost danger"
+                          disabled={pendingId === credential.id}
+                          onClick={() => patchUi({ confirming: credential })}
+                        >
+                          {pendingId === credential.id ? 'Revoking…' : 'Revoke'}
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : null}
 
       {confirming ? (
@@ -279,6 +243,5 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
   );
 }
 
-/** A thrown value's message, or a generic fallback. */
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : 'Request failed';
