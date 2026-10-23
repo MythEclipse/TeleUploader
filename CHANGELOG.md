@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/asepharyana/TeleUploader/compare/v1.7.0...v1.8.0) (2026-10-23)
+
+
+### Features
+
+* **web:** complete FE rombakan — CSS untuk semua class, hero dashboard, SPA navigation via TanStack Link ([efcf064](https://github.com/asepharyana/TeleUploader/commit/efcf06435981b2b9b6f22925b6e21dc88ddee3bf))
+
 # [1.7.0](https://github.com/asepharyana/TeleUploader/compare/v1.6.2...v1.7.0) (2026-10-23)
 
 
