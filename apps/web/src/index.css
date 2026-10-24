@@ -15,8 +15,12 @@ body {
   min-height: 100vh;
 }
 
-/* ── Semantic classes kept by routes migrated before Tailwind-only refactor ── */
+/* ── Legacy semantic classes still referenced by routes ── */
+/* These are kept because migrating every consumer at once is riskier than
+   keeping a small, intentional surface. Anything not referenced here is dead
+   and has been removed. */
 
+/* Dashboard storage totals panel */
 .dashboard {
   display: flex;
   flex-direction: column;
@@ -48,6 +52,7 @@ body {
   color: #e2e8f0;
 }
 
+/* Bucket + S3 tables on dashboard */
 .browser-toolbar {
   display: flex;
   align-items: center;
@@ -63,12 +68,6 @@ body {
 
 .browser-page {
   padding: 1.25rem 1.25rem 3rem;
-}
-
-.browser-toolbar-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #e2e8f0;
 }
 
 .card {
@@ -124,6 +123,7 @@ body {
   white-space: nowrap;
 }
 
+/* Buttons referenced by legacy components */
 .btn,
 .btn-secondary,
 .btn-ghost,
@@ -163,15 +163,6 @@ body {
   background: #334155;
 }
 
-.btn-ghost.danger {
-  color: #f87171;
-  border-color: #7f1d1d;
-}
-
-.btn-secondary:hover {
-  background: #475569;
-}
-
 .btn-sm {
   padding: 0.25rem 0.75rem;
   font-size: 0.875rem;
@@ -183,13 +174,14 @@ body {
   margin-bottom: 1rem;
 }
 
+/* Banners */
 .error-banner {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border: 1px solid #7f1d1d;
-  border-left-width: 3px;
+  border-left-width: 1px;
   border-radius: 0.375rem;
   background: #450a0a;
   color: #f87171;
@@ -202,7 +194,7 @@ body {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border: 1px solid #334155;
-  border-left-width: 3px;
+  border-left-width: 1px;
   border-radius: 0.375rem;
   background: #1e293b;
   font-size: 0.875rem;
@@ -211,15 +203,17 @@ body {
 
 .notice-banner.ok {
   border-left-color: #16a34a;
+  border-left-width: 1px;
   background: #052e16;
 }
 
 .notice-banner.error {
   border-left-color: #dc2626;
+  border-left-width: 1px;
   background: #450a0a;
-  color: #f87171;
 }
 
+/* Empty states */
 .empty-state {
   padding: 3rem 1.25rem;
   border: 1px solid #334155;
@@ -267,15 +261,6 @@ body {
   margin-top: 1rem;
 }
 
-.breadcrumb button {
-  background: transparent;
-  border: none;
-  color: #60a5fa;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-}
-
 .error-state .buttons button,
 .error-state .buttons a {
   padding: 0.5rem 1rem;
@@ -288,40 +273,7 @@ body {
   text-decoration: none;
 }
 
-.upload-panel {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  padding: 1rem;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.modal {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  width: 100%;
-  max-width: 28rem;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  margin-top: 1rem;
-}
-
+/* Breadcrumb */
 .breadcrumb {
   display: flex;
   flex-wrap: wrap;
@@ -348,10 +300,20 @@ body {
   gap: 0.5rem;
 }
 
+.breadcrumb button {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
 .breadcrumb .sep {
   color: #475569;
 }
 
+/* File/table rows */
 .folder-row .name-cell {
   font-weight: 500;
 }
@@ -381,8 +343,7 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* ── Org layout ── */
-
+/* Org layout */
 .org-layout {
   padding: 2rem;
 }
@@ -403,8 +364,7 @@ body {
   color: #94a3b8;
 }
 
-/* ── Auth chrome ── */
-
+/* Auth chrome */
 .auth-status {
   font-size: 0.875rem;
   color: #94a3b8;
@@ -447,156 +407,74 @@ body {
   gap: 0.5rem;
 }
 
-.org-empty,
-.org-switcher {
+.org-switcher,
+.org-empty {
   font-size: 0.875rem;
   color: #94a3b8;
 }
 
-/* ── App shell ── */
-
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background: #0f172a;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  height: 4rem;
-  padding: 0 1.25rem;
-  border-bottom: 1px solid #334155;
-  background: #1e293b;
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-
-.logo {
-  font-weight: 700;
-  font-size: 1.125rem;
-  color: #3b82f6;
-}
-
-.content {
-  flex: 1;
-}
-
-/* ── File browser / upload / public home (missing semantic classes) ── */
-
-.file-browser {
-  padding: 0;
-}
-
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 200px;
-}
-
-.bucket-select {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.dropzone {
+/* ── Dialog (referenced by Dialog component; missing before) ── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed #475569;
-  border-radius: 0.5rem;
-  padding: 2rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 1rem;
-}
-
-.dropzone.dragover {
-  border-color: #3b82f6;
-  background-color: rgba(59, 130, 246, 0.1);
-  color: #60a5fa;
-}
-
-.hero-content {
-  max-width: 48rem;
-  margin: 0 auto;
-  text-align: center;
-}
-
-.hero-description {
-  color: #94a3b8;
-  max-width: 42rem;
-  margin: 0 auto;
-}
-
-.hero-cta-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  background-color: #2563eb;
-  color: #fff;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s;
-  text-decoration: none;
-}
-
-.hero-cta-link:hover {
-  background-color: #1d4ed8;
-}
-
-.public-home {
-  padding: 1.25rem;
-}
-
-.public-hero {
-  padding: 3rem 0;
-  text-align: center;
-}
-
-.public-home .file-list-panel {
-  max-width: 48rem;
-  margin: 0 auto;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 1rem;
-  border-bottom: 1px solid #334155;
-  background-color: rgba(15, 23, 42, 0.5);
+  background: rgba(0, 0, 0, 0.6);
 }
 
-.file-icon {
-  margin-right: 0.5rem;
+.dialog-content {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 28rem;
+  max-height: 90vh;
+  overflow: auto;
 }
 
-.file-name-text {
-  font-weight: 500;
-  word-break: break-all;
+.dialog-content-inner h3 {
+  margin: 0 0 1rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #e2e8f0;
 }
 
-.file-row {
-  transition: background-color 0.2s;
+/* ── Upload panel (referenced by credentials panel) ── */
+.upload-panel {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
 }
 
-.size-cell,
-.type-cell,
-.date-cell {
-  white-space: nowrap;
+/* ── Modal (referenced by ConfirmDialog) ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
 }
 
-.size-col,
-.type-col,
-.date-col,
-.actions-col,
-.name-col {
-  white-space: nowrap;
+.modal {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 28rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
 }
