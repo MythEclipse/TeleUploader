@@ -89,7 +89,7 @@ export function Breadcrumb({
                 <button
                   type="button"
                   onClick={() => onNavigate(segment.prefix)}
-                  className="text-blue-400 hover:text-blue-300 hover:underline font-medium"
+                  className="text-slate-400 hover:text-slate-300 hover:underline font-medium"
                 >
                   {segment.label}
                 </button>
@@ -173,7 +173,7 @@ export function ObjectTable({
                   <button
                     type="button"
                     onClick={() => onEnterPrefix(folder)}
-                    className="text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    className="text-slate-400 hover:text-slate-300 flex items-center gap-1"
                   >
                     <span aria-hidden="true">🗂</span>
                     {displayPrefix(folder, prefix)}
@@ -200,7 +200,7 @@ export function ObjectTable({
                   <td className="p-3 text-slate-400">{formatDate(object.lastModified)}</td>
                   <td className="p-3 space-x-2">
                     <a
-                      className="inline-flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition"
+                      className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 transition"
                       href={downloadHref(object)}
                       target="_blank"
                       rel="noopener noreferrer"

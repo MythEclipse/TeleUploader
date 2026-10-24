@@ -244,7 +244,7 @@ export function FileBrowser({
             autoComplete="off"
             placeholder="a/b/"
             onChange={(event) => navigateDebounced.maybeExecute(asPrefix(event.target.value))}
-            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500"
           />
         </label>
         <button
@@ -270,7 +270,7 @@ export function FileBrowser({
                 navigateDebounced.cancel();
                 onNavigate({ bucket: name, prefix: '' });
               }}
-              className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               <option value="">— Switch to… —</option>
               {buckets
@@ -304,8 +304,8 @@ export function FileBrowser({
           Showing the first {MAX_KEYS} entries of{' '}
           <strong className="text-amber-400">{bucket}</strong>
           {prefix ? ` under ${prefix}` : ''}. The API offers no usable continuation token — its{' '}
-          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">isTruncated</code> is
-          always <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">false</code> —
+          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">isTruncated</code> is
+          always <code className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">false</code> —
           so entries beyond this page are not reachable from here.
         </div>
       ) : null}
@@ -387,7 +387,7 @@ function DropZone({ onFiles }: { onFiles: (files: readonly File[]) => void }): R
     <label
       className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition mb-4 ${
         dragging
-          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+          ? 'border-slate-500 bg-slate-500/10 text-slate-400'
           : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:bg-slate-800/50'
       }`}
       onDragOver={(event) => {
@@ -455,7 +455,7 @@ function UploadPanel({
               >
                 <div className="relative w-full h-full bg-slate-700 rounded-full">
                   <div
-                    className={`h-full rounded-full transition-all duration-200 ${slot.phase === 'done' ? 'bg-green-500' : slot.phase === 'failed' ? 'bg-red-500' : 'bg-blue-500'}`}
+                    className={`h-full rounded-full transition-all duration-200 ${slot.phase === 'done' ? 'bg-green-500' : slot.phase === 'failed' ? 'bg-red-500' : 'bg-slate-500'}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>

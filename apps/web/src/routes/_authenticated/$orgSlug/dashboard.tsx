@@ -109,7 +109,7 @@ function DashboardRoute(): React.JSX.Element {
                     <td className="p-3 text-right text-slate-300">{formatSize(row.bytes)}</td>
                     <td className="p-3">
                       <AppLink
-                        className="inline-flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition"
+                        className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 transition"
                         to={`/${orgSlug}/${row.name}`}
                       >
                         Open

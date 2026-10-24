@@ -20,7 +20,7 @@ export const Button = ({
 }: ButtonProps): React.JSX.Element => {
   const variantClass =
     variant === 'default'
-      ? 'bg-blue-600 text-white hover:bg-blue-700'
+      ? 'bg-slate-900 text-white hover:bg-slate-800'
       : variant === 'secondary'
         ? 'bg-slate-700 text-white hover:bg-slate-600'
         : variant === 'danger'
@@ -46,7 +46,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 export const Input = ({ className, ...props }: InputProps): React.JSX.Element => (
   <input
     className={cn(
-      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500',
+      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500',
       className,
     )}
     {...props}
@@ -58,7 +58,7 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 export const Textarea = ({ className, ...props }: TextareaProps): React.JSX.Element => (
   <textarea
     className={cn(
-      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500',
+      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500',
       className,
     )}
     {...props}

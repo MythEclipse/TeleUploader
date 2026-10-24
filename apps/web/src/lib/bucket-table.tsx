@@ -134,7 +134,7 @@ export function BucketTable({
                     <th scope="row" className="p-3">
                       <button
                         type="button"
-                        className="font-medium text-blue-400 hover:text-blue-300"
+                        className="text-slate-400 hover:text-slate-200"
                         onClick={() => onOpen(bucket.name)}
                       >
                         {bucket.name}
@@ -153,7 +153,7 @@ export function BucketTable({
                       {canWrite ? (
                         <button
                           type="button"
-                          className="text-red-400 hover:text-red-300 px-2 py-1 text-sm disabled:opacity-50"
+                          className="text-slate-400 hover:text-slate-200 px-2 py-1 text-sm disabled:opacity-50"
                           disabled={pending === bucket.name}
                           onClick={() => patchBucketUi({ confirming: bucket })}
                         >
@@ -222,7 +222,7 @@ function CreateBucketButton({
     return (
       <button
         type="button"
-        className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+        className="inline-flex items-center justify-center px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition text-sm font-medium"
         onClick={() => dialogOpenStore.setState(() => true)}
       >
         New bucket

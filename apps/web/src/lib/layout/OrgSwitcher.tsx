@@ -36,7 +36,7 @@ export const OrgSwitcher = (): React.JSX.Element | null => {
         aria-label="Organization"
         disabled={!multiple}
         value={active.slug}
-        className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-md text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-md text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500"
         onChange={(event) => {
           const slug = event.target.value;
           void navigate({ to: '/$orgSlug/dashboard', params: { orgSlug: slug } });
