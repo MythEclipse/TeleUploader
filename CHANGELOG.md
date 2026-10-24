@@ -1,3 +1,10 @@
+## [1.9.9](https://github.com/asepharyana/TeleUploader/compare/v1.9.8...v1.9.9) (2026-10-24)
+
+
+### Bug Fixes
+
+* **web:** pewarnaan hitam-putih — base monochrome, danger merah + success hijau saja ([79818c9](https://github.com/asepharyana/TeleUploader/commit/79818c9d9cb3407de0c66b5dbee7372ba3e4c782))
+
 ## [1.9.8](https://github.com/asepharyana/TeleUploader/compare/v1.9.7...v1.9.8) (2026-10-24)
 
 
