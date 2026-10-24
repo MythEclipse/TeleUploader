@@ -1,3 +1,10 @@
+## [1.9.7](https://github.com/asepharyana/TeleUploader/compare/v1.9.6...v1.9.7) (2026-10-24)
+
+
+### Bug Fixes
+
+* **web:** rapihkan FE — Tailwind-only UI, dialog+theme toggle, bersihkan CSS duplikat ([e75c878](https://github.com/asepharyana/TeleUploader/commit/e75c8787e5ae5c33b36ffca4772f191d4b52023b))
+
 ## [1.9.6](https://github.com/asepharyana/TeleUploader/compare/v1.9.5...v1.9.6) (2026-10-24)
 
 
