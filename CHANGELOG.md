@@ -1,3 +1,10 @@
+## [1.9.8](https://github.com/asepharyana/TeleUploader/compare/v1.9.7...v1.9.8) (2026-10-24)
+
+
+### Bug Fixes
+
+* **web:** rapihkan route terautentikasi — Tailwind, hapus legacy CSS, hapus double ThemeProvider ([0ed6272](https://github.com/asepharyana/TeleUploader/commit/0ed6272dbc3f6010f89ef03776130e95bb457b07))
+
 ## [1.9.7](https://github.com/asepharyana/TeleUploader/compare/v1.9.6...v1.9.7) (2026-10-24)
 
 
