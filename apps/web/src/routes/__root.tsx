@@ -4,7 +4,6 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext } from '@tanstack/react-router';
-import { ThemeProvider } from '../components/theme-provider';
 import { ApiError } from '../lib/client';
 import { AppLink } from '../lib/layout/AppLink';
 import { AppShell } from '../lib/layout/AppShell';
@@ -39,9 +38,5 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootComponent(): React.JSX.Element {
-  return (
-    <ThemeProvider>
-      <AppShell />
-    </ThemeProvider>
-  );
+  return <AppShell />;
 }

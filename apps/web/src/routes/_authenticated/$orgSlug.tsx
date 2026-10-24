@@ -99,10 +99,10 @@ function OrgLayout(): React.JSX.Element {
   const { orgName } = Route.useRouteContext();
 
   return (
-    <div className="org-layout">
-      <header className="org-header">
-        <h1>{orgName}</h1>
-        <p>Buckets, files and S3 credentials for this workspace.</p>
+    <div className="p-6 space-y-4">
+      <header className="mb-4">
+        <h1 className="text-2xl font-bold text-slate-100">{orgName}</h1>
+        <p className="text-slate-400">Buckets, files and S3 credentials for this workspace.</p>
       </header>
       <Outlet />
     </div>

@@ -51,7 +51,7 @@ function BucketRoute(): React.JSX.Element {
   const bucketRows = buckets.data?.buckets ?? [];
 
   return (
-    <div className="browser-page">
+    <div className="p-6 space-y-6">
       <BucketTable
         buckets={bucketRows}
         orgSlug={orgSlug}
