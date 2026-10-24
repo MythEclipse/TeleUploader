@@ -1,3 +1,10 @@
+## [1.9.6](https://github.com/asepharyana/TeleUploader/compare/v1.9.5...v1.9.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* **web:** rapihkan FE — fix lint/format, hapus unused import, spesifikitas CSS ([6eccde8](https://github.com/asepharyana/TeleUploader/commit/6eccde8cb6e922d2df94145f0695630147d3fde7))
+
 ## [1.9.5](https://github.com/asepharyana/TeleUploader/compare/v1.9.4...v1.9.5) (2026-10-23)
 
 
