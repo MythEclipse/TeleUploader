@@ -12,11 +12,19 @@ export const OrgSwitcher = (): React.JSX.Element | null => {
   if (auth.kind !== 'signed-in') return null;
 
   if (organizations.length === 0) {
-    return <span className="text-sm text-slate-500" title="No workspace available">No workspace</span>;
+    return (
+      <span className="text-sm text-slate-500" title="No workspace available">
+        No workspace
+      </span>
+    );
   }
 
   if (!active) {
-    return <span className="text-sm text-slate-500" title="This workspace is not available">No workspace</span>;
+    return (
+      <span className="text-sm text-slate-500" title="This workspace is not available">
+        No workspace
+      </span>
+    );
   }
 
   const multiple = organizations.length > 1;

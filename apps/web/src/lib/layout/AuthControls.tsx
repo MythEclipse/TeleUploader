@@ -39,14 +39,23 @@ export const AuthControls = (): React.JSX.Element => {
               referrerPolicy="no-referrer"
             />
           ) : null}
-          <span className="text-sm text-slate-300 truncate max-w-[140px]">{accountLabel(state.name, state.email)}</span>
+          <span className="text-sm text-slate-300 truncate max-w-[140px]">
+            {accountLabel(state.name, state.email)}
+          </span>
         </div>
       ) : null}
 
-      {!canWrite ? <span className="px-2 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs text-slate-500">read-only</span> : null}
+      {!canWrite ? (
+        <span className="px-2 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs text-slate-500">
+          read-only
+        </span>
+      ) : null}
 
       {offerLogin ? (
-        <AppLink className="px-3 py-1.5 bg-slate-700 text-white rounded-md hover:bg-slate-600 text-sm transition" to={LOGIN_HREF}>
+        <AppLink
+          className="px-3 py-1.5 bg-slate-700 text-white rounded-md hover:bg-slate-600 text-sm transition"
+          to={LOGIN_HREF}
+        >
           Sign in
         </AppLink>
       ) : null}

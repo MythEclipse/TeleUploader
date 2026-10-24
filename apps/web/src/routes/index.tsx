@@ -40,7 +40,10 @@ function PublicHomeRoute(): React.JSX.Element {
           {auth.kind !== 'signed-in' ? (
             <div className="mt-4">
               Want your own private S3 buckets and credentials?{' '}
-              <a href="/login" className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+              <a
+                href="/login"
+                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
                 Sign in with Google
               </a>
             </div>
@@ -49,7 +52,10 @@ function PublicHomeRoute(): React.JSX.Element {
       </section>
 
       {error ? (
-        <div className="max-w-4xl mx-auto mb-4 p-4 bg-red-500/10 border border-red-500 text-red-500 rounded-lg" role="alert">
+        <div
+          className="max-w-4xl mx-auto mb-4 p-4 bg-red-500/10 border border-red-500 text-red-500 rounded-lg"
+          role="alert"
+        >
           {error}
         </div>
       ) : null}
@@ -60,27 +66,45 @@ function PublicHomeRoute(): React.JSX.Element {
         </div>
         <div className="p-4">
           {files.length === 0 && !query.isPending ? (
-            <div className="py-12 text-center text-slate-400">
-              No public files available.
-            </div>
+            <div className="py-12 text-center text-slate-400">No public files available.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-slate-900/50">
-                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">File Name</th>
-                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Size</th>
-                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Type</th>
-                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Date</th>
-                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Actions</th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                      File Name
+                    </th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                      Size
+                    </th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                      Type
+                    </th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                      Date
+                    </th>
+                    <th className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {files.map((file) => (
                     <tr key={file.public_id} className="hover:bg-slate-900/30 transition">
                       <td className="p-3">
-                        <span className="mr-2">{file.mime_type.startsWith('image/') ? '🖼️' : file.mime_type.startsWith('video/') ? '🎬' : file.mime_type.startsWith('audio/') ? '🎵' : '📄'}</span>
-                        <span className="font-medium break-all" title={file.file_name}>{file.file_name}</span>
+                        <span className="mr-2">
+                          {file.mime_type.startsWith('image/')
+                            ? '🖼️'
+                            : file.mime_type.startsWith('video/')
+                              ? '🎬'
+                              : file.mime_type.startsWith('audio/')
+                                ? '🎵'
+                                : '📄'}
+                        </span>
+                        <span className="font-medium break-all" title={file.file_name}>
+                          {file.file_name}
+                        </span>
                       </td>
                       <td className="p-3">{formatSize(file.size_bytes)}</td>
                       <td className="p-3">{file.file_type || file.mime_type}</td>

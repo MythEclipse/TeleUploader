@@ -1,11 +1,11 @@
 /** The shared chrome: modern top bar with controls. */
 
 import { Outlet, useRouterState } from '@tanstack/react-router';
+import { ThemeToggle } from '../../components/theme-toggle';
 import { useActiveOrganization } from '../auth-store';
 import { AppLink } from './AppLink';
 import { AuthControls } from './AuthControls';
 import { OrgSwitcher } from './OrgSwitcher';
-import { ThemeToggle } from '../../components/theme-toggle';
 
 const isCurrent = (pathname: string, to: string): boolean =>
   to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);

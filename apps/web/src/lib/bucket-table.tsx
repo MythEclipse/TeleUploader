@@ -91,7 +91,9 @@ export function BucketTable({
       {buckets.length === 0 ? (
         <div className="py-12 text-center text-slate-400">
           <h2 className="text-lg text-slate-300 mb-2">No buckets yet</h2>
-          <p>{canWrite ? 'Use "New bucket" above to create one.' : 'Sign in to create a bucket.'}</p>
+          <p>
+            {canWrite ? 'Use "New bucket" above to create one.' : 'Sign in to create a bucket.'}
+          </p>
         </div>
       ) : (
         <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
@@ -100,10 +102,28 @@ export function BucketTable({
               <caption className="sr-only">Buckets in this workspace</caption>
               <thead>
                 <tr className="bg-slate-900/50">
-                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Name</th>
-                  <th scope="col" className="text-right text-xs uppercase text-slate-400 font-semibold p-3">Objects</th>
-                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">Created</th>
-                  <th scope="col" className="text-left text-xs uppercase text-slate-400 font-semibold p-3">
+                  <th
+                    scope="col"
+                    className="text-left text-xs uppercase text-slate-400 font-semibold p-3"
+                  >
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-right text-xs uppercase text-slate-400 font-semibold p-3"
+                  >
+                    Objects
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-left text-xs uppercase text-slate-400 font-semibold p-3"
+                  >
+                    Created
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-left text-xs uppercase text-slate-400 font-semibold p-3"
+                  >
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -158,8 +178,8 @@ export function BucketTable({
           onConfirm={() => deleteMutation.mutate(confirming)}
         >
           <p className="text-slate-200">
-            Delete the bucket <strong className="text-slate-100">{confirming.name}</strong>? This cannot be undone. The server
-            refuses if it still contains objects.
+            Delete the bucket <strong className="text-slate-100">{confirming.name}</strong>? This
+            cannot be undone. The server refuses if it still contains objects.
           </p>
         </ConfirmDialog>
       ) : null}
@@ -221,8 +241,14 @@ function CreateBucketButton({
       <form.Field name="name">
         {(field) => (
           <div className="mb-4">
-            <label className="block text-xs uppercase text-slate-400 font-semibold mb-2">Bucket name</label>
+            <label
+              htmlFor="bucket-name"
+              className="block text-xs uppercase text-slate-400 font-semibold mb-2"
+            >
+              Bucket name
+            </label>
             <input
+              id="bucket-name"
               type="text"
               value={field.state.value}
               autoComplete="off"

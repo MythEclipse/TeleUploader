@@ -84,7 +84,10 @@ function DashboardRoute(): React.JSX.Element {
                       <td className="numeric">{row.objects.toLocaleString()}</td>
                       <td className="numeric">{formatSize(row.bytes)}</td>
                       <td className="actions-cell">
-                        <AppLink className="btn btn-secondary btn-sm" to={`/${orgSlug}/${row.name}`}>
+                        <AppLink
+                          className="btn btn-secondary btn-sm"
+                          to={`/${orgSlug}/${row.name}`}
+                        >
                           Open
                         </AppLink>
                       </td>

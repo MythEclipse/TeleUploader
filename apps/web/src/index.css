@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 * {
   box-sizing: border-box;
@@ -267,6 +267,15 @@ body {
   margin-top: 1rem;
 }
 
+.breadcrumb button {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
 .error-state .buttons button,
 .error-state .buttons a {
   padding: 0.5rem 1rem;
@@ -337,15 +346,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.breadcrumb button {
-  background: transparent;
-  border: none;
-  color: #60a5fa;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
 }
 
 .breadcrumb .sep {
@@ -484,7 +484,6 @@ body {
 .content {
   flex: 1;
 }
-
 
 /* ── File browser / upload / public home (missing semantic classes) ── */
 

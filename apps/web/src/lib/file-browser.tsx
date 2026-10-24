@@ -226,7 +226,10 @@ export function FileBrowser({
       {notice ? <NoticeBanner notice={notice} onDismiss={() => patchUi({ notice: null })} /> : null}
 
       {listing.isError ? (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-500 rounded-lg" role="alert">
+        <div
+          className="mb-4 p-3 bg-red-500/10 border border-red-500 text-red-500 rounded-lg"
+          role="alert"
+        >
           {describeApiError(listing.error)}
         </div>
       ) : null}
@@ -298,16 +301,20 @@ export function FileBrowser({
 
       {mayBeTruncated ? (
         <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500 text-amber-500 rounded-lg text-sm">
-          Showing the first {MAX_KEYS} entries of <strong className="text-amber-400">{bucket}</strong>
+          Showing the first {MAX_KEYS} entries of{' '}
+          <strong className="text-amber-400">{bucket}</strong>
           {prefix ? ` under ${prefix}` : ''}. The API offers no usable continuation token — its{' '}
-          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">isTruncated</code> is always <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">false</code> — so entries beyond this page are
-          not reachable from here.
+          <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">isTruncated</code> is
+          always <code className="bg-slate-900 px-1.5 py-0.5 rounded text-amber-400">false</code> —
+          so entries beyond this page are not reachable from here.
         </div>
       ) : null}
 
       {!hasRows && !listing.isPending ? (
         <div className="py-12 text-center text-slate-400">
-          <h2 className="text-lg text-slate-300 mb-2">{prefix ? 'This folder is empty' : 'This bucket is empty'}</h2>
+          <h2 className="text-lg text-slate-300 mb-2">
+            {prefix ? 'This folder is empty' : 'This bucket is empty'}
+          </h2>
           {canWrite ? <p>Drop files below to upload.</p> : null}
         </div>
       ) : null}
@@ -344,12 +351,16 @@ export function FileBrowser({
           onConfirm={() => deleteMutation.mutate(confirming)}
         >
           <p className="text-slate-200">
-            Delete <strong className="text-slate-100">{confirming.key}</strong>? This cannot be undone.
+            Delete <strong className="text-slate-100">{confirming.key}</strong>? This cannot be
+            undone.
           </p>
           <p className="text-sm text-slate-500 mt-2">
-            The API returns <code className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">{"{\"success\":true}"}</code> whether or not anything was removed,
-            so this dialog reports success only after re-listing the prefix and confirming the key
-            is gone.
+            The API returns{' '}
+            <code className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">
+              {'{"success":true}'}
+            </code>{' '}
+            whether or not anything was removed, so this dialog reports success only after
+            re-listing the prefix and confirming the key is gone.
           </p>
         </ConfirmDialog>
       ) : null}
@@ -375,7 +386,9 @@ function DropZone({ onFiles }: { onFiles: (files: readonly File[]) => void }): R
   return (
     <label
       className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition mb-4 ${
-        dragging ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:bg-slate-800/50'
+        dragging
+          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+          : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:bg-slate-800/50'
       }`}
       onDragOver={(event) => {
         event.preventDefault();
@@ -389,8 +402,7 @@ function DropZone({ onFiles }: { onFiles: (files: readonly File[]) => void }): R
         if (dropped.length > 0) onFiles(dropped);
       }}
     >
-      <span className="sr-only">Upload files</span>
-      📁 Drop files here, or click to browse
+      <span className="sr-only">Upload files</span>📁 Drop files here, or click to browse
       <input
         type="file"
         multiple
@@ -415,7 +427,11 @@ function UploadPanel({
   if (slots.length === 0) return null;
 
   return (
-    <section className="mb-4 p-4 bg-slate-800 border border-slate-700 rounded-lg" aria-live="polite" aria-label="Upload progress">
+    <section
+      className="mb-4 p-4 bg-slate-800 border border-slate-700 rounded-lg"
+      aria-live="polite"
+      aria-label="Upload progress"
+    >
       <ul className="space-y-3">
         {slots.map((slot) => {
           const pct =
@@ -431,9 +447,17 @@ function UploadPanel({
           return (
             <li key={slot.id} className="flex items-center gap-3">
               <span className="flex-1 text-sm text-slate-300 truncate">{slot.name}</span>
-              <progress value={pct} max={100} className="w-24 h-2 rounded-full overflow-hidden" aria-label={`${slot.name}: ${label}`}>
+              <progress
+                value={pct}
+                max={100}
+                className="w-24 h-2 rounded-full overflow-hidden"
+                aria-label={`${slot.name}: ${label}`}
+              >
                 <div className="relative w-full h-full bg-slate-700 rounded-full">
-                  <div className={`h-full rounded-full transition-all duration-200 ${slot.phase === 'done' ? 'bg-green-500' : slot.phase === 'failed' ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }} />
+                  <div
+                    className={`h-full rounded-full transition-all duration-200 ${slot.phase === 'done' ? 'bg-green-500' : slot.phase === 'failed' ? 'bg-red-500' : 'bg-blue-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
               </progress>
               <span className="text-xs text-slate-400 min-w-[80px]">
@@ -446,7 +470,11 @@ function UploadPanel({
         })}
       </ul>
       <div className="mt-3 flex justify-end">
-        <button type="button" className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-sm" onClick={onDismiss}>
+        <button
+          type="button"
+          className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-sm"
+          onClick={onDismiss}
+        >
           Dismiss
         </button>
       </div>
