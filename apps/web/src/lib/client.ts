@@ -119,6 +119,24 @@ export interface UploadResult {
   downloadUrl: string;
 }
 
+/**
+ * The public data plane's upload response.
+ *
+ * Deliberately not {@link UploadResult}: `POST /api/upload` answers snake_case
+ * and identifies the file by `public_id` rather than a bucket key. Reusing
+ * `UploadResult` here would type-check while handing callers `undefined` for
+ * every field.
+ */
+export interface PublicUploadResult {
+  public_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  file_type: string;
+  created_at: string;
+  download_url: string;
+}
+
 /** Progress callback for {@link uploadObject}. */
 export type UploadProgress = (loaded: number, total: number) => void;
 
@@ -190,6 +208,79 @@ export const uploadObject = (params: {
       reject(new ApiError(0, 'The upload failed — the connection was interrupted'));
     xhr.ontimeout = () => reject(new ApiError(0, 'The upload timed out'));
     xhr.onabort = () => reject(new ApiError(0, 'The upload was cancelled'));
+
+    xhr.send(form);
+  });
+
+/**
+ * Uploads one file to the PUBLIC data plane (`POST /api/upload`).
+ *
+ * ## Why a separate function from {@link uploadObject}
+ *
+ * `uploadObject` targets `/api/v1/buckets/:bucket/upload`, which is
+ * session-authenticated and tenant-scoped. This targets the unauthenticated
+ * `/api/upload` endpoint, which takes no bucket and derives no tenant: the file
+ * lands in the deployment's shared public listing and gets a `/f/:public_id`
+ * link. They are different contracts, so they are different calls.
+ *
+ * ## Why XHR and not `fetch`
+ *
+ * `fetch` cannot report upload progress without a duplex stream, and a quick
+ * upload of a 2 GB file with no progress indication reads as a hang. XHR also
+ * lets the caller abort via {@link UploadHandle}.
+ *
+ * @param params.file - The file to send.
+ * @param params.onProgress - Called with bytes sent and total bytes.
+ * @param params.signal - Aborts the request; rejects with an `ApiError(0, "cancelled")`.
+ * @returns The stored file's metadata, including its shareable `download_url`.
+ */
+export const uploadPublicFile = (params: {
+  file: File;
+  onProgress?: UploadProgress;
+  signal?: AbortSignal;
+}): Promise<PublicUploadResult> =>
+  new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', params.file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', new URL('/api/upload', window.location.origin).toString());
+
+    if (params.onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) params.onProgress?.(event.loaded, event.total);
+      };
+    }
+
+    const abort = () => xhr.abort();
+    params.signal?.addEventListener('abort', abort, { once: true });
+    const detach = () => params.signal?.removeEventListener('abort', abort);
+
+    xhr.onload = () => {
+      detach();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as PublicUploadResult);
+        } catch {
+          reject(new ApiError(xhr.status, 'The upload succeeded but returned an unreadable body'));
+        }
+        return;
+      }
+      reject(new ApiError(xhr.status, parseErrorMessage(xhr)));
+    };
+
+    xhr.onerror = () => {
+      detach();
+      reject(new ApiError(0, 'The upload failed — the connection was interrupted'));
+    };
+    xhr.ontimeout = () => {
+      detach();
+      reject(new ApiError(0, 'The upload timed out'));
+    };
+    xhr.onabort = () => {
+      detach();
+      reject(new ApiError(0, 'The upload was cancelled'));
+    };
 
     xhr.send(form);
   });

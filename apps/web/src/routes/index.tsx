@@ -7,6 +7,7 @@ import { useAuthState } from '../lib/auth-store';
 import { FileTypeIcon } from '../lib/components';
 import { formatDate, formatSize } from '../lib/format';
 import { publicFilesQuery } from '../lib/queries';
+import { QuickUpload } from '../lib/quick-upload';
 
 export interface HomeSearch {
   cursor?: string;
@@ -53,12 +54,14 @@ function PublicHomeRoute(): React.JSX.Element {
             addressable by a direct link — no account needed.
           </p>
 
+          <QuickUpload />
+
           {signedOut ? (
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
               <Link
                 to="/login"
                 search={{ redirect: '' }}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-card transition-colors hover:bg-primary-hover"
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium text-foreground shadow-card transition-colors hover:bg-surface-hover"
               >
                 Sign in with Google
                 <ArrowRight className="size-4" aria-hidden="true" />
