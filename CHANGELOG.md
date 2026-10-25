@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/asepharyana/TeleUploader/compare/v1.9.9...v1.10.0) (2026-10-25)
+
+
+### Features
+
+* **web:** rombak total FE — design token, komponen Radix, tabel file baru ([415af42](https://github.com/asepharyana/TeleUploader/commit/415af420e673ee2911c3b61f7c26b92ef1bc5e4e))
+
 ## [1.9.9](https://github.com/asepharyana/TeleUploader/compare/v1.9.8...v1.9.9) (2026-10-24)
 
 
