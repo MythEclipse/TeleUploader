@@ -1,21 +1,31 @@
-/** Theme toggle — integrates with next-themes and respects system preference. */
+/**
+ * Theme toggle — cycles light ↔ dark and respects the OS preference on first visit.
+ *
+ * Reads `resolvedTheme`, not `theme`: with `defaultTheme="system"` the latter is
+ * the literal string `"system"`, so a `theme === "dark"` test is false even when
+ * the page is rendering dark — the icon and the label would both be wrong.
+ */
 
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 export function ThemeToggle(): React.JSX.Element {
-  const { theme, setTheme } = useTheme();
-  const isDark = theme === 'dark';
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   return (
     <button
       type="button"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
       aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-      title={isDark ? 'Light mode' : 'Dark mode'}
-      className="p-2 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+      title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+      className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
     >
-      {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+      {isDark ? (
+        <Sun className="size-4" aria-hidden="true" />
+      ) : (
+        <Moon className="size-4" aria-hidden="true" />
+      )}
     </button>
   );
 }

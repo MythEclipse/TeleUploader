@@ -25,10 +25,11 @@
  * another tenant's naming. Not-found is both more accurate from the caller's
  * perspective (they can see nothing of it) and quieter.
  *
- * ## The layout renders `<Outlet/>` and nothing else page-shaped
+ * ## Layout: heading only, children own their content box
  *
- * The page chrome lives in `__root`'s `AppShell`; each child owns its own content
- * area. A wrapper here would nest a second page container inside the shell's.
+ * The header is here because it is identical for every child. Each child then
+ * supplies its own padded container, so a page that needs a wider or narrower
+ * measure can say so without fighting a wrapper's padding.
  */
 
 import { createFileRoute, notFound, Outlet } from '@tanstack/react-router';
@@ -89,22 +90,20 @@ export const Route = createFileRoute('/_authenticated/$orgSlug')({
   ),
 });
 
-/**
- * The layout: the organization heading, then the child route.
- *
- * The heading is here rather than in each child because it is identical for all of them
- * and its data comes from this route's `beforeLoad`.
- */
 function OrgLayout(): React.JSX.Element {
   const { orgName } = Route.useRouteContext();
 
   return (
-    <div className="p-6 space-y-4">
-      <header className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-100">{orgName}</h1>
-        <p className="text-slate-400">Buckets, files and S3 credentials for this workspace.</p>
+    <>
+      <header className="border-b border-border bg-surface-muted/40">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{orgName}</h1>
+          <p className="mt-0.5 text-[0.8125rem] text-muted-foreground">
+            Buckets, files and S3 credentials for this workspace.
+          </p>
+        </div>
       </header>
       <Outlet />
-    </div>
+    </>
   );
 }

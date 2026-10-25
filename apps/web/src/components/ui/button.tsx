@@ -1,107 +1,66 @@
-import type {
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  InputHTMLAttributes,
-  TextareaHTMLAttributes,
-} from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'default' | 'secondary' | 'ghost' | 'danger';
-  size?: 'default' | 'sm';
+/**
+ * Button surface. `primary` is the one affirmative action on a page; everything
+ * else is `secondary` (bordered) or `ghost` (no chrome until hover).
+ *
+ * Colours come from semantic tokens, so both themes are correct by construction.
+ */
+const button = cva(
+  'inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-[color,background-color,border-color,box-shadow,transform] duration-150 disabled:pointer-events-none disabled:opacity-50 active:translate-y-px [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  {
+    variants: {
+      variant: {
+        primary:
+          'bg-primary text-primary-foreground shadow-card hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring',
+        secondary:
+          'border border-border-strong bg-surface text-foreground shadow-card hover:bg-surface-hover',
+        ghost: 'bg-transparent text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+        danger:
+          'bg-danger text-danger-foreground shadow-card hover:bg-danger-hover focus-visible:ring-2 focus-visible:ring-danger/40',
+        dangerGhost:
+          'bg-transparent text-danger hover:bg-danger-soft focus-visible:ring-2 focus-visible:ring-danger/40',
+        link: 'h-auto bg-transparent p-0 text-primary underline-offset-4 hover:underline',
+      },
+      size: {
+        sm: 'h-8 px-2.5 text-[0.8125rem] [&_svg]:size-3.5',
+        md: 'h-9 px-3.5 text-sm [&_svg]:size-4',
+        lg: 'h-11 px-5 text-[0.9375rem] [&_svg]:size-4',
+        icon: 'size-9 [&_svg]:size-4',
+        iconSm: 'size-8 [&_svg]:size-3.5',
+      },
+    },
+    defaultVariants: { variant: 'secondary', size: 'md' },
+  },
+);
+
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof button> {
+  /**
+   * Rendered before the label.
+   *
+   * Decorative: an icon-only button needs an `aria-label`, because the glyph
+   * carries no accessible name of its own.
+   */
+  readonly icon?: ReactNode;
 }
 
 export const Button = ({
-  variant = 'default',
-  size = 'default',
+  variant,
+  size,
+  icon,
   className,
   type = 'button',
+  children,
   ...props
-}: ButtonProps): React.JSX.Element => {
-  const variantClass =
-    variant === 'default'
-      ? 'bg-slate-900 text-white hover:bg-slate-800'
-      : variant === 'secondary'
-        ? 'bg-slate-700 text-white hover:bg-slate-600'
-        : variant === 'danger'
-          ? 'bg-red-600 text-white hover:bg-red-700'
-          : 'bg-transparent text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-slate-200';
-  const sizeClass = size === 'sm' ? 'px-2.5 py-1 text-sm' : 'px-4 py-2 text-sm';
-  return (
-    <button
-      type={type}
-      className={cn(
-        'inline-flex items-center justify-center rounded-lg font-medium transition',
-        variantClass,
-        sizeClass,
-        className,
-      )}
-      {...props}
-    />
-  );
-};
-
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
-
-export const Input = ({ className, ...props }: InputProps): React.JSX.Element => (
-  <input
-    className={cn(
-      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500',
-      className,
-    )}
-    {...props}
-  />
+}: ButtonProps): React.JSX.Element => (
+  <button type={type} className={cn(button({ variant, size }), className)} {...props}>
+    {icon}
+    {children}
+  </button>
 );
 
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {}
-
-export const Textarea = ({ className, ...props }: TextareaProps): React.JSX.Element => (
-  <textarea
-    className={cn(
-      'px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-500',
-      className,
-    )}
-    {...props}
-  />
-);
-
-export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'secondary';
-}
-
-export const Badge = ({
-  variant = 'default',
-  className,
-  ...props
-}: BadgeProps): React.JSX.Element => (
-  <span
-    className={cn(
-      'inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium',
-      variant === 'default'
-        ? 'bg-slate-800 text-slate-300 border border-slate-600'
-        : 'bg-slate-700 text-slate-200 border border-slate-500',
-      className,
-    )}
-    {...props}
-  />
-);
-
-export interface SeparatorProps extends HTMLAttributes<HTMLDivElement> {
-  orientation?: 'horizontal' | 'vertical';
-}
-
-export const Separator = ({
-  orientation = 'horizontal',
-  className,
-  ...props
-}: SeparatorProps): React.JSX.Element => (
-  <div
-    className={cn(
-      orientation === 'vertical'
-        ? 'h-full w-px bg-slate-700 mx-1'
-        : 'w-full h-px bg-slate-700 my-1',
-      className,
-    )}
-    {...props}
-  />
-);
+export { button as buttonVariants };

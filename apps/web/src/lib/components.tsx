@@ -1,15 +1,43 @@
 /**
  * Shared presentational primitives for the file manager.
  *
- * Refined: legacy `.modal-*`/`.btn-*` CSS classes replaced with the
- * `Button`/`Card` UI components and Tailwind utilities. Behaviour and copy
- * are unchanged.
+ * Every colour here resolves through a semantic token from `index.css`, so the
+ * same markup is correct in light and dark. Icons come from `lucide-react`
+ * rather than emoji: emoji render differently on every OS and carry no stroke
+ * weight that matches the type.
  */
 
+import {
+  Check,
+  Copy,
+  Download,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  type File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideo,
+  Folder,
+  Trash2,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
 import { Dialog, DialogContent } from '../components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableWrap,
+} from '../components/ui/table';
 import { formatDate, formatSize } from './format';
+import type { ObjectSummary } from './types';
 import { cn } from './utils';
 
 // ── Notices ─────────────────────────────────────────────────────────────────
@@ -27,25 +55,59 @@ export function NoticeBanner({
   notice: Notice;
   onDismiss: () => void;
 }): React.JSX.Element {
+  const isError = notice.kind === 'error';
+
   return (
     <div
       className={cn(
-        'flex items-center gap-2 rounded-lg border border-transparent p-3 font-medium',
-        notice.kind === 'error'
-          ? 'border-red-500/50 bg-red-500/10 text-red-400'
-          : 'border-blue-500/50 bg-blue-500/10 text-blue-400',
+        'mb-4 flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-[0.8125rem]',
+        isError
+          ? 'border-danger/35 bg-danger-soft text-danger'
+          : 'border-success/35 bg-success-soft text-success',
       )}
-      role={notice.kind === 'error' ? 'alert' : 'status'}
+      role={isError ? 'alert' : 'status'}
     >
-      <span>{notice.text}</span>
+      {isError ? (
+        <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+      ) : (
+        <Check className="mt-px size-4 shrink-0" aria-hidden="true" />
+      )}
+      <span className="min-w-0 flex-1 break-words">{notice.text}</span>
       <button
         type="button"
-        className="ml-2 inline-flex items-center justify-center w-6 h-6 rounded-md text-current hover:bg-current hover:text-background transition"
         onClick={onDismiss}
         aria-label="Dismiss message"
+        className="-my-1 -mr-1 shrink-0 rounded p-1 opacity-70 transition-opacity hover:opacity-100"
       >
-        ✕
+        <X className="size-3.5" aria-hidden="true" />
       </button>
+    </div>
+  );
+}
+
+// ── Empty state ─────────────────────────────────────────────────────────────
+
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      <div className="mb-3 flex size-11 items-center justify-center rounded-full border border-border bg-surface-muted text-subtle-foreground">
+        {icon}
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {description ? (
+        <p className="mt-1 max-w-sm text-[0.8125rem] text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }
@@ -72,32 +134,29 @@ export function Breadcrumb({
   }
 
   return (
-    <nav
-      className="flex flex-wrap items-center gap-1 mb-4 text-sm text-slate-400"
-      aria-label="Object key prefix"
-    >
-      <ol className="flex flex-wrap gap-1 list-none p-0 m-0 items-center">
+    <nav aria-label="Object key prefix" className="mb-3">
+      <ol className="flex flex-wrap items-center gap-0.5 text-[0.8125rem]">
         {segments.map((segment, index) => {
           const last = index === segments.length - 1;
           return (
-            <li key={segment.prefix || 'bucket'} className="flex items-center gap-1">
+            <li key={segment.prefix || 'bucket'} className="flex items-center gap-0.5">
               {last ? (
-                <span aria-current="page" className="text-slate-200">
+                <span aria-current="page" className="px-1.5 py-1 font-medium text-foreground">
                   {segment.label}
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onNavigate(segment.prefix)}
-                  className="text-slate-400 hover:text-slate-300 hover:underline font-medium"
-                >
-                  {segment.label}
-                </button>
-              )}
-              {last ? null : (
-                <span aria-hidden="true" className="text-slate-600">
-                  /
-                </span>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(segment.prefix)}
+                    className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+                  >
+                    {segment.label}
+                  </button>
+                  <span aria-hidden="true" className="text-subtle-foreground">
+                    /
+                  </span>
+                </>
               )}
             </li>
           );
@@ -107,10 +166,46 @@ export function Breadcrumb({
   );
 }
 
+// ── File type icon ──────────────────────────────────────────────────────────
+
+const ICON_BY_PREFIX: readonly { match: string; icon: typeof FileIcon; tone: string }[] = [
+  { match: 'image/', icon: FileImage, tone: 'text-[oklch(0.62_0.16_300)]' },
+  { match: 'video/', icon: FileVideo, tone: 'text-[oklch(0.62_0.17_20)]' },
+  { match: 'audio/', icon: FileAudio, tone: 'text-[oklch(0.64_0.14_330)]' },
+  { match: 'text/csv', icon: FileSpreadsheet, tone: 'text-[oklch(0.6_0.13_155)]' },
+  { match: 'application/pdf', icon: FileText, tone: 'text-[oklch(0.6_0.18_25)]' },
+  { match: 'application/zip', icon: FileArchive, tone: 'text-[oklch(0.64_0.13_75)]' },
+  { match: 'application/json', icon: FileCode, tone: 'text-[oklch(0.62_0.14_200)]' },
+];
+
+/** A tinted file glyph chosen from the MIME type, so rows scan by type. */
+export function FileTypeIcon({
+  mimeType,
+  className,
+}: {
+  mimeType: string;
+  className?: string;
+}): React.JSX.Element {
+  const match = ICON_BY_PREFIX.find((entry) => mimeType.startsWith(entry.match));
+  const Icon = match?.icon ?? FileText;
+
+  return (
+    <span
+      className={cn(
+        'flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted',
+        className,
+      )}
+      aria-hidden="true"
+    >
+      <Icon className={cn('size-4', match?.tone ?? 'text-muted-foreground')} />
+    </span>
+  );
+}
+
 // ── Object table ────────────────────────────────────────────────────────────
 
 export interface ObjectTableProps {
-  readonly objects: readonly import('./types').ObjectSummary[];
+  readonly objects: readonly ObjectSummary[];
   readonly prefixes: readonly string[];
   readonly prefix: string;
   readonly bucket: string;
@@ -118,9 +213,9 @@ export interface ObjectTableProps {
   readonly pendingKey: string | null;
   readonly copiedKey: string | null;
   readonly onEnterPrefix: (prefix: string) => void;
-  readonly onDelete: (object: import('./types').ObjectSummary) => void;
-  readonly onCopyLink: (object: import('./types').ObjectSummary) => void;
-  readonly downloadHref: (object: import('./types').ObjectSummary) => string;
+  readonly onDelete: (object: ObjectSummary) => void;
+  readonly onCopyLink: (object: ObjectSummary) => void;
+  readonly downloadHref: (object: ObjectSummary) => string;
 }
 
 export function ObjectTable({
@@ -137,103 +232,119 @@ export function ObjectTable({
   downloadHref,
 }: ObjectTableProps): React.JSX.Element {
   return (
-    <Card>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-card">
+      <TableWrap>
+        <Table>
           <caption className="sr-only">
             Objects and folders in {bucket}
             {prefix ? ` under ${prefix}` : ''}
           </caption>
-          <thead>
-            <tr className="bg-slate-900/50">
-              <th scope="col" className="text-xs uppercase text-slate-400 font-semibold p-3">
-                Name
-              </th>
-              <th
-                scope="col"
-                className="text-xs uppercase text-slate-400 font-semibold p-3 text-right"
-              >
-                Size
-              </th>
-              <th scope="col" className="text-xs uppercase text-slate-400 font-semibold p-3">
-                Modified
-              </th>
-              <th
-                scope="col"
-                className="text-xs uppercase text-slate-400 font-semibold p-3 sr-only"
-              >
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Name</TableHead>
+              <TableHead className="text-right">Size</TableHead>
+              <TableHead className="hidden sm:table-cell">Modified</TableHead>
+              <TableHead className="text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {prefixes.map((folder) => (
-              <tr key={folder} className="hover:bg-slate-900/30 transition">
-                <th scope="row" className="p-3 font-medium text-slate-200">
+              <TableRow key={folder}>
+                <TableCell colSpan={1} className="p-0">
                   <button
                     type="button"
                     onClick={() => onEnterPrefix(folder)}
-                    className="text-slate-400 hover:text-slate-300 flex items-center gap-1"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:text-foreground"
                   >
-                    <span aria-hidden="true">🗂</span>
-                    {displayPrefix(folder, prefix)}
+                    <span
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted"
+                      aria-hidden="true"
+                    >
+                      <Folder className="size-4 text-primary" />
+                    </span>
+                    <span className="truncate font-medium text-foreground">
+                      {displayPrefix(folder, prefix)}
+                    </span>
                   </button>
-                </th>
-                <td className="p-3 text-right text-slate-500">—</td>
-                <td className="p-3 text-slate-500" />
-                <td className="p-3" />
-              </tr>
+                </TableCell>
+                <TableCell className="text-right text-subtle-foreground">—</TableCell>
+                <TableCell className="hidden text-subtle-foreground sm:table-cell">—</TableCell>
+                <TableCell />
+              </TableRow>
             ))}
+
             {objects.map((object) => {
               const busy = pendingKey === object.key;
+              const copied = copiedKey === object.key;
+
               return (
-                <tr key={object.key} className="hover:bg-slate-900/30 transition">
-                  <th scope="row" className="p-3">
-                    <span className="block font-medium text-slate-200">
-                      <span aria-hidden="true">📄</span> {displayKey(object.key, prefix)}
-                    </span>
-                    <span className="block text-xs text-slate-500" title={object.key}>
-                      {object.key}
-                    </span>
-                  </th>
-                  <td className="p-3 text-right text-slate-300">{formatSize(object.sizeBytes)}</td>
-                  <td className="p-3 text-slate-400">{formatDate(object.lastModified)}</td>
-                  <td className="p-3 space-x-2">
-                    <a
-                      className="inline-flex items-center justify-center px-3 py-1.5 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 transition"
-                      href={downloadHref(object)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Download. This route returns the file itself, so it opens in a new tab rather than navigating the app."
-                    >
-                      Download
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => onCopyLink(object)}
-                      title={`Copy the public share link for ${object.key}`}
-                      className="inline-flex items-center justify-center px-3 py-1.5 bg-transparent text-slate-300 rounded-lg hover:bg-slate-700 text-sm transition disabled:opacity-50"
-                    >
-                      {copiedKey === object.key ? 'Copied' : 'Copy link'}
-                    </button>
-                    {canWrite ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center px-3 py-1.5 bg-transparent text-red-400 rounded-lg hover:bg-red-500/10 hover:text-red-300 text-sm transition disabled:opacity-50"
-                        disabled={busy}
-                        onClick={() => onDelete(object)}
+                <TableRow key={object.key}>
+                  <TableCell className="max-w-0">
+                    <div className="flex items-center gap-3">
+                      <FileTypeIcon mimeType={object.mimeType} />
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-foreground" title={object.key}>
+                          {displayKey(object.key, prefix)}
+                        </p>
+                        <p
+                          className="truncate font-mono text-[0.6875rem] text-subtle-foreground"
+                          title={object.key}
+                        >
+                          {object.key}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="tabular whitespace-nowrap text-right">
+                    {formatSize(object.sizeBytes)}
+                  </TableCell>
+                  <TableCell className="hidden whitespace-nowrap sm:table-cell">
+                    {formatDate(object.lastModified)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="iconSm"
+                        onClick={() => onCopyLink(object)}
+                        aria-label={copied ? 'Link copied' : `Copy link for ${object.fileName}`}
+                        title={copied ? 'Copied' : 'Copy public share link'}
+                        className={copied ? 'text-success' : undefined}
+                        icon={copied ? <Check /> : <Copy />}
+                      />
+                      <a
+                        href={downloadHref(object)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Download"
+                        aria-label={`Download ${object.fileName}`}
+                        className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
                       >
-                        {busy ? 'Working…' : 'Delete'}
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
+                        <Download className="size-3.5" aria-hidden="true" />
+                      </a>
+                      {canWrite ? (
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          disabled={busy}
+                          onClick={() => onDelete(object)}
+                          aria-label={`Delete ${object.fileName}`}
+                          title="Delete"
+                          className="hover:bg-danger-soft hover:text-danger"
+                          icon={<Trash2 />}
+                        />
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+          </TableBody>
+        </Table>
+      </TableWrap>
+    </div>
   );
 }
 
@@ -252,31 +363,46 @@ export function displayPrefix(prefix: string, currentPrefix: string): string {
 
 export function ConfirmDialog({
   title,
+  description,
   confirmLabel,
   busy,
+  tone = 'danger',
   onCancel,
   onConfirm,
   children,
 }: {
   title: string;
+  description?: string;
   confirmLabel: string;
   busy: boolean;
+  tone?: 'danger' | 'primary';
   onCancel: () => void;
   onConfirm: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }): React.JSX.Element {
   return (
-    <Dialog open={true} onOpenChange={onCancel}>
-      <DialogContent className="p-6" title={title}>
+    <Dialog open={true} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <DialogContent
+        title={title}
+        description={description}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant={tone === 'danger' ? 'danger' : 'primary'}
+              size="sm"
+              onClick={onConfirm}
+              disabled={busy}
+              autoFocus
+            >
+              {busy ? 'Working…' : confirmLabel}
+            </Button>
+          </>
+        }
+      >
         {children}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <Button variant="danger" size="sm" onClick={onConfirm} disabled={busy} autoFocus>
-            {busy ? 'Working…' : confirmLabel}
-          </Button>
-        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1,480 +1,266 @@
 @import "tailwindcss";
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
-
-#root {
-  min-height: 100vh;
-}
-
-/* ── Legacy semantic classes still referenced by routes ── */
-/* These are kept because migrating every consumer at once is riskier than
-   keeping a small, intentional surface. Anything not referenced here is dead
-   and has been removed. */
-
-/* Dashboard storage totals panel */
-.dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  padding: 2rem;
-}
-
-.hero {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  padding: 1.75rem;
-}
-
-.hero .field-label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  margin-bottom: 0.5rem;
-}
-
-.hero .hero-number {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #e2e8f0;
-}
-
-/* Bucket + S3 tables on dashboard */
-.browser-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.browser-toolbar-title {
-  flex: 1;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #e2e8f0;
-}
-
-.browser-page {
-  padding: 1.25rem 1.25rem 3rem;
-}
-
-.card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-
-.table-responsive {
-  overflow-x: auto;
-}
-
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.file-table th,
-.file-table td {
-  padding: 0.75rem;
-  border-bottom: 1px solid #334155;
-  text-align: left;
-  color: #cbd5e1;
-}
-
-.file-table caption,
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.muted {
-  color: #94a3b8;
-}
-
-.muted.small {
-  font-size: 0.875rem;
-}
-
-.numeric {
-  text-align: right;
-}
-
-.actions-cell {
-  white-space: nowrap;
-}
-
-/* Buttons referenced by legacy components */
-.btn,
-.btn-secondary,
-.btn-ghost,
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-
-.btn-secondary {
-  background: #334155;
-  color: #e2e8f0;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: #cbd5e1;
-  border-color: #475569;
-}
-
-.btn-primary {
-  background: #2563eb;
-  color: #fff;
-}
-
-.btn-primary:hover {
-  background: #1d4ed8;
-}
-
-.btn-ghost:hover {
-  background: #334155;
-}
-
-.btn-sm {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.875rem;
-}
-
-.field-help {
-  font-size: 0.875rem;
-  color: #94a3b8;
-  margin-bottom: 1rem;
-}
-
-/* Banners */
-.error-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid #7f1d1d;
-  border-left-width: 1px;
-  border-radius: 0.375rem;
-  background: #450a0a;
-  color: #f87171;
-  font-size: 0.875rem;
-}
-
-.notice-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid #334155;
-  border-left-width: 1px;
-  border-radius: 0.375rem;
-  background: #1e293b;
-  font-size: 0.875rem;
-  color: #cbd5e1;
-}
-
-.notice-banner.ok {
-  border-left-color: #16a34a;
-  border-left-width: 1px;
-  background: #052e16;
-}
-
-.notice-banner.error {
-  border-left-color: #dc2626;
-  border-left-width: 1px;
-  background: #450a0a;
-}
-
-/* Empty states */
-.empty-state {
-  padding: 3rem 1.25rem;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  background: #1e293b;
-  color: #94a3b8;
-  text-align: center;
-}
-
-.empty-state h2,
-.empty-state h3 {
-  margin-bottom: 0.5rem;
-  color: #e2e8f0;
-  font-size: 1.125rem;
-}
-
-.empty-state p {
-  margin: 0;
-}
-
-.error-state {
-  padding: 2rem;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  background: #1e293b;
-  color: #94a3b8;
-  text-align: center;
-}
-
-.error-state h1 {
-  margin-bottom: 0.5rem;
-  color: #e2e8f0;
-  font-size: 1.25rem;
-}
-
-.error-message {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.875rem;
-}
-
-.error-state .buttons {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-top: 1rem;
-}
-
-.error-state .buttons button,
-.error-state .buttons a {
-  padding: 0.5rem 1rem;
-  border: 1px solid #334155;
-  border-radius: 0.375rem;
-  background: #1e293b;
-  color: #e2e8f0;
-  font: inherit;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-/* Breadcrumb */
-.breadcrumb {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-  color: #94a3b8;
-}
-
-.breadcrumb ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  align-items: center;
-}
-
-.breadcrumb li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.breadcrumb button {
-  background: transparent;
-  border: none;
-  color: #60a5fa;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-}
-
-.breadcrumb .sep {
-  color: #475569;
-}
-
-/* File/table rows */
-.folder-row .name-cell {
-  font-weight: 500;
-}
-
-.folder-row .folder-link {
-  background: transparent;
-  border: none;
-  color: #60a5fa;
-  cursor: pointer;
-  padding: 0;
-  font: inherit;
-}
-
-.folder-row .folder-link:hover {
-  color: #93c5fd;
-}
-
-.object-name {
-  display: block;
-  font-weight: 500;
-}
-
-.object-key {
-  display: block;
-  font-size: 0.75rem;
-  color: #64748b;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-/* Org layout */
-.org-layout {
-  padding: 2rem;
-}
-
-.org-header {
-  margin-bottom: 1.5rem;
-}
-
-.org-header h1 {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  margin: 0;
-}
-
-.org-header p {
-  margin: 0.25rem 0 0;
-  color: #94a3b8;
-}
-
-/* Auth chrome */
-.auth-status {
-  font-size: 0.875rem;
-  color: #94a3b8;
-}
-
-.readonly-badge {
-  font-size: 0.75rem;
-  padding: 0.125rem 0.375rem;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.25rem;
-  color: #94a3b8;
-}
-
-.account {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.account-name {
-  font-size: 0.875rem;
-  color: #e2e8f0;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.avatar {
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 9999px;
-  border: 1px solid #475569;
-}
-
-.org-switcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.org-switcher,
-.org-empty {
-  font-size: 0.875rem;
-  color: #94a3b8;
-}
-
-/* ── Dialog (referenced by Dialog component; missing before) ── */
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.dialog-content {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  width: 100%;
-  max-width: 28rem;
-  max-height: 90vh;
-  overflow: auto;
-}
-
-.dialog-content-inner h3 {
-  margin: 0 0 1rem;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #e2e8f0;
-}
-
-/* ── Upload panel (referenced by credentials panel) ── */
-.upload-panel {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  padding: 1rem;
-}
-
-/* ── Modal (referenced by ConfirmDialog) ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.modal {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  width: 100%;
-  max-width: 28rem;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  margin-top: 1rem;
+@import "tw-animate-css";
+
+/* Dark mode is driven by next-themes (`attribute="class"`), not by the media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens
+   ─────────────────────────────────────────────────────────────────────────
+   Every colour in the UI resolves through a semantic token declared here, so
+   the light/dark pair is defined once and no component hardcodes a hex value.
+   Values are OKLCH: perceptually even lightness, so the dark theme is a real
+   counterpart of the light one instead of an inverted approximation.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.984 0.003 265);
+  --foreground: oklch(0.21 0.02 265);
+
+  --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.966 0.005 265);
+  --surface-hover: oklch(0.955 0.007 265);
+
+  --border: oklch(0.906 0.008 265);
+  --border-strong: oklch(0.845 0.012 265);
+
+  --muted-foreground: oklch(0.53 0.02 265);
+  --subtle-foreground: oklch(0.65 0.018 265);
+
+  --primary: oklch(0.54 0.19 275);
+  --primary-hover: oklch(0.48 0.2 275);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.95 0.03 275);
+
+  --danger: oklch(0.56 0.21 25);
+  --danger-hover: oklch(0.5 0.22 25);
+  --danger-foreground: oklch(0.99 0 0);
+  --danger-soft: oklch(0.96 0.03 25);
+
+  --success: oklch(0.58 0.15 155);
+  --success-soft: oklch(0.96 0.04 155);
+
+  --warning: oklch(0.68 0.15 75);
+  --warning-soft: oklch(0.97 0.05 85);
+
+  --ring: oklch(0.54 0.19 275 / 40%);
+  --shadow-color: 265 25% 20%;
+}
+
+.dark {
+  --background: oklch(0.161 0.014 265);
+  --foreground: oklch(0.958 0.005 260);
+
+  --surface: oklch(0.208 0.016 265);
+  --surface-muted: oklch(0.243 0.018 265);
+  --surface-hover: oklch(0.268 0.02 265);
+
+  --border: oklch(0.302 0.02 265);
+  --border-strong: oklch(0.372 0.022 265);
+
+  --muted-foreground: oklch(0.685 0.018 262);
+  --subtle-foreground: oklch(0.565 0.018 262);
+
+  --primary: oklch(0.68 0.16 277);
+  --primary-hover: oklch(0.74 0.15 277);
+  --primary-foreground: oklch(0.17 0.025 265);
+  --primary-soft: oklch(0.28 0.05 275);
+
+  --danger: oklch(0.65 0.19 25);
+  --danger-hover: oklch(0.71 0.18 25);
+  --danger-foreground: oklch(0.17 0.02 25);
+  --danger-soft: oklch(0.28 0.06 25);
+
+  --success: oklch(0.7 0.15 158);
+  --success-soft: oklch(0.27 0.05 158);
+
+  --warning: oklch(0.78 0.14 80);
+  --warning-soft: oklch(0.29 0.05 80);
+
+  --ring: oklch(0.68 0.16 277 / 45%);
+  --shadow-color: 265 40% 3%;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 0.375rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+
+  --font-sans:
+    "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Base
+   ───────────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  #root {
+    min-height: 100dvh;
+    isolation: isolate;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklch, var(--primary) 28%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.014em;
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  /* Scrollbars that follow the theme instead of the OS default. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+    background-clip: content-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Utilities
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Soft elevation that reads correctly on both themes. */
+@utility shadow-card {
+  box-shadow:
+    0 1px 2px -1px hsl(var(--shadow-color) / 0.12),
+    0 1px 3px hsl(var(--shadow-color) / 0.06);
+}
+
+@utility shadow-raised {
+  box-shadow:
+    0 4px 6px -4px hsl(var(--shadow-color) / 0.14),
+    0 10px 24px -8px hsl(var(--shadow-color) / 0.16);
+}
+
+@utility shadow-overlay {
+  box-shadow:
+    0 8px 16px -8px hsl(var(--shadow-color) / 0.24),
+    0 24px 56px -16px hsl(var(--shadow-color) / 0.32);
+}
+
+/* Faint grid used behind the public hero. */
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 20%, transparent 78%);
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--foreground) 10%,
+    color-mix(in oklch, var(--primary) 85%, var(--foreground)) 90%
+  );
+  background-clip: text;
+  color: transparent;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
 }

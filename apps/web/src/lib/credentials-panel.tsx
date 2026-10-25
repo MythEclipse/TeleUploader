@@ -5,8 +5,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSelector } from '@tanstack/react-store';
 import { Store } from '@tanstack/store';
+import { Check, Copy, KeyRound, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableWrap,
+} from '../components/ui/table';
 import { api } from './api';
-import { ConfirmDialog, type Notice, NoticeBanner } from './components';
+import { ConfirmDialog, EmptyState, type Notice, NoticeBanner } from './components';
 import { formatDate } from './format';
 import { credentialsQuery } from './queries';
 import { keys } from './query-keys';
@@ -84,42 +96,70 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
   });
 
   return (
-    <section aria-label="S3 credentials">
-      <h2>S3 credentials</h2>
-      <p className="field-help">
-        Each workspace has its own key pairs. The secret is shown once when issued and cannot be
-        read again — revoke and issue a new pair if it is lost.
-      </p>
+    <section aria-label="S3 credentials" className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[0.9375rem] font-semibold text-foreground">S3 credentials</h2>
+          <p className="mt-0.5 max-w-2xl text-[0.8125rem] text-muted-foreground">
+            Each workspace has its own key pairs. The secret is shown once when issued and cannot be
+            read again — revoke and issue a new pair if it is lost.
+          </p>
+        </div>
+        {canWrite ? (
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus />}
+            disabled={createMutation.isPending}
+            onClick={() => createMutation.mutate()}
+          >
+            {createMutation.isPending ? 'Issuing…' : 'Issue new key pair'}
+          </Button>
+        ) : null}
+      </div>
 
       {notice ? <NoticeBanner notice={notice} onDismiss={() => patchUi({ notice: null })} /> : null}
 
       {issued ? (
-        <div className="upload-panel" role="status">
-          <h3>Copy this secret now — it will not be shown again</h3>
-          <table className="file-table">
-            <tbody>
-              <tr>
-                <th scope="row">Access key</th>
-                <td>
-                  <code>{issued.credential.accessKey}</code>
-                </td>
-              </tr>
-              <tr>
-                <th scope="row">Secret key</th>
-                <td>
-                  <code>{issued.secretKey}</code>
-                </td>
-              </tr>
-              <tr>
-                <th scope="row">Label</th>
-                <td>{issued.credential.label}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="btn-primary"
+        <div
+          className="overflow-hidden rounded-xl border border-warning/40 bg-warning-soft"
+          role="status"
+        >
+          <div className="flex items-center gap-2 border-b border-warning/30 px-4 py-2.5">
+            <ShieldAlert className="size-4 text-warning" aria-hidden="true" />
+            <h3 className="text-[0.8125rem] font-semibold text-warning">
+              Copy this secret now — it will not be shown again
+            </h3>
+          </div>
+
+          <dl className="divide-y divide-warning/20">
+            <div className="flex flex-col gap-1 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+              <dt className="w-28 shrink-0 text-xs font-medium text-warning/80">Access key</dt>
+              <dd className="min-w-0 flex-1">
+                <code className="block truncate rounded bg-surface/60 px-2 py-1 text-[0.8125rem] text-foreground">
+                  {issued.credential.accessKey}
+                </code>
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+              <dt className="w-28 shrink-0 text-xs font-medium text-warning/80">Secret key</dt>
+              <dd className="min-w-0 flex-1">
+                <code className="block truncate rounded bg-surface/60 px-2 py-1 text-[0.8125rem] text-foreground">
+                  {issued.secretKey}
+                </code>
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+              <dt className="w-28 shrink-0 text-xs font-medium text-warning/80">Label</dt>
+              <dd className="text-[0.8125rem] text-foreground">{issued.credential.label ?? '—'}</dd>
+            </div>
+          </dl>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-warning/30 px-4 py-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Copy />}
               onClick={() => {
                 void navigator.clipboard
                   .writeText(
@@ -139,103 +179,121 @@ export function CredentialsPanel({ orgSlug, canWrite }: CredentialsPanelProps): 
               }}
             >
               Copy as env vars
-            </button>
-            <button type="button" className="btn-ghost" onClick={() => patchUi({ issued: null })}>
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Check />}
+              onClick={() => patchUi({ issued: null })}
+            >
               I have saved it
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
 
-      <div className="browser-toolbar">
-        <span className="spacer" style={{ flex: 1 }} />
-        {canWrite ? (
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={createMutation.isPending}
-            onClick={() => createMutation.mutate()}
-          >
-            {createMutation.isPending ? 'Issuing…' : 'Issue new key pair'}
-          </button>
-        ) : null}
-      </div>
-
       {list.isError ? (
-        <p className="error-banner" role="alert">
+        <p
+          className="rounded-lg border border-danger/35 bg-danger-soft px-3.5 py-2.5 text-[0.8125rem] text-danger"
+          role="alert"
+        >
           Could not list credentials: {messageOf(list.error)}
         </p>
       ) : null}
 
       {credentials.length === 0 && !list.isPending ? (
-        <div className="empty-state">
-          <h2>No key pairs yet</h2>
-          <p>
-            {canWrite
-              ? 'Issue one to reach these buckets from aws-cli, rclone or the Docker registry client.'
-              : 'Sign in to issue a key pair.'}
-          </p>
+        <div className="rounded-xl border border-border bg-surface shadow-card">
+          <EmptyState
+            icon={<KeyRound className="size-5" />}
+            title="No key pairs yet"
+            description={
+              canWrite
+                ? 'Issue one to reach these buckets from aws-cli, rclone or the Docker registry client.'
+                : 'Sign in to issue a key pair.'
+            }
+          />
         </div>
       ) : null}
 
       {credentials.length > 0 ? (
-        <div className="panel">
-          <div className="table-responsive">
-            <table className="file-table">
-              <caption className="visually-hidden">S3 key pairs for this workspace</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Access key</th>
-                  <th scope="col">Label</th>
-                  <th scope="col">Last used</th>
-                  <th scope="col">Created</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+        <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-card">
+          <TableWrap>
+            <Table>
+              <caption className="sr-only">S3 key pairs for this workspace</caption>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Access key</TableHead>
+                  <TableHead>Label</TableHead>
+                  <TableHead className="hidden sm:table-cell">Last used</TableHead>
+                  <TableHead className="hidden sm:table-cell">Created</TableHead>
+                  <TableHead className="text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {credentials.map((credential) => (
-                  <tr key={credential.id}>
-                    <th scope="row">
-                      <code>{credential.accessKey}</code>
-                    </th>
-                    <td>{credential.label}</td>
-                    <td className="muted">
-                      {credential.lastUsedAt ? formatDate(credential.lastUsedAt) : 'never'}
-                    </td>
-                    <td className="muted">{formatDate(credential.createdAt)}</td>
-                    <td className="actions-cell">
-                      {canWrite ? (
-                        <button
-                          type="button"
-                          className="btn-ghost danger"
-                          disabled={pendingId === credential.id}
-                          onClick={() => patchUi({ confirming: credential })}
-                        >
-                          {pendingId === credential.id ? 'Revoking…' : 'Revoke'}
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
+                  <TableRow key={credential.id}>
+                    <TableCell>
+                      <code className="rounded bg-surface-muted px-1.5 py-0.5 text-[0.8125rem] text-foreground">
+                        {credential.accessKey}
+                      </code>
+                    </TableCell>
+                    <TableCell>
+                      {credential.label ? (
+                        credential.label
+                      ) : (
+                        <Badge variant="outline">env-seeded</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden whitespace-nowrap sm:table-cell">
+                      {credential.lastUsedAt ? (
+                        formatDate(credential.lastUsedAt)
+                      ) : (
+                        <span className="text-subtle-foreground">never</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden whitespace-nowrap sm:table-cell">
+                      {formatDate(credential.createdAt)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        {canWrite ? (
+                          <Button
+                            variant="dangerGhost"
+                            size="sm"
+                            icon={<Trash2 />}
+                            disabled={pendingId === credential.id}
+                            onClick={() => patchUi({ confirming: credential })}
+                          >
+                            {pendingId === credential.id ? 'Revoking…' : 'Revoke'}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableWrap>
         </div>
       ) : null}
 
       {confirming ? (
         <ConfirmDialog
           title="Revoke key pair"
+          description="Any client using this key gets 403 immediately."
           confirmLabel="Revoke"
           busy={pendingId === confirming.id}
           onCancel={() => patchUi({ confirming: null })}
           onConfirm={() => revokeMutation.mutate(confirming)}
         >
-          <p>
-            Revoke <code>{confirming.accessKey}</code>? Any client using it will immediately get
-            403. This cannot be undone — issue a new pair to restore access.
+          <p className="text-foreground">
+            Revoke{' '}
+            <code className="rounded bg-surface-muted px-1.5 py-0.5">{confirming.accessKey}</code>?
+          </p>
+          <p className="mt-2 text-[0.8125rem] text-muted-foreground">
+            This cannot be undone — issue a new pair to restore access.
           </p>
         </ConfirmDialog>
       ) : null}
