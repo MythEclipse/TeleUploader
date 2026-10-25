@@ -214,6 +214,77 @@ describe("File Route Handlers", () => {
 			}
 		});
 
+		it("should send the upstream Content-Length, not the DB size, when Telegram re-encodes", async () => {
+			// Regression: Telegram converts an uploaded GIF to MP4, so the body is
+			// much smaller than the bytes the user uploaded. Advertising the DB size
+			// made every such download truncate and the client report a network error.
+			mockFindByPublicId.mockImplementationOnce(async () => ({
+				publicId: "anim-id",
+				telegramFileId: "tg-anim-id",
+				telegramFileUniqueId: "tg-anim-unique",
+				storageChatId: -100123,
+				storageMessageId: 43,
+				fileName: "nyocot.gif",
+				mimeType: "image/gif",
+				sizeBytes: 506904, // what the user uploaded
+				fileType: "animation",
+				uploaderId: 0,
+				fileHash: null,
+				archiveTelegramFileId: null,
+				archiveStorageMessageId: null,
+				archiveFileName: null,
+				archiveEntryName: null,
+				archiveMimeType: null,
+				archiveSizeBytes: null,
+				bucketId: null,
+				s3Key: null,
+				storageBackend: "telegram",
+				isDeleted: false,
+				multipartUploadId: null,
+				partCount: null,
+				createdAt: new Date("2026-05-18T00:00:00.000Z"),
+				updatedAt: new Date("2026-05-18T00:00:00.000Z"),
+			}));
+
+			const reencoded = new Uint8Array(86765); // what Telegram actually serves
+			// Telegram serves the re-encoded file as octet-stream; only the path
+			// reveals the real container.
+			mockGetFileInfo.mockImplementationOnce(async () => ({
+				file_size: reencoded.byteLength,
+				mime_type: "application/octet-stream",
+				file_path: "animations/file_11892.mp4",
+				bot_token: "123456:ABC-DEF",
+			}));
+
+			const originalFetch = globalThis.fetch;
+			globalThis.fetch = (async () =>
+				new Response(reencoded, {
+					status: 200,
+					headers: {
+						"content-type": "application/octet-stream",
+						"content-length": String(reencoded.byteLength),
+					},
+				})) as typeof fetch;
+			try {
+				const req = requestWithPublicId("http://localhost:4000/f/anim-id", "anim-id");
+				const res = await handleFileRedirect(req);
+
+				expect(res.status).toBe(200);
+				// The declared length must match the bytes actually streamed, or the
+				// client stops early and reports a truncated transfer.
+				expect(res.headers.get("Content-Length")).toBe(String(reencoded.byteLength));
+				expect(res.headers.get("Content-Length")).not.toBe("506904");
+				// The type must describe the MP4 that arrives, not the uploaded GIF and
+				// not the opaque octet-stream the CDN sends.
+				expect(res.headers.get("Content-Type")).toBe("video/mp4");
+
+				const body = await res.arrayBuffer();
+				expect(body.byteLength).toBe(Number(res.headers.get("Content-Length")));
+			} finally {
+				globalThis.fetch = originalFetch;
+			}
+		});
+
 		it("should return 500 on database or external errors", async () => {
 			mockFindByPublicId.mockImplementationOnce(async () => {
 				throw new Error("DB Connection Error");

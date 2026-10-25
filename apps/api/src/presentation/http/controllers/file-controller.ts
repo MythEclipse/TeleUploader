@@ -31,6 +31,48 @@ type RequestWithParams = Request & {
 const fail = (status: number, error: string): Response => Response.json({ error }, { status });
 
 /**
+ * Maps a Telegram file path to the MIME type of the container it actually is.
+ *
+ * Telegram's CDN serves re-encoded files with the opaque type
+ * `application/octet-stream` and only reveals the real container in the path it
+ * returns from `getFile` (e.g. `animations/file_1.mp4` for an uploaded GIF). The
+ * table is deliberately small: it covers only the formats Telegram produces when
+ * it re-encodes, and anything else falls back to the caller's own MIME type.
+ *
+ * @param filePath - The `file_path` from Telegram's `getFile` response.
+ * @returns The MIME type, or `null` when the extension is not one we translate.
+ */
+const mimeFromPath = (filePath: string): string | null => {
+	const ext = filePath.slice(filePath.lastIndexOf(".") + 1).toLowerCase();
+	switch (ext) {
+		case "mp4":
+			return "video/mp4";
+		case "jpg":
+		case "jpeg":
+			return "image/jpeg";
+		case "png":
+			return "image/png";
+		case "webp":
+			return "image/webp";
+		case "gif":
+			return "image/gif";
+		case "mp3":
+			return "audio/mpeg";
+		case "m4a":
+			return "audio/mp4";
+		case "ogg":
+		case "oga":
+			return "audio/ogg";
+		case "webm":
+			return "video/webm";
+		case "pdf":
+			return "application/pdf";
+		default:
+			return null;
+	}
+};
+
+/**
  * Handles file redirect requests.
  *
  * Looks up a file by its public identifier and determines the best delivery
@@ -146,12 +188,44 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 			}
 
 			const upstreamHeaders = new Headers(upstream.headers);
+			// Content-Type resolution, in order of trustworthiness:
+			//
+			// 1. The upstream type, unless it is `application/octet-stream`. Telegram's
+			//    CDN serves every re-encoded file (GIF→MP4, photo→JPEG) with that
+			//    opaque type, so trusting it would make browsers download instead of
+			//    play the file.
+			// 2. For `animation`/`photo`, the real container derived from the file
+			//    path Telegram hands back (`animations/file_x.mp4` → video/mp4). The
+			//    DB mime type is what the user uploaded (`image/gif`), which no longer
+			//    describes the bytes on the wire.
+			// 3. The DB mime type, which is correct for every non-re-encoded file.
+			const upstreamContentType = upstreamHeaders.get("content-type");
+			const upstreamIsOpaque =
+				upstreamContentType === null || upstreamContentType === "application/octet-stream";
+			const reencodedType =
+				file.fileType === "animation" || file.fileType === "photo"
+					? (mimeFromPath(fileInfo.file_path) ?? file.mimeType)
+					: null;
 			const contentType =
-				file.mimeType || upstreamHeaders.get("content-type") || "application/octet-stream";
-			const headers = {
+				reencodedType ??
+				(upstreamIsOpaque ? null : upstreamContentType) ??
+				file.mimeType ??
+				"application/octet-stream";
+
+			// Content-Length must describe the body we are about to stream, not the
+			// row in our database. Telegram re-encodes GIFs to MP4 and photos to
+			// JPEG, so `file.sizeBytes` (the bytes the user uploaded) is routinely
+			// larger than the served body. Sending the DB size truncated every such
+			// download: the client stops after the declared length and reports a
+			// network error. Trust the upstream length, and only fall back to the
+			// DB value when the CDN does not report one.
+			const upstreamLength = upstreamHeaders.get("content-length");
+			const contentLength = upstreamLength ?? String(file.sizeBytes ?? 0);
+
+			const headers: Record<string, string> = {
 				"Content-Type": contentType,
 				"Content-Disposition": `inline; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-				"Content-Length": String(file.sizeBytes ?? 0),
+				"Content-Length": contentLength,
 				"Cache-Control": "public, max-age=300",
 				...corsHeaders,
 			};
