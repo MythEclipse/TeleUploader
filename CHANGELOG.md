@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/asepharyana/TeleUploader/compare/v1.11.0...v1.12.0) (2026-10-25)
+
+
+### Features
+
+* **api:** add MIME type mapping for Telegram file paths and update Content-Length handling ([2ef30a3](https://github.com/asepharyana/TeleUploader/commit/2ef30a33b876e5d852d918c89589e4661ad237e5))
+
 # [1.11.0](https://github.com/asepharyana/TeleUploader/compare/v1.10.0...v1.11.0) (2026-10-25)
 
 
