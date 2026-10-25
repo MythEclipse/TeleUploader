@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/asepharyana/TeleUploader/compare/v1.10.0...v1.11.0) (2026-10-25)
+
+
+### Features
+
+* **web:** add QuickUpload component for unauthenticated file uploads ([18001cb](https://github.com/asepharyana/TeleUploader/commit/18001cb2867dec4e4d2d287a58f32da0cb53f798))
+
 # [1.10.0](https://github.com/asepharyana/TeleUploader/compare/v1.9.9...v1.10.0) (2026-10-25)
 
 
