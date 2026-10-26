@@ -18,13 +18,8 @@
     "smoke": "bash scripts/smoke.sh",
     "prepare": "husky"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
   "devDependencies": {
-    "husky": "^9.1.7",
-    "@moonrepo/cli": "^2.6.3"
+    "@moonrepo/cli": "^2.6.4",
+    "husky": "^9.1.7"
   }
 }
