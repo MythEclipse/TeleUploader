@@ -79,8 +79,10 @@ test("deploy workflow builds with pnpm and ships over systemd (no Nix)", () => {
 	// workflow_dispatch must ALSO remain: .semrel/dispatch.mjs POSTs to the deploy
 	// dispatch endpoint, and dropping it would break the release→deploy path.
 	expect(workflowFile).toContain("workflow_dispatch");
-	expect(workflowFile).toContain("uses: actions/checkout@v7");
-	expect(workflowFile).toContain("uses: pnpm/action-setup@v4");
+	// Pinned by ACTION, not by version: the major tag is bumped routinely, and hard-coding
+	// it here made an action upgrade fail the deploy gate for no behavioural reason.
+	expect(workflowFile).toMatch(/uses: actions\/checkout@v\d+/);
+	expect(workflowFile).toMatch(/uses: pnpm\/action-setup@v\d+/);
 	expect(workflowFile).toContain("pnpm install --frozen-lockfile");
 	expect(workflowFile).toContain("pnpm run lint");
 	expect(workflowFile).toContain("VPS_HOST");
