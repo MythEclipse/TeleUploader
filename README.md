@@ -7,8 +7,9 @@ Backend production-ready untuk upload file ke Telegram yang tersimpan di private
 1. Siapkan PostgreSQL database (produksi: database `uploader` via PgBouncer pool di `100.121.180.82:6432`)
 2. Setup environment: `cp .env.example .env`
 3. Edit `.env` dengan nilai yang sesuai (lihat `DATABASE_URL`, `PORT=4000`)
-4. Create table: `bun run db:migrate`
-5. Install dependencies: `bun install`
+4. Install dependencies: `bun install`
+5. Build lalu jalankan migrasi: `bun run build`, kemudian `bun run db:migrate`
+   (task ini menjalankan `node dist/migrate.js`, jadi butuh `dist/` dari langkah build)
 
 ## Telegram Private Channel Setup
 
@@ -19,8 +20,8 @@ Backend production-ready untuk upload file ke Telegram yang tersimpan di private
 ## Running
 
 ```bash
-bun run dev      # Development mode
-bun run start    # Production mode
+bun run dev                                  # Development mode (tsx watch)
+bun run build && node apps/api/dist/index.js # Production mode (hasil build)
 ```
 
 ## Deployment (Produksi — systemd, tanpa Nix)
@@ -65,7 +66,10 @@ This repository uses auto semantic versioning via [semantic-release](https://git
 - `fix(...)` commits → patch bump (v1.1.1 → v1.1.2)
 - `feat(...)` commits → minor bump (v1.2.0)
 - breaking changes → major bump (v2.0.0)
-- `chore/ci/docs/refactor/test` commits → no release
+- `chore(...)` commits → no release
+- `ci/docs/refactor/test/build` commits → patch bump
+
+Aturan lengkapnya ada di tabel [Releases and container images](#releases-and-container-images).
 
 On every release, `prepare.mjs` syncs the version across `package.json`
 (and `flake.nix` only if that file ever comes back), and the
@@ -82,23 +86,23 @@ The commit prefix decides the version bump — nobody types a version number:
 | `feat(scope): …` | minor bump |
 | `fix(scope): …` | patch bump |
 | `BREAKING CHANGE:` in the footer | major bump |
-| `chore`, `ci`, `docs`, `refactor`, `test`, `build` | patch bump, or no release at all |
+| `ci`, `docs`, `refactor`, `test`, `build` | patch bump |
+| `chore` | no release |
 
 A release publishes a tag, a GitHub Release and the changelog. The same workflow
 then builds and pushes one container image per service to GHCR at exactly that
 version, so an image tag always matches a git tag:
 
-This repo publishes 1 image(s):
+This repo publishes 1 image:
 
 | Package | Image |
 |---|---|
-| `teleuploader` | `ghcr.io/asepharyana/TeleUploader:teleuploader:<version>` |
-
+| `teleuploader` | `ghcr.io/asepharyana/teleuploader:<version>` |
 
 Pull one without touching the registry UI:
 
 ```bash
-docker pull ghcr.io/asepharyana/<repo>:<service>:<version>
+docker pull ghcr.io/asepharyana/teleuploader:<version>
 ```
 
 ### Adding or removing an image
@@ -115,8 +119,10 @@ The list lives in `.github/docker-images.json`:
 - `package` becomes the GHCR path component, so it must be lowercase
   `[a-z0-9._-]`. It does not have to match the repo name.
 - `context` is the build context directory, `file` the Dockerfile within it.
-- `build_args` is an object of `KEY=value` pairs; the pipeline flattens it before
-  the matrix, so both the object and a pre-joined `"A=1\nB=2"` string work.
+- `build_args` is passed straight to `docker/build-push-action`, so it must be a
+  newline-separated `KEY=value` string (e.g. `"A=1\nB=2"`). A JSON **object** is
+  accepted by the action but handed through literally, so every `ARG` in the
+  Dockerfile resolves empty and the build still succeeds.
 - `"enabled": false` keeps an entry documented but skips building it. **An empty
   or fully disabled list fails the run** rather than publishing nothing.
 
@@ -125,7 +131,8 @@ context, and both must be tracked by git — CI cannot see an untracked file, an
 missing `.dockerignore` silently ships `node_modules/` and `.git` inside the image.
 
 `latest` tracks the newest stable release. Prereleases (`1.2.0-rc.1`) are
-tagged but never promote `latest`.
+tagged but never promote `latest`. Set `"latest": false` on an entry to keep it
+on versioned tags only.
 
 ### If a release fails
 
@@ -138,3 +145,4 @@ gh run view <run-id> --log-failed
 
 A run that only built images and published no tag is normal for a `chore` push:
 there was nothing to release, so no version was derived and no image was tagged.
+<!-- review schema smoke test -->
