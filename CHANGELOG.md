@@ -1,3 +1,10 @@
+## [1.12.8](https://github.com/asepharyana/TeleUploader/compare/v1.12.7...v1.12.8) (2026-10-28)
+
+
+### Bug Fixes
+
+* auto-fix code quality ([728c328](https://github.com/asepharyana/TeleUploader/commit/728c328d87478ef3a3a5e1bf6d0c7e97185cc294))
+
 ## [1.12.7](https://github.com/asepharyana/TeleUploader/compare/v1.12.6...v1.12.7) (2026-10-28)
 
 
