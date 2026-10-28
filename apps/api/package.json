@@ -3,7 +3,10 @@
   "version": "1.2.9",
   "description": "Telegram file uploader backend",
   "type": "module",
-  "packageManager": "pnpm@10.33.2",
+  "private": true,
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "esbuild src/index.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/index.js && esbuild src/infrastructure/persistence/drizzle/migrate.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/migrate.js && esbuild src/infrastructure/db/seed.ts --bundle --keep-names --platform=node --target=node22 --format=esm \"--banner:js=$(node -e \"console.log(require('fs').readFileSync('scripts/esbuild-banner.js','utf8'))\")\" --outfile=dist/seed.js",
@@ -40,7 +43,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",
-    "@biomejs/biome": "^2.6.2",
+    "@biomejs/biome": "^2.6.3",
     "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",
