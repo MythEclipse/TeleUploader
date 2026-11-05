@@ -1,3 +1,10 @@
+## [1.12.15](https://github.com/MythEclipse/TeleUploader/compare/v1.12.14...v1.12.15) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** stop the auto-merge gate reading its own check run ([448d89c](https://github.com/MythEclipse/TeleUploader/commit/448d89c237b5325f41db56b7196529750b5d8773))
+
 ## [1.12.14](https://github.com/MythEclipse/TeleUploader/compare/v1.12.13...v1.12.14) (2026-11-01)
 
 ## [1.12.13](https://github.com/MythEclipse/TeleUploader/compare/v1.12.12...v1.12.13) (2026-11-01)
