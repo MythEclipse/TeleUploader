@@ -1,3 +1,5 @@
+## [1.12.16](https://github.com/MythEclipse/TeleUploader/compare/v1.12.15...v1.12.16) (2026-11-06)
+
 ## [1.12.15](https://github.com/MythEclipse/TeleUploader/compare/v1.12.14...v1.12.15) (2026-11-05)
 
 
