@@ -1,3 +1,10 @@
+## [1.12.18](https://github.com/MythEclipse/TeleUploader/compare/v1.12.17...v1.12.18) (2026-11-12)
+
+
+### Bug Fixes
+
+* auto-fix code quality ([4ae0fb7](https://github.com/MythEclipse/TeleUploader/commit/4ae0fb7fbab48b02674ca436785f3092056849e6))
+
 ## [1.12.17](https://github.com/MythEclipse/TeleUploader/compare/v1.12.16...v1.12.17) (2026-11-06)
 
 ## [1.12.16](https://github.com/MythEclipse/TeleUploader/compare/v1.12.15...v1.12.16) (2026-11-06)
