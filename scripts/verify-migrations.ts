@@ -57,9 +57,15 @@ const API_ROOT = join(repoRoot, 'apps', 'api');
 // `import 'postgres'` from scripts/ fails with ERR_MODULE_NOT_FOUND. Resolve it
 // through a require rooted at apps/api instead of hardcoding a path — a literal
 // absolute path would work in exactly one checkout and break in CI and on the VPS.
-// It is a CJS module whose export IS the factory, so there is no `.default` to unwrap.
+//
+// `postgres` v3 was CJS (the factory WAS the module export). `postgres` v4 is ESM
+// only: require() resolves it as a namespace object whose `.default` IS the factory.
+// Accept both shapes so a future major does not break this again.
 const apiRequire = createRequire(join(API_ROOT, 'package.json'));
-const postgres = apiRequire('postgres') as typeof import('postgres');
+const postgresNamespace = apiRequire('postgres') as
+  | typeof import('postgres')
+  | { default: typeof import('postgres') };
+const postgres = (postgresNamespace.default ?? postgresNamespace) as typeof import('postgres');
 
 /** The five tables that existed before the tenancy migration. */
 const PRESERVED_TABLES = ['files', 'buckets', 'multipart_uploads', 'multipart_parts', 'file_parts'];
