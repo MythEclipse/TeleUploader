@@ -1,3 +1,10 @@
+## [1.12.19](https://github.com/MythEclipse/TeleUploader/compare/v1.12.18...v1.12.19) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** bump esbuild to 0.25.0 for GHSA-67mh-4wv8-2f99 ([8fd48c2](https://github.com/MythEclipse/TeleUploader/commit/8fd48c29b04304efd7ff36ad81ec1d7642190d3b))
+
 ## [1.12.18](https://github.com/MythEclipse/TeleUploader/compare/v1.12.17...v1.12.18) (2026-11-12)
 
 
