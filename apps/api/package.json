@@ -1,6 +1,6 @@
 {
 	"name": "filedrop",
-	"version": "1.15.2",
+	"version": "1.16.0",
 	"description": "Telegram file uploader backend",
 	"type": "module",
 	"private": true,
