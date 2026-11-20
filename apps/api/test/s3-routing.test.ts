@@ -258,4 +258,29 @@ describe("S3 routing (live app)", () => {
 		const res = await req()("/", { method: "POST" });
 		expect(res.status).toBe(404);
 	});
+
+	it("answers a malformed percent-escape with 400 InvalidURI, not a 500", async () => {
+		// REGRESSION: `decodeURIComponent` throws `URIError` on a lone `%`, and
+		// the path is client-controlled, so `GET /{bucket}/%ZZ` escaped the
+		// handler as an unhandled exception and answered 500. A 500 is wrong for
+		// two reasons: it blames the server for a client's typo, and aws-cli /
+		// rclone / the Docker registry client RETRY a 500, turning one bad key
+		// into a retry storm against a request that can never succeed.
+		//
+		// Driven through the real app on purpose. A unit test of `parseS3Path`
+		// alone would still pass if the handler forgot to check its result.
+		const res = await req()("/gitea/%ZZ", { headers: { authorization: AWS_AUTH } });
+		expect(res.status).toBe(400);
+		expect(res.headers.get("content-type") || "").toContain("application/xml");
+		const body = await res.text();
+		expect(body).toContain("<Code>InvalidURI</Code>");
+	});
+
+	it("answers an incomplete percent-escape with 400, not a 500", async () => {
+		// `%E0%A4` is a truncated UTF-8 sequence: it passes a naive `%` check but
+		// still makes `decodeURIComponent` throw.
+		const res = await req()("/gitea/a/%E0%A4", { headers: { authorization: AWS_AUTH } });
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("<Code>InvalidURI</Code>");
+	});
 });

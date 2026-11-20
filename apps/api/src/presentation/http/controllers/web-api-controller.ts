@@ -14,7 +14,8 @@ import {
 import { getErrorMessage } from "../../../infrastructure/file";
 import logger from "../../../infrastructure/observability/logger";
 import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
-import { sanitizeFilenameHeader } from "../filename";
+import { contentDisposition } from "../filename";
+import { readJsonBody } from "../json-body";
 import {
 	type AuthenticatedCaller,
 	bootstrapOrganizationId,
@@ -112,7 +113,11 @@ export const handleCreateBucketV1 = async (
 	req: Request,
 	organizationId: string
 ): Promise<Response> => {
-	const body = (await req.json()) as { name?: string };
+	// `req.json()` throws `SyntaxError` on a malformed body, which used to escape
+	// this handler as a 500 for `POST /api/v1/buckets` with `{not json`.
+	const parsedBody = await readJsonBody(req);
+	if (!parsedBody.ok) return jsonError("Request body must be valid JSON", 400);
+	const body = (parsedBody.value ?? {}) as { name?: string };
 	if (!body.name || !BucketNameSchema.safeParse(body.name).success) {
 		return jsonError("Invalid bucket name. Use lowercase, 3-63 chars, no underscore", 400);
 	}
@@ -360,7 +365,7 @@ export const handleDownloadObjectV1 = async (
 			headers: {
 				"Content-Type":
 					file.mimeType || upstreamHeaders.get("content-type") || "application/octet-stream",
-				"Content-Disposition": `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+				"Content-Disposition": contentDisposition("attachment", file.fileName),
 				"Content-Length": upstreamLength ?? String(file.sizeBytes ?? 0),
 				"Cache-Control": "public, max-age=300",
 				...corsHeaders,
@@ -396,7 +401,10 @@ export const handleCopyObjectV1 = async (
 	params: RouteParams,
 	organizationId: string
 ): Promise<Response> => {
-	const body = (await req.json()) as {
+	// Same unguarded `req.json()` as handleCreateBucketV1: `{not json` was a 500.
+	const parsedBody = await readJsonBody(req);
+	if (!parsedBody.ok) return jsonError("Request body must be valid JSON", 400);
+	const body = (parsedBody.value ?? {}) as {
 		sourceKey?: string;
 		destBucket?: string;
 		destKey?: string;

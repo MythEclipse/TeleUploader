@@ -16,6 +16,7 @@ import {
 } from "../../../../infrastructure/file";
 import { botPool } from "../../../../infrastructure/telegram/bot-pool";
 import { verifyBodyHash } from "../../../s3/auth";
+import { decodeUriComponentSafe } from "../../../s3/uri";
 import {
 	copyObjectResultXml,
 	deleteResultXml,
@@ -298,7 +299,18 @@ export const handleCopyObject = async (
 	organizationId: string,
 	reqId: string
 ): Promise<Response> => {
-	const copySource = decodeURIComponent(rawCopySource);
+	// `x-amz-copy-source` is client-supplied and `decodeURIComponent` throws
+	// `URIError` on a malformed escape, which escaped as a 500 for a bad header.
+	const copySource = decodeUriComponentSafe(rawCopySource);
+	if (copySource === null) {
+		return s3ErrorResponse(
+			"InvalidArgument",
+			"The copy source is not a valid URI.",
+			rawCopySource,
+			400,
+			reqId
+		);
+	}
 	const sourcePath = copySource.startsWith("/") ? copySource.slice(1) : copySource;
 	const parts = sourcePath.split("/");
 	const sourceBucket = parts[0];

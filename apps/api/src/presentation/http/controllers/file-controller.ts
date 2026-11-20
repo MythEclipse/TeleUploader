@@ -17,7 +17,7 @@ import { botPool } from "../../../infrastructure/telegram/bot-pool";
 import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
 import { createGetObjectResponse } from "../../s3/object-stream";
 import { parseRangeHeader } from "../../s3/range";
-import { sanitizeFilenameHeader } from "../filename";
+import { contentDisposition } from "../filename";
 
 /**
  * Extended Request type that includes route parameter access.
@@ -203,7 +203,7 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 				status: 200,
 				headers: {
 					"Content-Type": file.mimeType || "application/octet-stream",
-					"Content-Disposition": `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+					"Content-Disposition": contentDisposition("attachment", file.fileName),
 					"Content-Length": String(loc.length),
 					"Access-Control-Allow-Origin": "*",
 					"Access-Control-Expose-Headers": "Content-Disposition, Content-Length, Accept-Ranges",
@@ -276,7 +276,7 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 
 			const headers: Record<string, string> = {
 				"Content-Type": contentType,
-				"Content-Disposition": `inline; filename="${sanitizeFilenameHeader(file.fileName)}"`,
+				"Content-Disposition": contentDisposition("inline", file.fileName),
 				"Content-Length": contentLength,
 				"Cache-Control": "public, max-age=300",
 				...corsHeaders,
@@ -336,7 +336,7 @@ const serveStateless = async (payload: StatelessPayload, req: Request): Promise<
 		Vary: "Origin",
 	};
 	const lastModified = new Date(payload.createdAt * 1000).toUTCString();
-	const disposition = `inline; filename="${sanitizeFilenameHeader(payload.fileName)}"`;
+	const disposition = contentDisposition("inline", payload.fileName);
 
 	if (payload.parts.length > 1) {
 		const first = payload.parts[0];

@@ -1,4 +1,5 @@
 import { timingSafeCompare } from "../../application/shared/utils/crypto";
+import { decodeUriComponentSafe } from "./uri";
 
 export interface SigV4Result {
 	isValid: boolean;
@@ -169,17 +170,23 @@ const buildCanonicalRequest = (
  * 1. Decode percent-encoded characters
  * 2. Remove dot-segments (`.` and `..`) per RFC 3986 section 5.2.4
  *
+ * A malformed escape returns `null` rather than throwing. `decodeURIComponent`
+ * raises `URIError` on a lone `%`, and this runs on the attacker-controlled
+ * request path — so `GET /{bucket}/%ZZ` used to throw out of `verifySignature`
+ * and become a 500. Returning `null` lets the caller answer 400 InvalidURI.
+ *
  * @param uri - The raw URI path to normalize.
- * @returns The normalized URI path.
+ * @returns The normalized URI path, or `null` when it cannot be decoded.
  */
-const normalizeUri = (uri: string): string => {
+const normalizeUri = (uri: string): string | null => {
 	if (!uri || uri === "") return "/";
 
 	// AWS SigV4 requires URI-decoded paths in the canonical request
 	// Only `.` and `..` segments are removed per RFC 3986 section 5.2.4
 	// Empty segments (from `//` or trailing `/`) are preserved — they are
 	// part of the URI and the SDK signs them.
-	const decoded = decodeURIComponent(uri);
+	const decoded = decodeUriComponentSafe(uri);
+	if (decoded === null) return null;
 	const segments = decoded.split("/");
 	const result: string[] = [];
 
@@ -302,6 +309,11 @@ export const verifySignature = async (
 
 	const parsedUrl = new URL(url, "http://localhost");
 	const canonicalUri = normalizeUri(parsedUrl.pathname);
+	if (canonicalUri === null) {
+		// A malformed escape is a client error, not a signature mismatch and
+		// certainly not a server fault.
+		return { isValid: false, credential: null, errorCode: "InvalidURI" };
+	}
 	const canonicalQueryString = buildCanonicalQueryString(parsedUrl.searchParams);
 
 	const contentSha256 = headers["x-amz-content-sha256"] || null;
@@ -447,7 +459,11 @@ export const verifyPresignedUrl = async ({
 		})
 		.join("");
 
-	const canonicalRequest = `${method}\n${normalizeUri(parsedUrl.pathname)}\n${buildCanonicalQueryString(searchParams, new Set(["X-Amz-Signature"]))}\n${canonicalHeaders}\n${signedHeaders}\nUNSIGNED-PAYLOAD`;
+	const presignedUri = normalizeUri(parsedUrl.pathname);
+	if (presignedUri === null) {
+		return { isValid: false, credential: null, errorCode: "InvalidURI" };
+	}
+	const canonicalRequest = `${method}\n${presignedUri}\n${buildCanonicalQueryString(searchParams, new Set(["X-Amz-Signature"]))}\n${canonicalHeaders}\n${signedHeaders}\nUNSIGNED-PAYLOAD`;
 	const hashedCanonicalRequest = await sha256Hex(canonicalRequest);
 	const credentialScope = `${dateStamp}/${region}/${SERVICE}/${TERMINATION}`;
 	const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${hashedCanonicalRequest}`;

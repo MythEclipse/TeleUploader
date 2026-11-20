@@ -3,6 +3,7 @@ import { getErrorMessage } from "../../../../infrastructure/file";
 import logger from "../../../../infrastructure/observability/logger";
 import { verifyPresignedUrl, verifySignature } from "../../../s3/auth";
 import { S3_CORS_HEADERS } from "../../../s3/headers";
+import { decodeUriComponentSafe } from "../../../s3/uri";
 import { s3ErrorResponse } from "../../../s3/xml";
 import {
 	handleCreateBucket,
@@ -37,19 +38,33 @@ export const s3OptionsResponse = (): Response =>
  *
  * Supports path-style URLs such as `/bucket-name/key/with/prefix`.
  *
+ * Each segment is percent-decoded, but a malformed escape is NOT allowed to
+ * throw. `decodeURIComponent` raises `URIError` on a lone `%` or an incomplete
+ * sequence, and a URL path is attacker-controlled, so the throw escaped the
+ * handler as a 500: `GET /{bucket}/%ZZ` answered `500 Internal Server Error`
+ * instead of a client error. `malformed` carries that case back to the caller,
+ * which answers `400 InvalidURI` — the same code AWS returns.
+ *
  * @param pathname - The URL pathname.
- * @returns An object with the extracted bucket and key (both may be null).
+ * @returns The extracted bucket and key (both may be null), or `malformed` when
+ *   any segment cannot be decoded.
  */
-export const parseS3Path = (pathname: string): { bucket: string | null; key: string | null } => {
+export const parseS3Path = (
+	pathname: string
+): { bucket: string | null; key: string | null; malformed: boolean } => {
 	const parts = pathname.split("/").filter(Boolean);
-	if (parts.length === 0) return { bucket: null, key: null };
-	if (parts.length === 1) return { bucket: parts[0], key: null };
-	// Decode URI components to match virtual-hosted behavior (H10)
-	const key = parts
-		.slice(1)
-		.map((segment) => decodeURIComponent(segment))
-		.join("/");
-	return { bucket: parts[0], key };
+	if (parts.length === 0) return { bucket: null, key: null, malformed: false };
+	if (parts.length === 1) return { bucket: parts[0], key: null, malformed: false };
+	// Decode URI components to match virtual-hosted behavior (H10). Decoding is
+	// per-segment so an encoded `/` inside a key (`a%2Fb`) stays part of the key
+	// rather than becoming a path separator.
+	const decoded: string[] = [];
+	for (const segment of parts.slice(1)) {
+		const value = decodeUriComponentSafe(segment);
+		if (value === null) return { bucket: parts[0] ?? null, key: null, malformed: true };
+		decoded.push(value);
+	}
+	return { bucket: parts[0] ?? null, key: decoded.join("/"), malformed: false };
 };
 
 /**
@@ -140,15 +155,46 @@ export const handleS3Request = async (
 	const method = req.method;
 	const url = new URL(req.url);
 	const pathname = url.pathname;
-	const { bucket, key } = virtualHostBucket
-		? {
-				bucket: virtualHostBucket,
-				key: pathname === "/" ? null : decodeURIComponent(pathname.slice(1)),
-			}
-		: parseS3Path(pathname);
+	const reqId = REQUEST_ID();
+
+	// Percent-decode BEFORE anything else, and never let a malformed escape
+	// throw. `decodeURIComponent` raises `URIError` on a lone `%` or an
+	// incomplete sequence (`%E0%A4`), and the path is attacker-controlled, so
+	// `GET /{bucket}/%ZZ` used to escape the handler as a 500. It is a client
+	// error: answer 400 InvalidURI, the code AWS uses. That also stops
+	// aws-cli/rclone/Docker retrying a request that can never succeed.
+	let bucket: string | null;
+	let key: string | null;
+	let malformed = false;
+
+	if (virtualHostBucket) {
+		bucket = virtualHostBucket;
+		if (pathname === "/") {
+			key = null;
+		} else {
+			const decoded = decodeUriComponentSafe(pathname.slice(1));
+			malformed = decoded === null;
+			key = decoded;
+		}
+	} else {
+		const parsed = parseS3Path(pathname);
+		bucket = parsed.bucket;
+		key = parsed.key;
+		malformed = parsed.malformed;
+	}
+
+	if (malformed) {
+		return s3ErrorResponse(
+			"InvalidURI",
+			"Could not parse the specified URI.",
+			pathname,
+			400,
+			reqId
+		);
+	}
+
 	const headers = headersToRecord(req);
 	const searchParams = url.searchParams;
-	const reqId = REQUEST_ID();
 
 	// Handle CORS preflight
 	if (method === "OPTIONS") {
@@ -171,13 +217,24 @@ export const handleS3Request = async (
 		: await verifySignature(method, req.url, headers, null, resolveSecret, REGION);
 
 	if (!authResult.isValid) {
-		const status = authResult.errorCode === "NotImplemented" ? 501 : 403;
+		// The error code decides the status, not a single boolean: a malformed
+		// percent-escape is a 400 client error and an unsupported payload
+		// encoding is a 501, and collapsing either into 403 told the client to
+		// fix its credentials when the request itself was the problem.
+		const status =
+			authResult.errorCode === "NotImplemented"
+				? 501
+				: authResult.errorCode === "InvalidURI"
+					? 400
+					: 403;
 		const message =
 			authResult.errorCode === "NotImplemented"
 				? "aws-chunked streaming payloads are not supported."
-				: isPresigned
-					? "Presigned URL verification failed"
-					: "Authentication required";
+				: authResult.errorCode === "InvalidURI"
+					? "Could not parse the specified URI."
+					: isPresigned
+						? "Presigned URL verification failed"
+						: "Authentication required";
 		return s3ErrorResponse(
 			authResult.errorCode || "AccessDenied",
 			message,
