@@ -1,0 +1,74 @@
+# Git hooks for TeleUploader — lefthook, replacing husky.
+#
+# WHY LEFTHOOK AND NOT HUSKY. husky was installed here with a single
+# `.husky/pre-commit` running `pnpm run lint`, and nothing else: no version
+# handling, no typecheck, and a hook file that only fires because a `prepare`
+# script happens to install it. 9router — the project this repo is being aligned
+# with — runs lefthook for the same job, and the hooks below are the ones that
+# actually earn their keep. The version bump in particular CANNOT live in CI: it
+# has to be committed BEFORE the push, which is exactly what pre-push is for.
+#
+# WHY THE HOOKS DO NOT ALL BLOCK. `biome --write` autofixes and stages the fix;
+# a commit is never rejected for formatting it can repair itself. `typecheck` and
+# the bump DO block, because a type error is not something a formatter can fix and
+# a version left uncommitted ships the old number.
+#
+# ORDERING IS LOAD-BEARING. lefthook runs commands in declaration order, so the
+# bump is LAST in pre-push: it commits, which is only correct once typecheck has
+# already passed. Running it first would commit a version for code that then fails
+# to compile.
+
+pre-commit:
+  commands:
+    # ONE COMMAND PER APP, and `root:` is why.
+    #
+    # This repo has THREE biome configs: `biome.json` at the root, `apps/biome.json`
+    # for apps/api, and `apps/web/biome.json`. Biome treats the root file as THE root
+    # configuration, so invoking it from the repo root against an app file fails with
+    #   Found a nested root configuration, but there's already a root configuration
+    # — and because the command carries `|| true`, that failure was invisible: the
+    # hook reported success while checking nothing at all.
+    #
+    # `root:` runs the command with its cwd inside that app, so biome discovers that
+    # app's own config and resolves ./node_modules/.bin/biome from there.
+    # {staged_files} is rewritten relative to `root`, which is what the app-local
+    # config expects (verified: `FILES=./src/env.ts` with cwd apps/api).
+    #
+    # `|| true` is still deliberate: pre-existing violations must not block a commit
+    # that did not introduce them. `stage_fixed` puts any autofix into the same commit
+    # rather than leaving it as dirt the next `git status` nags about.
+    biome-api:
+      root: "apps/api/"
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,mjs,cjs,css}"
+      run: ./node_modules/.bin/biome check --write --no-errors-on-unmatched {staged_files} || true
+      stage_fixed: true
+
+    biome-web:
+      root: "apps/web/"
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,mjs,cjs,css}"
+      run: ./node_modules/.bin/biome check --write --no-errors-on-unmatched {staged_files} || true
+      stage_fixed: true
+
+pre-push:
+  commands:
+    # KNOWN LEFTHOOK BEHAVIOUR, verified by measurement rather than assumed: when
+    # the push range contains NO changed files, lefthook skips EVERY pre-push
+    # command with
+    #   │  bump (skip) no matching push files
+    # and exits 0. A push consisting only of empty commits therefore does not bump.
+    # That is acceptable — such a push has no code to version — but it is worth
+    # knowing, because `git commit --allow-empty && git push` looks exactly like a
+    # push that silently failed to bump. Adding `files: git ls-files` does NOT
+    # change this (also measured); only a push carrying real changes runs the hook.
+    #
+    # A type error is the one class of defect a formatter cannot repair, and it is
+    # cheap enough to run on every push (measured ~0.9s for both apps).
+    typecheck:
+      run: pnpm run typecheck
+
+    # Bump the version, commit it, and stop the push once so the bump commit is
+    # included on the next push. `--block-push-after-bump` is what makes the commit
+    # visible: without it, the push already in flight would carry the OLD version, and
+    # the bump would only reach the remote on a later push that might never come.
+    bump:
+      run: node scripts/bump-version.mjs --block-push-after-bump

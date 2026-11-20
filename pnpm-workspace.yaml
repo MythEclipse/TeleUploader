@@ -22,3 +22,8 @@ minimumReleaseAge: 0
 allowBuilds:
   '@prisma/engines': true
   esbuild: true
+  # lefthook's postinstall downloads the Go binary for this platform. Without the
+  # allowance pnpm refuses the install with ERR_PNPM_IGNORED_BUILDS and the hooks
+  # silently never run — the failure mode this repo already knows from husky,
+  # where a hook that is not installed looks exactly like a hook that passed.
+  lefthook: true

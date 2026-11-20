@@ -6,7 +6,7 @@ import { PositiveIntSchema } from "./application/shared/validation/schemas";
 import logger from "./infrastructure/observability/logger";
 
 interface AppConfig {
-	/** Application version (read from package.json, kept in sync by semantic-release prepare.mjs) */
+	/** Application version (read from package.json, kept in sync by scripts/bump-version.mjs) */
 	appVersion: string;
 	/** All bot tokens merged from BOT_TOKENS (or BOT_TOKEN + ADDITIONAL_BOT_TOKENS fallback) */
 	botTokens: string[];
@@ -209,11 +209,12 @@ if (telegramChunkSizeBytes > TELEGRAM_CHUNK_SIZE_MAX_BYTES) {
 /**
  * Reads the application version from package.json.
  *
- * Prefers the resolved node_modules/teleuploader package version (set by
- * semantic-release when the repo is installed as a published artifact) and
- * falls back to reading the repo's own package.json when running from a
- * checkout. Both files are updated by prepare.mjs on every release, so the
- * value always matches the deployed build.
+ * Both candidate paths carry the same number because `scripts/bump-version.mjs`
+ * rewrites every tracked manifest in one commit, so the version served by
+ * `/health` cannot disagree with the version in the repository. That was not
+ * true before: the old CI-side prepare hook only touched the root manifest, so a
+ * bundled build read `apps/api/package.json` and reported a version that had not
+ * moved since 1.2.9.
  */
 const readPackageVersion = (): string => {
 	// Candidates in priority order. In the Nix bundle the app lives at
@@ -312,3 +313,7 @@ logger.debug("Environment variables loaded", {
 		s3SecretKey: maskSecret(config.s3SecretKey),
 	},
 });
+
+// probe
+
+// probe

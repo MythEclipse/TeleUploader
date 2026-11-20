@@ -20,11 +20,12 @@ import { OFFLINE_DATABASE_URL } from "./helpers/setup-env";
  * declaration (a list of names) drifting from reality (the files on disk) with
  * nothing to notice. This file makes that drift loud.
  *
- * It also asserts that the `.semrel/*.mjs` hooks referenced by `.releaserc.json`
- * exist. `dispatch.mjs` is what triggers the deploy after a release. They were
- * deleted by commit d2839ab, a commit about an unrelated topic, which would
- * have silently disabled the release→deploy path in P5c. A missing file there
- * fails semantic-release at release time, i.e. in production, not in CI.
+ * It also asserts that the version bump is hook-driven rather than CI-driven, and
+ * that every workspace manifest agrees on the version. Both used to be the other
+ * way round: `.semrel/prepare.mjs` was the only writer and it touched the root
+ * manifest alone, so `apps/api` and `apps/web` sat on 1.2.9 through the whole
+ * 1.12.x line. That drift was invisible because the test that existed only
+ * checked that the hook FILES were present — it never checked what they wrote.
  */
 
 const testDir = fileURLToPath(new URL(".", import.meta.url));
@@ -103,52 +104,84 @@ test("the quarantined suites are the live-network ones", () => {
 	}
 });
 
-test("the semantic-release hooks referenced by .releaserc.json exist", () => {
-	const releaserc = readFileSync(join(repoRoot, ".releaserc.json"), "utf8");
-
-	// Extract the ./.semrel/*.mjs paths the config actually invokes, rather than
-	// hardcoding the list — so a new hook is covered the day it is added.
-	const referenced = [...releaserc.matchAll(/\.\/\.semrel\/[\w.-]+\.mjs/g)].map((m) => m[0]);
+test("the version bump is driven by a hook, not by CI", () => {
+	// REPLACES the old "semantic-release hooks referenced by .releaserc.json
+	// exist" test. That assertion guarded a release pipeline whose only version
+	// writer touched the root manifest, which is how apps/api and apps/web ended
+	// up frozen on 1.2.9 while the root reached 1.12.19.
+	//
+	// The invariant that replaces it is the one that was actually broken: the
+	// bump script must exist, must be wired into a git hook, and must sweep every
+	// workspace manifest. A test that only checked the file exists would have
+	// passed on the old setup too.
+	const bumpScript = readFileSync(join(repoRoot, "scripts/bump-version.mjs"), "utf8");
+	const lefthook = readFileSync(join(repoRoot, "lefthook.yml"), "utf8");
 
 	expect(
-		referenced.length,
-		"expected .releaserc.json to reference at least one ./.semrel hook"
-	).toBeGreaterThan(0);
+		lefthook,
+		"lefthook.yml must run the bump on pre-push — a version decided in CI cannot be committed before the push"
+	).toContain("scripts/bump-version.mjs");
 
-	for (const relative of [...new Set(referenced)]) {
-		expect(
-			existsSync(join(repoRoot, relative)),
-			`${relative} is executed by .releaserc.json but does not exist. semantic-release runs ` +
-				"these on a release, so a missing file breaks the release→deploy path in production, not in CI."
-		).toBe(true);
+	// `git ls-files` rather than a hardcoded list: that is what makes the sweep
+	// cover apps/api and apps/web without naming them, so a third package added
+	// later is bumped automatically instead of silently left behind.
+	expect(
+		bumpScript,
+		"the bump must enumerate manifests via git ls-files, not a hardcoded list — a hardcoded list is how apps/api stayed on 1.2.9"
+	).toContain('git(["ls-files"])');
+
+	// The block-push flag is what makes the bump commit reach the remote at all.
+	expect(
+		lefthook,
+		"pre-push must pass --block-push-after-bump, or the push in flight ships the OLD version"
+	).toContain("--block-push-after-bump");
+
+	// husky is gone; a leftover hook directory would run alongside lefthook.
+	expect(
+		existsSync(join(repoRoot, ".husky")),
+		"the husky hook directory must be gone — lefthook owns .git/hooks now"
+	).toBe(false);
+	expect(
+		existsSync(join(repoRoot, ".releaserc.json")),
+		"semantic-release config must be gone — CI no longer decides the version"
+	).toBe(false);
+});
+
+test("every workspace manifest carries the same version", () => {
+	// The concrete regression: the root was at 1.12.19 while both workspace
+	// packages were still at 1.2.9, because the old prepare hook only rewrote the
+	// root. This reads the files rather than trusting the bump script, so a
+	// hand-edit that desynchronises them fails here too.
+	const readVersion = (relative: string): string =>
+		(JSON.parse(readFileSync(join(repoRoot, relative), "utf8")) as { version: string }).version;
+
+	const root = readVersion("package.json");
+	for (const manifest of ["apps/api/package.json", "apps/web/package.json"]) {
+		expect(readVersion(manifest), `${manifest} drifted from the root version`).toBe(root);
 	}
 });
 
-test("the deploy and release workflows are UNFROZEN (P5c)", () => {
-	// P0–P5b froze these; P5c lifted the freeze, so a merge to main deploys again. This
-	// assertion is INVERTED rather than deleted, so a silent re-freeze fails here too.
-	// It deliberately duplicates deploy-config.test.ts: if that file is deleted, the
-	// trigger guard survives in a suite the glob cannot skip.
+test("the deploy workflow still triggers on push to main", () => {
+	// UNCHANGED IN INTENT from the old combined test, now scoped to deploy.yml
+	// alone: release.yml is tag-triggered on purpose (it publishes images for an
+	// already-decided version), so asserting a `push: branches: [main]` block in
+	// it would be asserting the pipeline that was just removed.
 	//
-	// The BLOCK form is the point. The freeze guard was `/^\s{2}push:\s*$/m`, matching only
-	// `push:` alone on a line at 2-space indent — an inline `push: branches: [main]` on
-	// one line would have matched neither the old guard nor this one, letting the freeze
-	// be lifted while still asserting it was in place.
-	for (const wf of ["deploy.yml", "release.yml"]) {
-		const file = readFileSync(join(repoRoot, ".github/workflows", wf), "utf8");
-		expect(file, `${wf} must trigger on push to main — the P5c unfreeze`).toMatch(
-			/^\s{2}push:\s*$/m
-		);
-		// Scoped to main, not every branch.
-		expect(file, `${wf} push trigger must be scoped to main`).toMatch(
-			/^\s{2}push:\n\s{4}branches: \[main\]$/m
-		);
-		// workflow_dispatch must ALSO survive: .semrel/dispatch.mjs POSTs to the deploy
-		// dispatch endpoint, so dropping it breaks the release→deploy path in production.
-		expect(file, `${wf} must keep workflow_dispatch for .semrel/dispatch.mjs`).toContain(
-			"workflow_dispatch"
-		);
-	}
+	// The BLOCK form is the point. The freeze guard was `/^\s{2}push:\s*$/m`,
+	// matching only `push:` alone on a line at 2-space indent — an inline
+	// `push: branches: [main]` on one line would have matched neither the old
+	// guard nor this one, letting the freeze be lifted while still asserting it
+	// was in place.
+	const file = readFileSync(join(repoRoot, ".github/workflows/deploy.yml"), "utf8");
+	expect(file, "deploy.yml must trigger on push to main — the P5c unfreeze").toMatch(
+		/^\s{2}push:\s*$/m
+	);
+	expect(file, "deploy.yml push trigger must be scoped to main").toMatch(
+		/^\s{2}push:\n\s{4}branches: \[main\]$/m
+	);
+	// workflow_dispatch must ALSO survive: a manual redeploy is the only recovery
+	// path when a release lands but the deploy job fails.
+	expect(file, "deploy.yml must keep workflow_dispatch").toContain("workflow_dispatch");
 });
 
 test("the offline database placeholder can never name a real host", () => {

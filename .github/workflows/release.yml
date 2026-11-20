@@ -1,25 +1,36 @@
-name: Semantic Release
+name: Release (image publish)
 
-# The `push: branches: [main]` trigger is RESTORED (P5c). It was disabled for the whole
-# kana migration (P0-P5b) so each phase merge could not publish a release; the migration
-# is merged into integration/p3b, so the freeze has served its purpose.
+# TRIGGER: a `v*` TAG, not a push to main.
 #
-# The BLOCK form is load-bearing, not stylistic: the freeze guard was
-# `/^\s{2}push:\s*$/m`, which only matches `push:` alone on a line at 2-space indent. An
-# inline `push: branches: [main]` on one line would have evaded it and left the freeze
-# asserted while the freeze was lifted.
+# This workflow used to run semantic-release on every push to main, derive a
+# version from the commit prefixes, and commit the result back. That made CI the
+# owner of the version number, and it had two consequences this repo lived with:
 #
-# workflow_dispatch STAYS: .semrel/dispatch.mjs POSTs to a workflow dispatch endpoint,
-# and dropping it would break the release→deploy path.
+#   1. apps/api and apps/web stayed frozen on 1.2.9 while the root moved to
+#      1.12.19, because the prepare hook only rewrote the root manifest.
+#   2. Nothing on a workstation could tell you what the next version would be —
+#      the answer only existed inside a runner.
+#
+# The version is now decided BEFORE the push, by `scripts/bump-version.mjs` in
+# the lefthook `pre-push` hook, which rewrites every manifest and creates the
+# `vX.Y.Z` tag locally. This workflow's only remaining job is to turn that
+# already-decided version into published images. It reads `package.json`, so
+# there is exactly one source of truth and no second derivation to drift.
+#
+# `workflow_dispatch` stays, with a `tag` input, so an existing release can be
+# republished without re-tagging.
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to (re)publish"
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  actions: write
-  id-token: write
+  contents: read
   # The image push needs this and nothing else in this list provides it. Without
   # it the build succeeds and the push fails at the last step with
   #   denied: installation not allowed to Create organization package
@@ -32,71 +43,69 @@ concurrency:
 
 jobs:
   release:
+    name: Validate tag
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # The image jobs below read this. It is the ONLY place a version is derived:
-    # semantic-release computes it, this exports it, and the Docker job consumes
-    # it. Nothing re-parses a tag.
+    # The image jobs below read this. The value is READ from the checked-out
+    # manifest, never computed — bump-version.mjs already decided it.
     outputs:
       version: ${{ steps.publish.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-          # semantic-release needs the full history + tags to analyse commits
-          persist-credentials: true
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 1
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install semantic-release (isolated, no package.json pollution)
-        run: |
-          npm install --prefix "$RUNNER_TEMP/sr" --no-save \
-            semantic-release@^24 \
-            @semantic-release/changelog@^6 \
-            @semantic-release/exec@^6 \
-            @semantic-release/git@^10
-          # This PATH line must name the SAME directory as the --prefix above.
-          # They diverged here once (/tmp/sr-tools vs $RUNNER_TEMP/sr) and the
-          # only symptom was `semantic-release: command not found` — the install
-          # step reported success, because it really did install somewhere.
-          echo "$RUNNER_TEMP/sr/node_modules/.bin" >> "$GITHUB_PATH"
-          # @semantic-release/release-notes-generator loads the writer with
-          # `require`, so it must be CommonJS even though the generator package
-          # itself is ESM. The .cjs extension is what makes that work.
-          test -f scripts/release-notes-writer.cjs \
-            || { echo "::error::scripts/release-notes-writer.cjs is missing — the release fails on a module resolution error"; exit 1; }
-
-      - name: Run semantic-release
+      - name: Read version and validate the tag agrees
         id: publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # .releaserc.json's successCmd writes `version=` to $GITHUB_OUTPUT in
-        # addition to dispatching deploy.yml. ${version} is unset when this push
-        # needs no release, which is the signal the image jobs gate on.
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        # The tag and package.json must match. They are written together by
+        # bump-version.mjs, so a mismatch means someone tagged by hand or edited
+        # a manifest afterwards — and publishing an image whose tag disagrees
+        # with the version baked into it is worse than failing here.
         run: |
-          semantic-release
-          echo "release version: ${version:-<none — this push needs no release>}"
+          set -Eeuo pipefail
+          version=$(node -p 'require("./package.json").version')
+
+          # Docker tags allow a narrower character set than semver, and `1` or
+          # `latest` are both legal tags that would quietly overwrite the wrong
+          # image. Validate before this value becomes a tag.
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::package.json version '$version' is not a Docker-safe semver version"
+            exit 1
+          fi
+          if [[ "v$version" != "$RELEASE_TAG" ]]; then
+            echo "::error::tag '$RELEASE_TAG' does not match package.json version 'v$version'"
+            echo "The bump script writes both; a mismatch means one was edited by hand."
+            exit 1
+          fi
+
+          # The workspace manifests must agree with the root. They are bumped
+          # together precisely so a stale one cannot ship a wrong version.
+          for manifest in apps/api/package.json apps/web/package.json; do
+            other=$(node -p "require('./$manifest').version")
+            if [[ "$other" != "$version" ]]; then
+              echo "::error::$manifest is on $other but the release is $version"
+              exit 1
+            fi
+          done
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$version from $RELEASE_TAG"
 
   prepare:
     name: Resolve images
     needs: release
-    # No version out of the release job means no release happened on this push.
-    if: needs.release.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       images: ${{ steps.resolve.outputs.images }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - id: resolve
         env:
@@ -104,10 +113,11 @@ jobs:
           GHCR_OWNER: ${{ github.repository_owner }}
         run: |
           set -Eeuo pipefail
+          # The version was validated against the tag in the job above, which is
+          # also where the manifest cross-check happens. It is re-asserted here
+          # only because an empty value would turn every `:${version}` below into
+          # a `:latest` push, silently overwriting the wrong image.
           version="$VERSION"
-          # semantic-release emits X.Y.Z or X.Y.Z-rc.1. Validate anyway: this
-          # value becomes an image tag, and `1` and `latest` are both legal tags
-          # that would quietly overwrite the wrong thing.
           if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::version '$version' is not a Docker-safe semver version"
             exit 1
@@ -160,7 +170,6 @@ jobs:
   docker:
     name: Publish ${{ matrix.image.package }}
     needs: [release, prepare]
-    if: needs.release.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Job-level matrix, reading the PREVIOUS JOB's output — which is legal in
@@ -173,7 +182,12 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.prepare.outputs.images) }}
     steps:
+      # The TAG, not the default branch. Building from `main` would publish an
+      # image labelled with the release version while its contents came from
+      # whatever landed after the tag — a green publish of the wrong bytes.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       # Build inputs that are fetched rather than committed. A repo whose
       # Dockerfile COPYs a gitignored dataset needs it in the checkout first, and

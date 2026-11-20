@@ -76,8 +76,8 @@ test("deploy workflow builds with pnpm and ships over systemd (no Nix)", () => {
 	// ...and the trigger must actually be scoped to main, not every branch.
 	expect(workflowFile).toMatch(/^\s{2}push:\n\s{4}branches: \[main\]$/m);
 
-	// workflow_dispatch must ALSO remain: .semrel/dispatch.mjs POSTs to the deploy
-	// dispatch endpoint, and dropping it would break the release→deploy path.
+	// workflow_dispatch must ALSO remain: a manual redeploy is the only recovery
+	// path when a release lands but the deploy job fails.
 	expect(workflowFile).toContain("workflow_dispatch");
 	// Pinned by ACTION, not by version: the major tag is bumped routinely, and hard-coding
 	// it here made an action upgrade fail the deploy gate for no behavioural reason.

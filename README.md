@@ -61,39 +61,39 @@ Gunakan bot Telegram untuk upload, atau upload API langsung via HTTP.
 
 ## Versioning
 
-This repository uses auto semantic versioning via [semantic-release](https://github.com/semantic-release/semantic-release):
+The version is decided **locally, before the push**, by `scripts/bump-version.mjs`
+running in the lefthook `pre-push` hook. Nothing in CI computes it, so you can
+always see what the next version will be before it ships.
 
-- `fix(...)` commits → patch bump (v1.1.1 → v1.1.2)
-- `feat(...)` commits → minor bump (v1.2.0)
-- breaking changes → major bump (v2.0.0)
-- `chore(...)` commits → no release
-- `ci/docs/refactor/test/build` commits → patch bump
+```bash
+pnpm run bump   # run it by hand, or let `git push` do it
+```
 
-Aturan lengkapnya ada di tabel [Releases and container images](#releases-and-container-images).
+The bump commits as `chore: adjust package.json version (bump)` and creates the
+`vX.Y.Z` tag locally. Push with `git push --follow-tags` so both reach the remote.
 
-On every release, `prepare.mjs` syncs the version across `package.json`
-(and `flake.nix` only if that file ever comes back), and the
-`Build & Deploy` workflow picks the new `dist/` up over plain SSH — no Nix
-store path involved.
+| Commit in the push range | Bump |
+|---|---|
+| `feat(scope): …` | minor |
+| `fix(scope): …` | patch |
+| `BREAKING CHANGE:` footer, or `type!:` subject | major |
+| `chore`, `ci`, `docs`, `refactor`, `test`, `build` | patch |
+
+Every tracked manifest carrying a `version` moves together — `package.json`,
+`apps/api/package.json` and `apps/web/package.json` — because the script
+enumerates them with `git ls-files` rather than naming them. A hardcoded list is
+what let `apps/api` and `apps/web` sit on 1.2.9 through the whole 1.12.x line
+while only the root manifest was rewritten.
+
+The `pre-push` hook stops the push once after bumping. That is deliberate: the
+push already in flight cannot contain the commit it is about to create, so it
+would ship the old version. Push again and the bump commit goes with it.
 
 ## Releases and container images
 
-Every push to `main` is analysed by [semantic-release](https://semantic-release.gitbook.io/).
-The commit prefix decides the version bump — nobody types a version number:
-
-| Commit | Result |
-|---|---|
-| `feat(scope): …` | minor bump |
-| `fix(scope): …` | patch bump |
-| `BREAKING CHANGE:` in the footer | major bump |
-| `ci`, `docs`, `refactor`, `test`, `build` | patch bump |
-| `chore` | no release |
-
-A release publishes a tag, a GitHub Release and the changelog. The same workflow
-then builds and pushes one container image per service to GHCR at exactly that
-version, so an image tag always matches a git tag:
-
-This repo publishes 1 image:
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which reads the
+version from `package.json`, checks that the tag agrees with it, and publishes one
+container image per service to GHCR at exactly that version:
 
 | Package | Image |
 |---|---|
@@ -143,8 +143,9 @@ gh run list --workflow=release.yml --limit 5
 gh run view <run-id> --log-failed
 ```
 
-A run that only built images and published no tag is normal for a `chore` push:
-there was nothing to release, so no version was derived and no image was tagged.
+The most likely failure is a tag that disagrees with `package.json`, which the
+validate step reports by name. That means someone tagged by hand or edited a
+manifest after bumping — bump again rather than forcing the tag.
 
 <!--
   Smoke-test markers. Automated tooling matches these comments verbatim, so keep

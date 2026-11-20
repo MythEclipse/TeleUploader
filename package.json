@@ -14,13 +14,14 @@
     "lint": "moon run filedrop:lint",
     "format": "pnpm --filter filedrop run format",
     "db:migrate": "moon run filedrop:db-migrate",
-    "typecheck": "pnpm --filter filedrop run typecheck",
+    "typecheck": "pnpm --filter filedrop run typecheck && pnpm --filter @teleuploader/web run typecheck",
     "smoke": "bash scripts/smoke.sh",
-    "prepare": "husky"
+    "bump": "node scripts/bump-version.mjs",
+    "prepare": "if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then lefthook install --reset-hooks-path; fi"
   },
   "devDependencies": {
     "@moonrepo/cli": "^2.6.5",
-    "husky": "^9.1.7"
+    "lefthook": "^2.2.2"
   },
   "pnpm": {
     "overrides": {
