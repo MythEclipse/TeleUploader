@@ -114,20 +114,70 @@ function versionedManifests() {
 	);
 }
 
-/** Write `version` into one manifest without reformatting the rest of it. */
-function writeVersion(file, version) {
+/**
+ * Validate a version write and return the text it WOULD produce.
+ *
+ * Split from the write itself so `main()` can validate every manifest before
+ * writing any of them — a partial bump is worse than no bump. See the comment at
+ * the call site.
+ *
+ * NOT a `JSON.parse` -> `JSON.stringify` round-trip, and that is the whole point.
+ * The previous version of this function refused any manifest that was not
+ * canonical 2-space JSON, which is what 9router's copy does — and it broke the
+ * moment it met this repo's own tooling: Biome (root `biome.json`,
+ * `indentStyle: "tab"`) rewrites `package.json` with TAB indentation on every
+ * `pre-commit`, so the guard rejected a file the repo had just formatted, and the
+ * bump died with
+ *
+ *   Error: apps/api/package.json is not canonical 2-space JSON
+ *
+ * The invariant that actually matters is not "the file is 2-space indented", it
+ * is "the bump commit changes exactly one line per manifest". So: replace the
+ * value textually, then PROVE the result parses, carries the new version, and
+ * differs on one line only. That holds for any indentation a formatter chooses.
+ *
+ * @param file - Repo-relative manifest path.
+ * @param version - The version to write.
+ * @returns `{ file, changed, updated }`; `updated` is the full new file text.
+ */
+function planVersionWrite(file, version) {
 	const path = resolve(projectRoot, file);
 	const original = readFileSync(path, "utf8");
 	const pkg = JSON.parse(original);
-	if (pkg.version === version) return false;
-	// A bump commit that also reformats a manifest hides the one number it was
-	// supposed to change. Refuse rather than produce that diff.
-	if (`${JSON.stringify(pkg, null, 2)}\n` !== original) {
-		throw new Error(`${file} is not canonical 2-space JSON — format it before bumping`);
+	if (pkg.version === version) return { file, changed: false, updated: original };
+
+	// The FIRST `"version": "..."` in a package.json is the top-level one; a
+	// dependency is always written `"pkg": "version"`, never as a `version` key.
+	const updated = original.replace(/("version"\s*:\s*)"[^"]*"/, `$1"${version}"`);
+	if (updated === original) {
+		throw new Error(`${file} has a version field that could not be located textually`);
 	}
-	pkg.version = version;
-	writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-	return true;
+
+	// Prove the edit landed rather than trusting the regex.
+	let parsed;
+	try {
+		parsed = JSON.parse(updated);
+	} catch {
+		throw new Error(`${file} would stop being valid JSON after the version edit`);
+	}
+	if (parsed.version !== version) {
+		throw new Error(
+			`${file}: expected the edit to set version ${version}, read back ${parsed.version}`
+		);
+	}
+
+	// One line changed, or the bump commit hides its own purpose in noise.
+	const before = original.split("\n");
+	const after = updated.split("\n");
+	if (before.length !== after.length) {
+		throw new Error(`${file}: the version edit changed the line count`);
+	}
+	const changed = before.filter((line, index) => line !== after[index]);
+	if (changed.length !== 1) {
+		throw new Error(`${file}: the version edit touched ${changed.length} lines, expected 1`);
+	}
+
+	return { file, changed: true, updated };
 }
 
 /**
@@ -211,7 +261,20 @@ function main() {
 	}
 
 	const target = nextVersion(current, kind);
-	const written = manifests.filter((file) => writeVersion(file, target));
+
+	// PLAN ALL WRITES BEFORE MAKING ANY OF THEM.
+	//
+	// `manifests.filter((file) => writeVersion(file, target))` wrote each file as it
+	// went, so a manifest that failed its validation left the ones before it already
+	// rewritten on disk — a half-bumped tree with the root on the new version and an
+	// app still on the old one, which is precisely the drift this script exists to
+	// prevent. `writeVersion` is split so the validation pass can run over every
+	// manifest first and nothing is written unless all of them pass.
+	const planned = manifests.map((file) => planVersionWrite(file, target));
+	const written = planned.filter((entry) => entry.changed).map((entry) => entry.file);
+	for (const entry of planned) {
+		if (entry.changed) writeFileSync(resolve(projectRoot, entry.file), entry.updated);
+	}
 
 	console.log(
 		`[bump] ${current} -> ${target} (${kind}) — ${written.length}/${manifests.length} manifest(s)`
