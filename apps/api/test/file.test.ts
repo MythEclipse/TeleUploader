@@ -22,8 +22,27 @@ describe("File Utilities", () => {
 		it("should classify image mime types based on caption", () => {
 			expect(getFileType("image/jpeg", "my photo")).toBe("photo");
 			expect(getFileType("image/png", "cool image.png")).toBe("document");
-			expect(getFileType("image/gif", "funny.gif")).toBe("animation");
+			// A caption may still REQUEST an animation — that is the documented
+			// escape hatch and it stays. What must never happen is the FILE NAME
+			// being passed as a caption, because a `.gif` extension then matched
+			// this rule and turned every GIF into an MP4 re-encode.
+			expect(getFileType("image/gif", "funny gif")).toBe("animation");
 			expect(getFileType("image/png", "funny gif")).toBe("animation");
+		});
+
+		it("classifies a GIF as a document when no caption is given", () => {
+			// THE REGRESSION TEST for the corruption bug. A GIF uploaded through
+			// /api/upload has no caption, so the MIME type must decide — and
+			// `image/gif` is not `image/jpeg`, so it is not a photo either.
+			//
+			// `document` maps to sendDocument, which stores the bytes verbatim.
+			// `animation` maps to sendAnimation, which re-encodes GIF to MP4.
+			expect(getFileType("image/gif")).toBe("document");
+			// Same reasoning for the neighbouring types: nothing here may be
+			// inferred from a name that the caller does not control the shape of.
+			expect(getFileType("image/png")).toBe("document");
+			expect(getFileType("image/webp")).toBe("sticker");
+			expect(getFileType("video/mp4")).toBe("video");
 		});
 
 		it("should classify voice and animation based on caption", () => {

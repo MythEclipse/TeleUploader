@@ -206,7 +206,10 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
 		const fileBytes = Buffer.from(base64Data, "base64");
 		const hash = computeHash(fileBytes);
 
-		const fileTypeRaw = getFileType(rawMimeType, fileName);
+		// No caption argument: see the note in `upload-file.ts`. Passing the file
+		// name here is what made every GIF an `animation`, and `sendAnimation`
+		// re-encodes GIF to MP4 — a corrupt download under a `.gif` name.
+		const fileTypeRaw = getFileType(rawMimeType);
 		const fileType = fileTypeRaw === "application" ? "document" : fileTypeRaw;
 
 		const { fileName: finalFileName, mimeType } = ensureExtension(fileName, fileBytes, rawMimeType);

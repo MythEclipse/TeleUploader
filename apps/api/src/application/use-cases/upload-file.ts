@@ -198,7 +198,22 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 		);
 
 		// 3. Determine Telegram file type and validate size
-		const fileTypeRaw = getFileType(mimeType, finalFileName);
+		//
+		// NO CAPTION IS PASSED, and that is the fix for GIF corruption.
+		//
+		// This call used to be `getFileType(mimeType, finalFileName)`. The second
+		// parameter is a CAPTION, not a file name — and the file name always
+		// contains its extension, so `....gif` matched the caption rule
+		// `caption.includes("gif")` and every GIF was classified `animation`.
+		// Telegram's sendAnimation re-encodes GIF to MP4 (220154 bytes in, 34395
+		// bytes of H.264 out), so the download served an MP4 under
+		// `Content-Type: image/gif` with a `.gif` filename. The bytes were fine;
+		// the container was not, which is exactly what "korup" looked like.
+		//
+		// There is no caption here to pass. Nothing about this upload path can
+		// legitimately produce "make it an animation/sticker/voice note" intent, so
+		// the MIME type alone decides — which is also what keeps the bytes intact.
+		const fileTypeRaw = getFileType(mimeType);
 		const fileType = fileTypeRaw === "application" ? "document" : fileTypeRaw;
 
 		if (!checkFileSize(input.sizeBytes, fileType)) {
