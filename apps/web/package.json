@@ -1,6 +1,6 @@
 {
   "name": "@teleuploader/web",
-  "version": "1.15.1",
+  "version": "1.15.2",
   "private": true,
   "description": "TeleUploader dashboard SPA (replaces apps/api/src/home.html)",
   "type": "module",
