@@ -156,6 +156,157 @@ describe("stateless link encoding guards", () => {
 	});
 });
 
+/**
+ * Version 2 stores the file_id decoded to binary. A Telegram file_id is already
+ * base64url, so v1 was encoding the dominant field twice.
+ */
+describe("binary file_id (version 2)", () => {
+	/** A realistic file_id: base64url, 84 chars, decodes to 63 bytes. */
+	const REAL_FILE_ID =
+		"BQACAgIAAxkBAAIBY2V4YW1wbGVfZmlsZV9pZF9mb3JfZTJlX3Rlc3RpbmdfbG9uZ19pZF8wMDEyMzQ1Njc4";
+
+	it("round-trips the file_id exactly", () => {
+		const decoded = decodeStatelessLink(
+			encodeStatelessLink(
+				payload({
+					parts: [{ telegramFileId: REAL_FILE_ID, sizeBytes: 10, compressionAlgorithm: null }],
+				}),
+				SECRET
+			),
+			SECRET
+		);
+		expect(decoded?.parts[0]?.telegramFileId).toBe(REAL_FILE_ID);
+	});
+
+	it("shrinks the token versus storing the file_id as text", () => {
+		// The whole point of v2. Measured against the v1 layout by encoding the
+		// same payload with a file_id that is deliberately NOT base64url, which
+		// forces the text path.
+		const binaryToken = encodeStatelessLink(
+			payload({
+				parts: [{ telegramFileId: REAL_FILE_ID, sizeBytes: 10, compressionAlgorithm: null }],
+				sizeBytes: 10,
+			}),
+			SECRET
+		);
+		// Same length, but not valid base64url, so it is stored as text.
+		const textFileId = `${REAL_FILE_ID.slice(0, -1)}!`;
+		const textToken = encodeStatelessLink(
+			payload({
+				parts: [{ telegramFileId: textFileId, sizeBytes: 10, compressionAlgorithm: null }],
+				sizeBytes: 10,
+			}),
+			SECRET
+		);
+		expect(binaryToken.length).toBeLessThan(textToken.length);
+	});
+
+	it("falls back to text for a file_id that is not clean base64url", () => {
+		// Telegram could change the format. Guessing would produce a file_id that
+		// looks valid and fails at download time, so the encoder must not guess.
+		for (const odd of ["has spaces here", "has!bang", "has.dot", "üñïçø∂é"]) {
+			const token = encodeStatelessLink(
+				payload({ parts: [{ telegramFileId: odd, sizeBytes: 5, compressionAlgorithm: null }] }),
+				SECRET
+			);
+			expect(decodeStatelessLink(token, SECRET)?.parts[0]?.telegramFileId).toBe(odd);
+		}
+	});
+
+	it("preserves the MIME type through the payload", () => {
+		// MIME is deliberately NOT dropped in favour of the URL extension: a wrong
+		// Content-Type stops the browser from inline-playing the file.
+		for (const mime of ["application/pdf", "video/mp4", "application/octet-stream"]) {
+			const decoded = decodeStatelessLink(
+				encodeStatelessLink(payload({ mimeType: mime }), SECRET),
+				SECRET
+			);
+			expect(decoded?.mimeType).toBe(mime);
+		}
+	});
+
+	it("keeps per-part compression and binary flags independent", () => {
+		const decoded = decodeStatelessLink(
+			encodeStatelessLink(
+				payload({
+					parts: [
+						{ telegramFileId: REAL_FILE_ID, sizeBytes: 1, compressionAlgorithm: "gzip" },
+						{ telegramFileId: "plain-text-id!", sizeBytes: 2, compressionAlgorithm: null },
+						{ telegramFileId: REAL_FILE_ID, sizeBytes: 3, compressionAlgorithm: null },
+					],
+				}),
+				SECRET
+			),
+			SECRET
+		);
+		expect(decoded?.parts.map((p) => p.compressionAlgorithm)).toEqual(["gzip", null, null]);
+		expect(decoded?.parts.map((p) => p.telegramFileId)).toEqual([
+			REAL_FILE_ID,
+			"plain-text-id!",
+			REAL_FILE_ID,
+		]);
+	});
+});
+
+/**
+ * A v1 link may already be pasted into a chat. Deploying v2 must not break it.
+ */
+describe("version 1 links still decode", () => {
+	/** Hand-builds a v1 body, exactly as the v1 encoder would have. */
+	const buildV1 = (fileId: string, secret: string): string => {
+		const { createHmac } = require("node:crypto") as typeof import("node:crypto");
+		const pushVarint = (out: Buffer[], v: number): void => {
+			let n = v;
+			while (n >= 0x80) {
+				out.push(Buffer.from([(n & 0x7f) | 0x80]));
+				n = Math.floor(n / 128);
+			}
+			out.push(Buffer.from([n]));
+		};
+		const pushStr = (out: Buffer[], s: string): void => {
+			const b = Buffer.from(s, "utf8");
+			pushVarint(out, b.length);
+			out.push(b);
+		};
+
+		const out: Buffer[] = [Buffer.from([1])];
+		pushVarint(out, 1);
+		pushStr(out, fileId);
+		pushVarint(out, 1024);
+		out.push(Buffer.from([0]));
+		pushVarint(out, 1024);
+		pushStr(out, "old.txt");
+		pushStr(out, "text/plain");
+		const created = Buffer.alloc(4);
+		created.writeUInt32BE(1_700_000_000, 0);
+		out.push(created);
+
+		const body = Buffer.concat(out);
+		const mac = createHmac("sha256", secret).update(body).digest().subarray(0, 12);
+		return Buffer.concat([body, mac]).toString("base64url");
+	};
+
+	it("decodes a v1 payload, including its text file_id", () => {
+		const token = buildV1("BQACAgIAAxkBAAIBY2V4YW1wbGVfZmlsZV9pZF8wMDE", SECRET);
+		const decoded = decodeStatelessLink(token, SECRET);
+		expect(decoded).not.toBeNull();
+		expect(decoded?.fileName).toBe("old.txt");
+		expect(decoded?.mimeType).toBe("text/plain");
+		expect(decoded?.parts[0]?.telegramFileId).toBe("BQACAgIAAxkBAAIBY2V4YW1wbGVfZmlsZV9pZF8wMDE");
+	});
+
+	it("rejects a version that is neither 1 nor 2", () => {
+		const { createHmac } = require("node:crypto") as typeof import("node:crypto");
+		for (const v of [0, 3, 255]) {
+			const body = Buffer.from([v, 0]);
+			const mac = createHmac("sha256", SECRET).update(body).digest().subarray(0, 12);
+			expect(
+				decodeStatelessLink(Buffer.concat([body, mac]).toString("base64url"), SECRET)
+			).toBeNull();
+		}
+	});
+});
+
 describe("splitStatelessToken", () => {
 	it("splits on the first dot so multi-dot names keep their full token", () => {
 		// `archive.tar.gz` must yield extension `tar.gz`, not `gz`, or a

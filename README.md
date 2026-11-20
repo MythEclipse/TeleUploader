@@ -62,12 +62,24 @@ https://upload.asepharyana.my.id/f/<base64url token>.pdf
 The token is an HMAC-SHA256-signed binary payload carrying the part list, file
 name, MIME type, size, and timestamp. The extension at the end is cosmetic:
 `Content-Type` and `Content-Disposition` come from the payload, so a link whose
-suffix was stripped still serves correctly.
+suffix was stripped still serves correctly. MIME is kept in the payload rather
+than inferred from the extension — `.mp4` may be `video/mp4` or
+`application/octet-stream`, and a wrong `Content-Type` stops the browser from
+playing the file inline.
 
-| File size | Parts | Link length |
-|---|---|---|
-| ≤ 19 MB | 1 | ~230 chars |
-| 20–30 MB | 2 | ~340 chars |
+| File size | Parts | Token | URL |
+|---|---|---|---|
+| ≤ 19 MB | 1 | 171 chars | ~210 chars |
+| 20–30 MB | 2 | 263 chars | ~302 chars |
+
+A Telegram `file_id` is itself base64url, so the payload stores it **decoded to
+binary** (25% smaller than storing the string, which would encode it twice). If a
+file_id ever fails a lossless round-trip, it is stored as text instead — the
+encoder never guesses, because a guessed file_id looks valid and only fails when
+someone clicks the link.
+
+Links issued by v1 (file_id stored as text) still decode; the version byte
+selects the layout.
 
 Threshold is `STATELESS_LINK_MAX_BYTES` (default 30 MB, `0` disables). It is
 clamped to twice `TELEGRAM_CHUNK_SIZE_BYTES`, because each part adds a `file_id`
