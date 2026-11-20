@@ -502,6 +502,31 @@ export const buildStatelessDownloadUrl = (
 };
 
 /**
+ * Builds the canonical download URL for ANY `public_id` — token or legacy nanoid.
+ *
+ * This is the single place that knows the rule, so no caller has to remember it:
+ *
+ *   stateless token  ->  /f/<token>.<ext>   (extension is cosmetic but expected)
+ *   legacy nanoid    ->  /f/<nanoid>        (looked up in the database)
+ *
+ * The rule matters because the two id kinds are stored in the SAME column, so any
+ * code that builds a link from a row has to handle both. That is easy to get
+ * wrong, and it was: the public listing and the web API built `/f/<token>`
+ * WITHOUT the extension, so a file whose upload response said `…gif` appeared in
+ * the dashboard as a bare token — the same file, two different links, depending
+ * on which endpoint you asked.
+ *
+ * @param baseUrl - Server origin, with or without a trailing slash.
+ * @param publicId - A `files.public_id`: stateless token or legacy nanoid.
+ * @param fileName - File name, used to derive the token's extension.
+ * @returns Absolute, download-ready URL.
+ */
+export const buildDownloadUrl = (baseUrl: string, publicId: string, fileName: string): string =>
+	isStatelessToken(publicId)
+		? buildStatelessDownloadUrl(baseUrl, publicId, fileName)
+		: `${baseUrl.replace(/\/+$/, "")}/f/${publicId}`;
+
+/**
  * Splits a `/f/<token>.<ext>` route parameter into token and extension.
  *
  * The token is base64url, which never contains `.`, so the FIRST dot is the

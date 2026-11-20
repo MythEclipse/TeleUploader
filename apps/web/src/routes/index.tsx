@@ -5,7 +5,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowRight, Copy, Download, Files, ShieldCheck, Zap } from 'lucide-react';
 import { useAuthState } from '../lib/auth-store';
 import { FileTypeIcon } from '../lib/components';
-import { formatDate, formatSize } from '../lib/format';
+import { formatDate, formatMime, formatSize } from '../lib/format';
 import { publicFilesQuery } from '../lib/queries';
 import { QuickUpload } from '../lib/quick-upload';
 
@@ -177,7 +177,17 @@ function PublicHomeRoute(): React.JSX.Element {
                         {formatSize(file.size_bytes)}
                       </td>
                       <td className="hidden whitespace-nowrap px-4 py-3 text-muted-foreground sm:table-cell">
-                        {file.file_type || file.mime_type}
+                        {/*
+                          The MIME type, NOT `file_type`.
+                          `file_type` is the Telegram send classification
+                          (`document`, `photo`, `video`, …) and it is `document`
+                          for almost every upload now that GIFs and images are
+                          deliberately sent as documents so Telegram stops
+                          re-encoding them. Showing it here made every row read
+                          "document", which tells the user nothing. The MIME type
+                          is what actually distinguishes a GIF from a PDF.
+                        */}
+                        {formatMime(file.mime_type)}
                       </td>
                       <td className="hidden whitespace-nowrap px-4 py-3 text-muted-foreground sm:table-cell">
                         {formatDate(file.created_at)}

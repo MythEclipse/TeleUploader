@@ -33,6 +33,29 @@ export const formatDate = (iso: string | null | undefined): string => {
 };
 
 /**
+ * A MIME type rendered for the Type column.
+ *
+ * Shows the subtype only — `image/gif` becomes `GIF`, `application/pdf` becomes
+ * `PDF` — because the full string is too wide for the column and the top-level
+ * type is already implied by the row's icon. Falls back to the raw value when
+ * there is no `/`, and to `—` when the server sends nothing, so a row never
+ * renders blank.
+ *
+ * @param mimeType - A MIME type such as `image/gif`, or null.
+ * @returns A short label for display.
+ */
+export const formatMime = (mimeType: string | null | undefined): string => {
+  if (!mimeType) return '—';
+  const slash = mimeType.indexOf('/');
+  if (slash === -1) return mimeType;
+  const subtype = mimeType.slice(slash + 1);
+  // `svg+xml` -> `SVG`, `x-msdownload` -> `MSDOWNLOAD`: strip the structured
+  // syntax suffix and any legacy `x-` prefix so the label stays readable.
+  const cleaned = subtype.split('+')[0]?.replace(/^x-/, '') ?? subtype;
+  return cleaned.toUpperCase();
+};
+
+/**
  * The segment of `key` below `prefix`, for the object table's name column.
  *
  * Returns `key` itself when `prefix` is empty or is not actually a prefix of

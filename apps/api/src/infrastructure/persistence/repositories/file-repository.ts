@@ -3,6 +3,7 @@ import {
 	DestinationExistsError,
 	isUniqueViolation,
 } from "../../../application/shared/utils/credentials";
+import { buildDownloadUrl } from "../../../application/shared/utils/stateless-link";
 import type { File, NewFile } from "../../../domain/entities/file";
 import type {
 	BucketUsage,
@@ -396,7 +397,11 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 			sizeBytes: toNumber(row.size_bytes),
 			etag: (row.file_hash as string | null) ?? null,
 			lastModified: new Date(row.created_at as string).toISOString(),
-			downloadUrl: `${config.baseUrl}/f/${row.public_id as string}`,
+			downloadUrl: buildDownloadUrl(
+				config.baseUrl,
+				row.public_id as string,
+				row.file_name as string
+			),
 		}));
 	}
 

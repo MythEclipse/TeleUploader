@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { buildDownloadUrl } from "../../../application/shared/utils/stateless-link";
 import { streamToTemp } from "../../../application/shared/utils/temp-stream";
 import { BucketNameSchema, clampMaxKeys } from "../../../application/shared/validation/schemas";
 import { createUploadFileUseCase } from "../../../application/use-cases/upload-file";
@@ -192,7 +193,7 @@ export const handleListObjectsV1 = async (
 				o.createdAt instanceof Date
 					? o.createdAt.toISOString()
 					: new Date(o.createdAt).toISOString(),
-			downloadUrl: `${config.baseUrl}/f/${o.publicId}`,
+			downloadUrl: buildDownloadUrl(config.baseUrl, o.publicId, o.fileName),
 		})),
 		prefixes,
 		isTruncated,

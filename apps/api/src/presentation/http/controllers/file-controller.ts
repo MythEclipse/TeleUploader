@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { nanoid } from "nanoid";
 import { writeBodyToFile } from "../../../application/shared/utils/file-sink";
 import {
+	buildDownloadUrl,
 	decodeStatelessLink,
 	type StatelessPayload,
 	splitStatelessToken,
@@ -484,7 +485,7 @@ export const handleListPublicFiles = async (req: Request): Promise<Response> => 
 					size_bytes: f.sizeBytes,
 					file_type: f.fileType,
 					created_at: formatCreatedAt(f.createdAt),
-					download_url: `${config.baseUrl}/f/${f.publicId}`,
+					download_url: buildDownloadUrl(config.baseUrl, f.publicId, f.fileName),
 				})),
 				next_cursor: nextCursor,
 			},
