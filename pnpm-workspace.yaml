@@ -27,3 +27,5 @@ allowBuilds:
   # silently never run — the failure mode this repo already knows from husky,
   # where a hook that is not installed looks exactly like a hook that passed.
   lefthook: true
+overrides:
+  esbuild: 0.25.0
