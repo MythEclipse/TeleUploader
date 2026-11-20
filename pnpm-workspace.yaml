@@ -6,9 +6,6 @@ packages:
 
 # Moved here from the root package.json so pnpm does not block esbuild's postinstall
 # (the bundler and tsx both need its platform binary).
-onlyBuiltDependencies:
-  - esbuild
-
 # `minimumReleaseAge: 0` is DELIBERATE, and paired with
 # `cooldown: default-days: 3` in .github/dependabot.yml.
 #
@@ -21,3 +18,7 @@ onlyBuiltDependencies:
 # version published just before the window rolls over is still proposed and still
 # fails; with only this, Dependabot proposes days-old unreviewed releases.
 minimumReleaseAge: 0
+
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
