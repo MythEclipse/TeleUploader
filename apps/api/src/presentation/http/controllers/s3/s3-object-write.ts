@@ -177,7 +177,10 @@ export const handlePutObject = async (
 		const existing = await fileRepository.findByBucketAndKey(bucketRecord.id, key);
 		if (existing) {
 			await cleanupTempFile(streamed.tempPath);
-			return s3Response(null, 200, reqId, { etag: `"${streamed.fileHash}"` });
+			// The etag must describe the STORED object. It used to echo the hash of
+			// the just-ignored body, which told a client that PUT overwrote the key
+			// when nothing was written.
+			return s3Response(null, 200, reqId, { etag: `"${etagOrFallback(existing)}"` });
 		}
 
 		return await storeFileFromTemp(streamed, key, bucketRecord, contentType, reqId);
@@ -332,10 +335,9 @@ export const handleCopyObject = async (
 		);
 	}
 
-	// Conditional copy: if-match / if-none-match checks
-	// M9: Use stable etag (telegramFileId fallback when fileHash is null) —
-	// kept inline (not etagOrFallback) because this variant falls back to
-	// telegramFileId while the read/list paths fall back to nanoid(16).
+	// Conditional copy: if-match / if-none-match checks. The etag here is the
+	// same stable fallback chain as `etagOrFallback` (hash, else telegramFileId),
+	// computed inline because the comparisons need the unquoted value.
 	const sourceEtag = sourceFile.fileHash || sourceFile.telegramFileId;
 	const ifMatch = headers["x-amz-copy-source-if-match"];
 	const ifNoneMatch = headers["x-amz-copy-source-if-none-match"];
@@ -380,7 +382,7 @@ export const handleCopyObject = async (
 	);
 
 	// copyObjectResultXml quotes the etag itself.
-	const xml = copyObjectResultXml(etagOrFallback(sourceFile.fileHash), new Date());
+	const xml = copyObjectResultXml(etagOrFallback(sourceFile), new Date());
 	return s3Response(xml, 200, reqId, { "content-type": "application/xml" });
 };
 

@@ -93,7 +93,11 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 	 * {@inheritDoc IFileRepository.findByHash}
 	 */
 	async findByHash(hash: string): Promise<File | null> {
-		const result = await db.select().from(fileSchema).where(eq(fileSchema.fileHash, hash)).limit(1);
+		const result = await db
+			.select()
+			.from(fileSchema)
+			.where(and(eq(fileSchema.fileHash, hash), eq(fileSchema.isDeleted, false)))
+			.limit(1);
 		return result[0] ? mapFileRow(result[0]) : null;
 	}
 
@@ -116,7 +120,12 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 		const result = await db
 			.select()
 			.from(fileSchema)
-			.where(eq(fileSchema.telegramFileUniqueId, telegramFileUniqueId))
+			.where(
+				and(
+					eq(fileSchema.telegramFileUniqueId, telegramFileUniqueId),
+					eq(fileSchema.isDeleted, false)
+				)
+			)
 			.limit(1);
 		return result[0] ? mapFileRow(result[0]) : null;
 	}
@@ -156,7 +165,7 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 		delimiter: string | null,
 		maxKeys: number,
 		startAfter: string | null
-	): Promise<{ objects: S3FileRecord[]; prefixes: string[] }> {
+	): Promise<{ objects: S3FileRecord[]; prefixes: string[]; hasMore: boolean }> {
 		let query = prefix
 			? sql`SELECT * FROM files WHERE bucket_id = ${bucketId}::uuid AND is_deleted = false AND s3_key LIKE ${`${escapeLike(prefix)}%`}`
 			: sql`SELECT * FROM files WHERE bucket_id = ${bucketId}::uuid AND is_deleted = false`;
@@ -165,6 +174,11 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 			query = sql`${query} AND s3_key > ${startAfter}`;
 		}
 
+		// `LIMIT maxKeys + 1` is the truncation probe: the extra row is fetched ONLY
+		// to learn that another page exists and reported through `hasMore`. The old
+		// code fetched it and then sliced it away, so every caller computed
+		// `isTruncated = objects.length > maxKeys` against a list that could never
+		// exceed `maxKeys` — pagination silently stopped at page one.
 		query = sql`${query} ORDER BY s3_key LIMIT ${maxKeys + 1}`;
 
 		const rawResult = (await db.execute(query)) as unknown as Record<string, unknown>[];
@@ -172,6 +186,8 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 		if (delimiter === "/") {
 			const prefixSet = new Set<string>();
 			const objects: S3FileRecord[] = [];
+			let itemCount = 0;
+			let hasMore = false;
 
 			for (const row of rawResult) {
 				const s3Key = row.s3_key as string;
@@ -179,23 +195,40 @@ export class DrizzleFileRepository implements IFileRepository, IFileManagementRe
 				const slashIndex = relativeKey.indexOf("/");
 				if (slashIndex >= 0) {
 					const folderPrefix = prefix + relativeKey.substring(0, slashIndex + 1);
-					if (folderPrefix !== prefix) {
-						prefixSet.add(folderPrefix);
+					// Rows inside a folder that already contributed its common prefix
+					// roll up into it and add no item of their own.
+					if (folderPrefix === prefix || prefixSet.has(folderPrefix)) continue;
+					itemCount += 1;
+					if (itemCount > maxKeys) {
+						hasMore = true;
+						break;
 					}
+					prefixSet.add(folderPrefix);
 				} else {
+					itemCount += 1;
+					if (itemCount > maxKeys) {
+						hasMore = true;
+						break;
+					}
 					objects.push(mapDbRowToS3Record(row));
 				}
 			}
 
+			// Folded folder rows add no item, so the row cap can be hit without the
+			// item cap; either way, more rows exist than fit on this page.
+			if (rawResult.length > maxKeys) hasMore = true;
+
 			return {
-				objects: objects.slice(0, maxKeys),
+				objects,
 				prefixes: Array.from(prefixSet).sort(),
+				hasMore,
 			};
 		}
 
 		return {
 			objects: rawResult.slice(0, maxKeys).map(mapDbRowToS3Record),
 			prefixes: [],
+			hasMore: rawResult.length > maxKeys,
 		};
 	}
 

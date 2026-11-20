@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { streamToTemp } from "../../../application/shared/utils/temp-stream";
-import { BucketNameSchema } from "../../../application/shared/validation/schemas";
+import { BucketNameSchema, clampMaxKeys } from "../../../application/shared/validation/schemas";
 import { createUploadFileUseCase } from "../../../application/use-cases/upload-file";
 import { buildNewFile } from "../../../domain/entities/file-factory";
 import { config } from "../../../env";
@@ -163,17 +163,21 @@ export const handleListObjectsV1 = async (
 	const url = new URL(req.url);
 	const prefix = url.searchParams.get("prefix") || "";
 	const delimiter = url.searchParams.get("delimiter") || "/";
-	const maxKeys = Number.parseInt(url.searchParams.get("max-keys") || "1000", 10);
+	// Same clamp as the S3 surface: garbage input falls back to the S3 default
+	// of 1000 instead of becoming `LIMIT NaN` or a negative LIMIT.
+	const maxKeys = clampMaxKeys(url.searchParams.get("max-keys"));
 	const continuationToken = url.searchParams.get("continuation-token") || null;
 
-	const { objects, prefixes } = await fileRepository.listByPrefix(
+	const { objects, prefixes, hasMore } = await fileRepository.listByPrefix(
 		bucket.id,
 		prefix,
 		delimiter,
 		maxKeys,
 		continuationToken
 	);
-	const isTruncated = objects.length > maxKeys;
+	// `hasMore` carries the repository's maxKeys+1 probe; the length comparison
+	// stays as the fallback for test doubles that predate the field.
+	const isTruncated = hasMore ?? objects.length > maxKeys;
 	const displayObjects = objects.slice(0, maxKeys);
 
 	return json({
@@ -192,7 +196,9 @@ export const handleListObjectsV1 = async (
 		})),
 		prefixes,
 		isTruncated,
-		nextContinuationToken: isTruncated ? displayObjects[displayObjects.length - 1]?.s3Key : null,
+		nextContinuationToken: isTruncated
+			? (displayObjects[displayObjects.length - 1]?.s3Key ?? null)
+			: null,
 	});
 };
 
@@ -343,13 +349,18 @@ export const handleDownloadObjectV1 = async (
 		}
 
 		const upstreamHeaders = new Headers(upstream.headers);
+		// Same Content-Length reasoning as the public /f/ path: Telegram re-encodes
+		// some uploads, so the stored `size_bytes` can be LARGER than the served
+		// body. Declaring the DB size truncated every such download at the
+		// `Content-Length` boundary.
+		const upstreamLength = upstreamHeaders.get("content-length");
 		return new Response(upstream.body, {
 			status: 200,
 			headers: {
 				"Content-Type":
 					file.mimeType || upstreamHeaders.get("content-type") || "application/octet-stream",
 				"Content-Disposition": `attachment; filename="${sanitizeFilenameHeader(file.fileName)}"`,
-				"Content-Length": String(file.sizeBytes ?? 0),
+				"Content-Length": upstreamLength ?? String(file.sizeBytes ?? 0),
 				"Cache-Control": "public, max-age=300",
 				...corsHeaders,
 			},

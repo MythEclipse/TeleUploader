@@ -66,7 +66,10 @@ export interface IFileRepository {
 	 * @param delimiter - Delimiter character (e.g. `"/"`) or `null` for flat listing.
 	 * @param maxKeys - Maximum number of object records to return.
 	 * @param startAfter - Return only keys strictly greater than this value, or `null`.
-	 * @returns A list of matching S3 file records and discovered common prefixes.
+	 * @returns A list of matching S3 file records, discovered common prefixes, and
+	 *   whether another page exists. `hasMore` is OPTIONAL so in-memory test doubles
+	 *   that predate the field still satisfy the port; callers fall back to
+	 *   `objects.length > maxKeys` when it is absent.
 	 */
 	listByPrefix(
 		bucketId: string,
@@ -74,7 +77,7 @@ export interface IFileRepository {
 		delimiter: string | null,
 		maxKeys: number,
 		startAfter: string | null
-	): Promise<{ objects: S3FileRecord[]; prefixes: string[] }>;
+	): Promise<{ objects: S3FileRecord[]; prefixes: string[]; hasMore?: boolean }>;
 
 	/**
 	 * Soft-delete a single file by bucket and key.

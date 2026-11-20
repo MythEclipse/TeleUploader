@@ -193,6 +193,16 @@ export class BotPool implements ITelegramService {
 		fileName: string,
 		fileType: string
 	): Promise<ForwardResult> {
+		// Without this guard the select loop below computed
+		// `Math.min(...[]) === Infinity` and slept `Infinity` ms — Node clamps that
+		// to ~1ms, so the outer loop burned all ten attempts in a hot spin before
+		// throwing a confusing "Failed to forward file after all retries".
+		if (this.bots.length === 0) {
+			throw new Error(
+				"No bot tokens configured (BOT_TOKENS / BOT_TOKEN / ADDITIONAL_BOT_TOKENS); cannot forward files to Telegram storage."
+			);
+		}
+
 		let lastError: unknown;
 		const attemptedIndexes = new Set<number>();
 		let transientAttempts = 0;
@@ -339,6 +349,12 @@ export class BotPool implements ITelegramService {
 	}
 
 	async getFileInfo(telegramFileId: string): Promise<TelegramFileInfo> {
+		if (this.bots.length === 0) {
+			throw new Error(
+				"No bot tokens configured (BOT_TOKENS / BOT_TOKEN / ADDITIONAL_BOT_TOKENS); cannot resolve Telegram file info."
+			);
+		}
+
 		// Telegram file_id → file_path mapping is stable for the lifetime of the
 		// file. Cache it to avoid a Telegram API round-trip on every S3 GET / HEAD
 		// of the same object. TTL 1h; a cached (possibly stale) file_path would

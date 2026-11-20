@@ -463,7 +463,10 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
 export const handleListPublicFiles = async (req: Request): Promise<Response> => {
 	try {
 		const url = new URL(req.url);
-		const limit = Number.parseInt(url.searchParams.get("limit") || "50", 10);
+		// Clamped to [1, 100] here so garbage input cannot reach the repository:
+		// `?limit=abc` used to become `LIMIT NaN` and a 500 from Postgres.
+		const rawLimit = Number.parseInt(url.searchParams.get("limit") || "50", 10);
+		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
 		const cursor = url.searchParams.get("cursor");
 
 		const files = await fileRepository.listPublic(limit, cursor);

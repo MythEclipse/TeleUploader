@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import type { Bucket } from "../../../../domain/entities/bucket";
+import type { File } from "../../../../domain/entities/file";
 import type { MultipartUpload } from "../../../../domain/entities/multipart";
 import type { IBucketRepository } from "../../../../domain/ports/bucket-repository";
 import type { IMultipartRepository } from "../../../../domain/ports/multipart-repository";
@@ -133,18 +134,21 @@ export const requireUploadOr404 = async (
 };
 
 /**
- * Returns the stable S3 etag for a file, falling back to a random ID when
- * the record has no content hash yet.
+ * Returns the stable S3 etag for a file.
  *
- * Replaces the 4 inline `file.fileHash || nanoid(16)` fallbacks (conditional
- * headers, HeadObject, copy result, list entries). Callers add quotes where
- * the transport needs them. The copy-source check keeps its own inline
- * `telegramFileId` variant (M9) with a comment at the call site.
+ * The SHA-256 content hash when present, else the Telegram `file_id` — a value
+ * that is stable per stored file and unique to it. The old fallback was
+ * `nanoid(16)`, a FRESH random value on every call, so a legacy row without a
+ * hash presented a different ETag on every HEAD/GET — conditional requests
+ * (`If-Match`, `If-None-Match`) could never match and caches could never revalidate.
+ * `nanoid` remains only as a last resort for a record missing both fields.
  *
- * @param fileHash - The stored SHA-256 content hash (may be null).
- * @returns The hash, or a random 16-char fallback.
+ * @param file - The file whose hash (or stable fallback) should be used.
+ * @returns The etag, WITHOUT surrounding quotes (callers add them where the
+ *   transport needs them).
  */
-export const etagOrFallback = (fileHash: string | null): string => fileHash || nanoid(16);
+export const etagOrFallback = (file: Pick<File, "fileHash" | "telegramFileId">): string =>
+	file.fileHash || file.telegramFileId || nanoid(16);
 
 /**
  * Builds the shared 416 response for unsatisfiable Range requests.

@@ -272,6 +272,19 @@ export const handleCompleteMultipartUpload = async (
 	}
 	const storedParts = await multipartRepository.listParts(uploadId);
 
+	// Completing with zero parts is not an assembly. Without this guard the
+	// count check below passes (0 === 0) and `storedParts[0]!` dereferences
+	// `undefined` — a 500 for a malformed request instead of a 400.
+	if (parts.length === 0 || storedParts.length === 0) {
+		return s3ErrorResponse(
+			"InvalidPart",
+			"One or more specified parts could not be found.",
+			`/${bucket}/${key}`,
+			400,
+			reqId
+		);
+	}
+
 	// Validate ascending part order
 	const partNumbers = parts.map((p) => p.partNumber);
 	if (partNumbers.length > 1 && partNumbers.some((n, i) => i > 0 && n <= partNumbers[i - 1])) {

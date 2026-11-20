@@ -63,12 +63,13 @@ export const checkConditionalHeaders = (
 		mimeType: string;
 		sizeBytes: number;
 		fileHash: string | null;
+		telegramFileId: string;
 		createdAt: Date | string | number;
 	},
 	path: string,
 	reqId: string
 ): Response | null => {
-	const etag = `"${etagOrFallback(file.fileHash)}"`;
+	const etag = `"${etagOrFallback(file)}"`;
 	const lastModified = file.createdAt instanceof Date ? file.createdAt : new Date(file.createdAt);
 
 	// If-Match
@@ -352,7 +353,7 @@ export const handleHeadObject = async (
 	return s3Response(null, 200, reqId, {
 		"content-type": file.mimeType,
 		"content-length": String(file.sizeBytes),
-		etag: `"${etagOrFallback(file.fileHash)}"`,
+		etag: `"${etagOrFallback(file)}"`,
 		"last-modified":
 			file.createdAt instanceof Date ? file.createdAt.toUTCString() : new Date().toUTCString(),
 		"accept-ranges": "bytes",
