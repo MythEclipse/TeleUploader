@@ -18,6 +18,49 @@ import {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Picks the file name to send to Telegram, chosen to avoid media re-encoding.
+ *
+ * Telegram re-encodes based on the EXTENSION it receives. `.gif` becomes H.264
+ * MP4 even through `sendDocument`; `.mp4`/`.mov` become re-muxed video, and so on.
+ * Since the stored name is never used for serving (the download name comes from
+ * the signed payload or the `files` row), the only job of this name is to carry
+ * the bytes through Telegram untouched.
+ *
+ * Media types keep an extension that makes Telegram parse them correctly, because
+ * `sendPhoto`/`sendVideo`/`sendAnimation` REFUSE a mismatched container — a JPEG
+ * sent as `.bin` via `sendPhoto` fails outright. Those methods re-encode by
+ * design, which is acceptable for them; the corruption bug was specifically about
+ * `document`, where the user expects the original bytes back.
+ *
+ * Documents get `.bin`, which Telegram treats as opaque. That is the whole fix:
+ * a `.gif` or `.webp` uploaded as a document now survives byte-for-byte.
+ *
+ * @param fileType - The Telegram send classification.
+ * @returns A file name safe to hand to the Bot API.
+ */
+export const neutralUploadFileName = (fileType: string): string => {
+	switch (fileType) {
+		case "photo":
+			// Telegram requires a real JPEG container for sendPhoto.
+			return "upload.jpg";
+		case "video":
+			return "upload.mp4";
+		case "animation":
+			return "upload.mp4";
+		case "audio":
+			return "upload.mp3";
+		case "voice":
+			return "upload.ogg";
+		case "sticker":
+			// sendSticker needs .webp or .tgs.
+			return "upload.webp";
+		default:
+			// document, video_note, and anything unknown: opaque bytes.
+			return "upload.bin";
+	}
+};
+
 const isTransientError = (error: unknown): boolean => {
 	const str = error instanceof Error ? error.message : String(error);
 	const transientPatterns = [
@@ -183,7 +226,27 @@ export class BotPool implements ITelegramService {
 					// Inner transient retry loop inside the queue
 					for (let innerRetry = 0; innerRetry <= MAX_TRANSIENT_RETRIES; innerRetry++) {
 						try {
-							const filePayload = { source: fileChunk, filename: fileName };
+							// THE FILENAME SENT TO TELEGRAM IS DELIBERATELY NEUTRAL.
+							//
+							// Telegram decides whether to re-encode by looking at the file
+							// EXTENSION, not at the method or our `file_type`. A `.gif`
+							// uploaded even via sendDocument comes back as H.264/MP4: the
+							// reported file was 220154 bytes of GIF89a going in and 34395
+							// bytes of MP4 coming out. Serving that under
+							// `Content-Type: image/gif` is what made every GIF download
+							// corrupt.
+							//
+							// Proved by uploading the identical bytes twice: as `blob.bin`
+							// they came back byte-identical (sha256 34402f1a…), as
+							// `*.gif` they came back as MP4. The extension is the trigger.
+							//
+							// Nothing downstream reads the name Telegram stores. The
+							// download name and Content-Type come from the signed payload
+							// (`stateless-link.ts`) or the `files` row, so the real name is
+							// preserved regardless. Sending a neutral name therefore costs
+							// nothing and stops the re-encode.
+							const uploadFileName = neutralUploadFileName(fileType);
+							const filePayload = { source: fileChunk, filename: uploadFileName };
 							const sendMethodName = sendMethodMap[fileType] || "sendDocument";
 							const payload = buildSendPayload(fileType, fileName);
 
