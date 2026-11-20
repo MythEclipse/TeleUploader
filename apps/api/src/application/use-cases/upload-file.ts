@@ -8,11 +8,17 @@ import {
 	checkFileSize,
 	cleanupTempFile,
 	ensureExtension,
+	getErrorMessage,
 	getFileType,
 } from "../../infrastructure/file";
+import logger from "../../infrastructure/observability/logger";
 import type { ChunkedStorage } from "../../infrastructure/telegram/chunked-storage";
 import type { UploadInput, UploadOutput } from "../dto/upload";
-import { buildStatelessDownloadUrl, encodeStatelessLink } from "../shared/utils/stateless-link";
+import {
+	buildStatelessDownloadUrl,
+	encodeStatelessLink,
+	isStatelessToken,
+} from "../shared/utils/stateless-link";
 
 /** Subset of application configuration consumed by the upload-file use case. */
 export interface UploadFileConfig {
@@ -62,6 +68,11 @@ const readSignatureBuffer = async (tempPath: string): Promise<Buffer> => {
 /**
  * Maps a persisted file entity to the public upload output DTO.
  *
+ * The download URL is rebuilt from `publicId`, which now holds EITHER a stateless
+ * token OR a legacy nanoid. A token needs its `.ext` suffix to read as a file, so
+ * the extension is re-appended here — otherwise a deduplicated stateless upload
+ * would return a link without the extension while the original response had one.
+ *
  * @param file - The persisted file record.
  * @param baseUrl - Server base URL for the download link.
  * @returns The public `UploadOutput` DTO.
@@ -73,7 +84,9 @@ const toUploadOutput = (file: File, baseUrl: string): UploadOutput => ({
 	sizeBytes: file.sizeBytes,
 	fileType: file.fileType,
 	createdAt: file.createdAt instanceof Date ? file.createdAt : new Date(file.createdAt),
-	downloadUrl: `${baseUrl}/f/${file.publicId}`,
+	downloadUrl: isStatelessToken(file.publicId)
+		? buildStatelessDownloadUrl(baseUrl, file.publicId, file.fileName)
+		: `${baseUrl}/f/${file.publicId}`,
 	fileHash: file.fileHash,
 });
 
@@ -108,6 +121,21 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 	 * unchanged for every caller (the dashboard, the CLI, the bot) instead of
 	 * introducing a second field that each of them would have to learn.
 	 *
+	 * A DATABASE ROW IS STILL WRITTEN, and that is deliberate. The token makes
+	 * DOWNLOADS independent of Postgres; it does not make the upload forgettable.
+	 * Backup and listing both need a record, and so does the dashboard:
+	 *
+	 * - a `files` row, with `public_id` set to the token so `/f/<token>` and
+	 *   `findByPublicId` agree on the same key;
+	 * - a `file_parts` row per chunk, so a multi-part file can be reassembled by
+	 *   anything that reads the database (restore scripts, admin tooling) without
+	 *   decoding a URL.
+	 *
+	 * The stateless property is about the READ path: `handleFileRedirect` answers
+	 * from the signed payload and never queries. If the row is missing, the link
+	 * still works. That is the point — the row is an index for humans and backups,
+	 * not a dependency for serving.
+	 *
 	 * @param input - The upload request.
 	 * @param fileName - Final, extension-normalised file name.
 	 * @param mimeType - Resolved MIME type.
@@ -124,27 +152,30 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 	): Promise<UploadOutput> => {
 		const createdAt = Math.floor(Date.now() / 1000);
 
-		const parts =
-			input.sizeBytes > deps.config.telegramChunkSizeBytes
-				? (
-						await deps.chunkedStorage.uploadChunksWithoutPersisting({
-							tempPath: input.tempPath,
-							partFileNamePrefix: partPrefix,
-						})
-					).parts.map((part) => ({
-						telegramFileId: part.telegramFileId,
-						sizeBytes: part.sizeBytes,
-						compressionAlgorithm: part.compressionAlgorithm,
-					}))
-				: [
-						{
-							telegramFileId: (
-								await deps.telegramService.forwardToStorage(input.tempPath, fileName, fileType)
-							).telegramFileId,
-							sizeBytes: input.sizeBytes,
-							compressionAlgorithm: null,
-						},
-					];
+		const single = input.sizeBytes <= deps.config.telegramChunkSizeBytes;
+		const upload = single
+			? null
+			: await deps.chunkedStorage.uploadChunksWithoutPersisting({
+					tempPath: input.tempPath,
+					partFileNamePrefix: partPrefix,
+				});
+		const forwarded = single
+			? await deps.telegramService.forwardToStorage(input.tempPath, fileName, fileType)
+			: null;
+
+		const parts = single
+			? [
+					{
+						telegramFileId: forwarded!.telegramFileId,
+						sizeBytes: input.sizeBytes,
+						compressionAlgorithm: null,
+					},
+				]
+			: upload!.parts.map((part) => ({
+					telegramFileId: part.telegramFileId,
+					sizeBytes: part.sizeBytes,
+					compressionAlgorithm: part.compressionAlgorithm,
+				}));
 
 		const token = encodeStatelessLink(
 			{
@@ -156,6 +187,45 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 			},
 			deps.config.statelessLinkSecret
 		);
+
+		// Persist for backup/listing. A failure here must NOT fail the upload: the
+		// file is already in Telegram and the link already works, so turning a
+		// bookkeeping problem into a user-visible error would be strictly worse.
+		// The row is recoverable from the link; the upload is not.
+		try {
+			await deps.fileRepo.create(
+				buildNewFile({
+					publicId: token,
+					telegramFileId: parts[0]?.telegramFileId ?? "",
+					telegramFileUniqueId: forwarded?.telegramFileUniqueId ?? "",
+					storageChatId: deps.config.storageChatId,
+					storageMessageId: forwarded?.storageMessageId ?? 0,
+					fileName,
+					mimeType,
+					sizeBytes: input.sizeBytes,
+					fileType,
+					storageBackend: "telegram",
+					uploaderId: input.uploaderId,
+					uploaderUserId: input.uploaderUserId ?? null,
+					fileHash: input.fileHash,
+					bucketId: input.bucketId,
+					s3Key: input.s3Key,
+					partCount: parts.length,
+				})
+			);
+
+			// Parts are only meaningful for chunked uploads; a single-message file
+			// has its file_id on the row above. Writing one part row for every
+			// single-part file would double the write cost for no benefit.
+			if (!single) {
+				await deps.chunkedStorage.persistPartsForFile(token, parts);
+			}
+		} catch (error: unknown) {
+			logger.error("Failed to persist stateless upload metadata", {
+				publicId: token,
+				error: getErrorMessage(error),
+			});
+		}
 
 		return {
 			publicId: token,
@@ -173,10 +243,23 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 		const dedup = input.dedup ?? "hash";
 
 		// 1. Deduplication per policy
+		//
+		// A FAILED LOOKUP IS NOT A FAILED UPLOAD. Dedup is an optimisation: if the
+		// query errors (database down, pool exhausted, migration in flight), the
+		// correct behaviour is to store the file anyway rather than reject a
+		// perfectly good upload because a cache missed. This also keeps the
+		// stateless promise honest — a small file can be uploaded and served even
+		// while Postgres is unavailable.
 		if (dedup === "hash") {
-			const existing = await deps.fileRepo.findByHash(input.fileHash);
-			if (existing) {
-				return toUploadOutput(existing, deps.config.baseUrl);
+			try {
+				const existing = await deps.fileRepo.findByHash(input.fileHash);
+				if (existing) {
+					return toUploadOutput(existing, deps.config.baseUrl);
+				}
+			} catch (error: unknown) {
+				logger.warn("Deduplication lookup failed; storing unconditionally", {
+					error: getErrorMessage(error),
+				});
 			}
 		} else if (dedup === "bucket-key") {
 			if (!input.bucketId || !input.s3Key) {

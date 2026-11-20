@@ -247,6 +247,16 @@ const FLAG_FILE_ID_BINARY = 1 << 1;
 const KNOWN_FLAGS = FLAG_GZIP | FLAG_FILE_ID_BINARY;
 
 /**
+ * Shortest string that could plausibly be a stateless token.
+ *
+ * The smallest real payload is one part with a short file_id, a file name, and a
+ * MIME type — comfortably over 100 characters. 64 is a safe floor that still
+ * cannot be reached by a 21-character nanoid, which is the only other thing that
+ * lives in `public_id`.
+ */
+const MIN_TOKEN_LENGTH = 64;
+
+/**
  * Converts a Telegram `file_id` to its underlying bytes, or `null` if it is not
  * a clean base64url string.
  *
@@ -442,6 +452,25 @@ export const decodeStatelessLink = (token: string, secret: string): StatelessPay
 		throw error;
 	}
 };
+
+/**
+ * Reports whether a `public_id` looks like a stateless token rather than a nanoid.
+ *
+ * Deliberately SHAPE-ONLY: no secret, no MAC check. It exists for the one place
+ * that needs to rebuild a download URL from a stored row (deduplication and the
+ * dashboard), where the question is "does this need an `.ext` suffix?" and not
+ * "is this authentic?". Authenticity is checked where it matters, on the read
+ * path, by `decodeStatelessLink`.
+ *
+ * The heuristic is length: a token is a base64url blob of at least
+ * {@link MIN_TOKEN_LENGTH} characters, while a nanoid is 21. The two cannot
+ * collide in practice — a 21-char nanoid is shorter than any real payload.
+ *
+ * @param publicId - A `public_id` from the database or a request.
+ * @returns `true` when the value is shaped like a stateless token.
+ */
+export const isStatelessToken = (publicId: string): boolean =>
+	publicId.length >= MIN_TOKEN_LENGTH && /^[A-Za-z0-9_-]+$/.test(publicId);
 
 /**
  * Builds the public download URL for a stateless file.

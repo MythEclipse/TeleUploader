@@ -28,10 +28,14 @@ const JSON_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 const SIGNATURE_BYTES = 16;
 
 /**
- * Whether an upload of this size should skip the database entirely.
+ * Whether an upload of this size should be served from its URL alone.
  *
  * `config.statelessLinkMaxBytes` is 0 when the feature is disabled, so the
  * comparison alone is enough — no separate enabled flag to keep in sync.
+ *
+ * NOTE: this decides the READ path, not whether a row is written. Stateless
+ * uploads still persist a `files` row (see `storeStateless`), so deduplication
+ * keeps working and must NOT be disabled here.
  *
  * @param sizeBytes - Size of the file being uploaded.
  * @returns `true` when the file should be served from its URL alone.
@@ -147,10 +151,10 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
 			mimeType: rawMimeType,
 			sizeBytes: prepared.sizeBytes,
 			uploaderId: 0,
-			// Dedup is a lookup over `files` rows, so it is meaningless for a
-			// stateless upload: there is no row to find. The token is unique per
-			// upload by construction (fresh file_ids, fresh timestamp).
-			dedup: shouldStoreStateless(prepared.sizeBytes) ? "none" : "hash",
+			// Dedup works again: `storeStateless` writes a real `files` row, so
+			// `findByHash` has something to find. It was disabled while stateless
+			// uploads wrote nothing, which would have made it a no-op.
+			dedup: "hash",
 			stateless: shouldStoreStateless(prepared.sizeBytes),
 			signatureBuffer: prepared.signatureBuffer,
 		});
@@ -227,7 +231,7 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
 			mimeType,
 			sizeBytes: fileBytes.byteLength,
 			uploaderId: 0,
-			dedup: shouldStoreStateless(fileBytes.byteLength) ? "none" : "hash",
+			dedup: "hash",
 			stateless: shouldStoreStateless(fileBytes.byteLength),
 			signatureBuffer: fileBytes.subarray(0, SIGNATURE_BYTES),
 		});

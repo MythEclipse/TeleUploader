@@ -260,6 +260,52 @@ export class ChunkedStorage {
 	}
 
 	/**
+	 * Persist the part rows for an already-created file.
+	 *
+	 * Exists for the stateless path, which uploads chunks through
+	 * {@link uploadChunksWithoutPersisting} (so the token can be built from the
+	 * part list) and only afterwards knows the `public_id` the rows must hang off.
+	 * {@link storeFileInTelegramChunks} cannot be reused there: it generates its
+	 * own public_id and writes the file row in one shot, before the token exists.
+	 *
+	 * Failure is the caller's problem, not ours — the upload already succeeded and
+	 * the link already resolves, so a bookkeeping error must not surface as one.
+	 *
+	 * @param publicId - The file's `public_id` (the stateless token).
+	 * @param parts - Ordered parts, as returned by the chunk uploader.
+	 */
+	async persistPartsForFile(
+		publicId: string,
+		parts: readonly {
+			telegramFileId: string;
+			sizeBytes: number;
+			compressionAlgorithm: "gzip" | null;
+		}[]
+	): Promise<void> {
+		const file = await this.fileRepository.findByPublicId(publicId);
+		if (!file) return;
+
+		await this.filePartRepository.insert(
+			parts.map((part, index) => ({
+				fileId: file.id,
+				partNumber: index + 1,
+				telegramFileId: part.telegramFileId,
+				telegramFileUniqueId: "",
+				storageChatId: config.storageChatId,
+				storageMessageId: 0,
+				sizeBytes: part.sizeBytes,
+				// The uploader already inflated/stored the part; for a fresh upload
+				// stored and original sizes agree unless compression ran. The exact
+				// stored size is not needed for reassembly of uncompressed parts, and
+				// guessing it would be worse than recording the original.
+				storedSizeBytes: part.sizeBytes,
+				compressionAlgorithm: part.compressionAlgorithm,
+				etag: "",
+			}))
+		);
+	}
+
+	/**
 	 * Build a list of object-part sources for reconstructing a chunked file.
 	 *
 	 * Queries the file-part repository and enriches each part with
