@@ -1,4 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHmac,
+	hkdfSync,
+	randomBytes,
+	timingSafeEqual,
+} from "node:crypto";
 
 /**
  * Self-contained download links, so small uploads need no database row.
@@ -16,17 +23,35 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * the upload completes. So instead of storing that string, this module puts it in
  * the URL and signs it. The URL becomes the capability token.
  *
+ * ## Payloads are ENCRYPTED as of version 3
+ *
+ * v1 and v2 were signed but not encrypted, so anyone holding a link could
+ * base64url-decode it and read the `telegram_file_id`, the file name, and the MIME
+ * type. The signature already prevented tampering — the MAC is verified before a
+ * single field is parsed — so encryption was never about integrity. It is about
+ * not publishing the `file_id`.
+ *
+ * That distinction is worth stating plainly, because "encrypt it" is easy to reach
+ * for as a way to stop forgery and it does nothing for that: `decodeStatelessLink`
+ * verified the HMAC before parsing long before v3 existed.
+ *
+ * The concrete gain is narrow but real: a `file_id` is a STABLE, cross-bot
+ * identifier. Leaking it tells an observer which bot owns the file and roughly how
+ * big it is. It is not a credential — resolving one still requires the bot token,
+ * which never leaves the server (see `buildTelegramFileUrl`) — but it is metadata
+ * that has no business being in a URL the user pastes into a chat.
+ *
+ * What encryption does NOT do: it does not make a link safer to share. The URL is
+ * still the capability. Anyone who has it can download the file; they simply can
+ * no longer read what it points at. Say this out loud to anyone who reads
+ * "encrypted" as "private".
+ *
  * ## What this deliberately does NOT do
  *
- * - **No encryption.** The payload is signed, not encrypted. `telegram_file_id`
- *   is visible to anyone holding the link, which is acceptable because a file_id
- *   is useless without the bot token — and the bot token never leaves the server
- *   (see `buildTelegramFileUrl`). Encrypting would add a key that has to be
- *   rotated without adding a real boundary, since the link is the secret either
- *   way.
- * - **No dedup, no listing, no soft-delete** for stateless uploads. All three are
- *   queries over rows that no longer exist. Large files keep the DB path, so the
- *   features still exist for the uploads that actually benefit from them.
+ * - **No dedup, no listing, no soft-delete** for stateless uploads *was* the old
+ *   behaviour and is no longer true: a `files` row and its `file_parts` are
+ *   written for every upload, so all three work. Only the READ path skips the
+ *   database. See `storeStateless` in `upload-file.ts`.
  *
  * ## The signature shares a lifetime with the payload, on purpose
  *
@@ -100,13 +125,32 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  */
 
 /** Current payload version, written by {@link encodeStatelessLink}. */
-const VERSION = 2;
+const VERSION = 3;
 
 /** Oldest payload version still accepted. v1 links predate the binary file_id. */
 const MIN_VERSION = 1;
 
 /** Truncated HMAC length. 96 bits. */
 const MAC_BYTES = 12;
+
+/**
+ * AES-GCM nonce length.
+ *
+ * 12 bytes is what GCM is specified for: it is fed straight into the counter
+ * block, so any other size forces an extra GHASH derivation step for no benefit.
+ * It is stored in the clear in front of the ciphertext — a nonce is not a secret,
+ * and the decoder needs it.
+ */
+const NONCE_BYTES = 12;
+
+/**
+ * AES-GCM authentication tag length.
+ *
+ * 16 bytes (128 bits) is the maximum and the default. Unlike the HMAC above, this
+ * is NOT truncated: GCM's security proof degrades badly with a short tag, and the
+ * extra 4 bytes are cheap next to the payload.
+ */
+const TAG_BYTES = 16;
 
 /**
  * Upper bound on parts in one payload.
@@ -314,23 +358,32 @@ const mac = (body: Buffer, secret: string): Buffer =>
 	createHmac("sha256", secret).update(body).digest().subarray(0, MAC_BYTES);
 
 /**
- * Encodes a payload into a URL-safe token.
+ * Derives the AES-256-GCM key for v3 payloads from the same secret.
+ *
+ * A separate derivation rather than using `secret` directly: the HMAC key and the
+ * cipher key must not be the same value, or a weakness in one construction could
+ * be leveraged against the other. `hkdfSync` with a fixed, versioned info string
+ * is the standard way to get an independent key from one secret, and it means
+ * operators keep configuring exactly one secret.
+ *
+ * @param secret - The configured `STATELESS_LINK_SECRET` (or its bot-token default).
+ * @returns A 32-byte key suitable for `aes-256-gcm`.
+ */
+const cipherKey = (secret: string): Buffer =>
+	Buffer.from(hkdfSync("sha256", secret, "teleuploader-stateless-link", "v3-aes-256-gcm", 32));
+
+/**
+ * Encodes the payload body — everything except version and MAC.
+ *
+ * Shared by v2 (emitted verbatim) and v3 (encrypted). Keeping one writer means the
+ * two versions cannot drift into different field orders, which is the kind of bug
+ * that only shows up on the old links nobody tests.
  *
  * @param payload - The file's parts and metadata.
- * @param secret - Signing key; must be the same value used to decode.
- * @returns base64url token, without extension.
- * @throws {Error} When the payload cannot be represented (too many parts, empty
- *   part list, oversized strings).
+ * @returns The serialised body, without version byte or MAC.
  */
-export const encodeStatelessLink = (payload: StatelessPayload, secret: string): string => {
-	if (payload.parts.length === 0) {
-		throw new Error("cannot encode a stateless link with no parts");
-	}
-	if (payload.parts.length > MAX_PARTS) {
-		throw new Error(`stateless link supports at most ${MAX_PARTS} parts`);
-	}
-
-	const out: Buffer[] = [Buffer.from([VERSION])];
+const encodeBody = (payload: StatelessPayload): Buffer => {
+	const out: Buffer[] = [];
 	pushVarint(out, payload.parts.length);
 	for (const part of payload.parts) {
 		// Store the file_id decoded when — and only when — that is provably
@@ -356,22 +409,123 @@ export const encodeStatelessLink = (payload: StatelessPayload, secret: string): 
 	const created = Buffer.alloc(4);
 	created.writeUInt32BE(Math.max(0, Math.min(0xffffffff, Math.floor(payload.createdAt))), 0);
 	out.push(created);
+	return Buffer.concat(out);
+};
 
-	const body = Buffer.concat(out);
-	return Buffer.concat([body, mac(body, secret)]).toString("base64url");
+/**
+ * Parses a payload body produced by {@link encodeBody}.
+ *
+ * Handles v1, v2 and the decrypted body of v3. v1 differs only in where the
+ * per-part flag sits and how the file_id is stored, so the two layouts are read
+ * separately — see the comment at the part loop.
+ *
+ * @param body - Serialised body, without version byte or MAC.
+ * @param version - The version byte that preceded it.
+ * @returns The payload.
+ * @throws {MalformedPayload} On any structural problem.
+ */
+const decodeBody = (body: Buffer, version: number): StatelessPayload => {
+	const cursor = new Cursor(body);
+
+	const partCount = cursor.varint();
+	if (partCount === 0 || partCount > MAX_PARTS) throw new MalformedPayload("bad part count");
+
+	const parts: StatelessPart[] = [];
+	for (let i = 0; i < partCount; i++) {
+		// v1 layout: length, file_id(text), size, flag
+		// v2/v3 layout: flags, length, file_id(binary or text), size
+		// They are decoded separately rather than through one clever loop,
+		// because "clever" here means a reader that cannot tell where the
+		// file_id starts without first reading the flags it has not reached.
+		let telegramFileId: string | null;
+		let sizeBytes: number;
+		let compressionAlgorithm: "gzip" | null;
+
+		if (version === 1) {
+			telegramFileId = cursor.string();
+			sizeBytes = cursor.varint();
+			const flag = cursor.byte();
+			if (flag !== 0 && flag !== 1) throw new MalformedPayload("bad v1 flag");
+			compressionAlgorithm = flag === 1 ? "gzip" : null;
+		} else {
+			const flags = cursor.byte();
+			if ((flags & ~KNOWN_FLAGS) !== 0) throw new MalformedPayload("unknown flags");
+			compressionAlgorithm = (flags & FLAG_GZIP) !== 0 ? "gzip" : null;
+			telegramFileId = readFileId(cursor, (flags & FLAG_FILE_ID_BINARY) !== 0);
+			sizeBytes = cursor.varint();
+		}
+
+		// An empty file_id would produce a URL that can never resolve; treat it
+		// as malformed rather than letting it reach `getFileInfo`.
+		if (telegramFileId === null || telegramFileId.length === 0) {
+			throw new MalformedPayload("empty file_id");
+		}
+
+		parts.push({ telegramFileId, sizeBytes, compressionAlgorithm });
+	}
+
+	const sizeBytes = cursor.varint();
+	const fileName = cursor.string();
+	const mimeType = cursor.string();
+	const createdAt = cursor.uint32();
+
+	// Trailing bytes mean the body was not produced by `encodeStatelessLink`.
+	if (!cursor.exhausted) throw new MalformedPayload("trailing bytes");
+
+	return { parts, sizeBytes, fileName, mimeType, createdAt };
+};
+
+/**
+ * Encodes a payload into a URL-safe token.
+ *
+ * Emits {@link VERSION} (3): an AES-256-GCM sealed body. The nonce is prepended in
+ * the clear — it is not secret, and the decoder needs it to open the box — and the
+ * GCM tag authenticates the ciphertext, so no separate HMAC is needed.
+ *
+ * @param payload - The file's parts and metadata.
+ * @param secret - Signing/encryption key; must match the decoder.
+ * @returns base64url token, without extension.
+ * @throws {Error} When the payload cannot be represented (too many parts, empty
+ *   part list, oversized strings).
+ */
+export const encodeStatelessLink = (payload: StatelessPayload, secret: string): string => {
+	if (payload.parts.length === 0) {
+		throw new Error("cannot encode a stateless link with no parts");
+	}
+	if (payload.parts.length > MAX_PARTS) {
+		throw new Error(`stateless link supports at most ${MAX_PARTS} parts`);
+	}
+
+	const body = encodeBody(payload);
+
+	// A fresh random nonce per token. GCM nonces must NEVER repeat under the same
+	// key — reuse leaks the XOR of two plaintexts and, worse, allows forgery.
+	// 12 bytes is the size GCM is specified for; anything else forces an extra
+	// GHASH step and is not worth the risk.
+	const nonce = randomBytes(NONCE_BYTES);
+	const cipher = createCipheriv("aes-256-gcm", cipherKey(secret), nonce);
+	const sealed = Buffer.concat([cipher.update(body), cipher.final()]);
+	const tag = cipher.getAuthTag();
+
+	return Buffer.concat([Buffer.from([VERSION]), nonce, tag, sealed]).toString("base64url");
 };
 
 /**
  * Decodes and verifies a token.
  *
- * Returns `null` for ANY failure — bad base64, wrong version, bad MAC, truncated
- * body, trailing junk. That is deliberate: the caller uses `null` to mean "this is
- * not a stateless link, look it up in the database", so a legacy `/f/<nanoid>`
- * must not raise. Distinguishing "forged" from "not ours" would only give an
- * attacker a probe, and the operator cannot act on the difference anyway.
+ * Returns `null` for ANY failure — bad base64, wrong version, bad MAC or GCM tag,
+ * truncated body, trailing junk. That is deliberate: the caller uses `null` to
+ * mean "this is not a stateless link, look it up in the database", so a legacy
+ * `/f/<nanoid>` must not raise. Distinguishing "forged" from "not ours" would only
+ * give an attacker a probe, and the operator cannot act on the difference anyway.
+ *
+ * v1 and v2 tokens are still accepted: links get pasted into chats and outlive
+ * deploys, so a change of payload format must never break a link already in the
+ * wild. They remain readable in the clear — that is inherent to what they are, and
+ * re-issuing them is a re-upload.
  *
  * @param token - base64url token, extension already stripped.
- * @param secret - Signing key.
+ * @param secret - Signing/encryption key.
  * @returns The payload, or `null` when the token is not a valid stateless link.
  */
 export const decodeStatelessLink = (token: string, secret: string): StatelessPayload | null => {
@@ -385,66 +539,52 @@ export const decodeStatelessLink = (token: string, secret: string): StatelessPay
 	} catch {
 		return null;
 	}
-	if (raw.length <= MAC_BYTES) return null;
+	if (raw.length < 2) return null;
 
-	const body = raw.subarray(0, raw.length - MAC_BYTES);
+	const version = raw[0];
+
+	// ── v3: AEAD ──────────────────────────────────────────────────────────
+	//
+	// Authenticity comes from the GCM tag, verified by `final()`. A wrong key,
+	// a flipped ciphertext bit, or a swapped tag all throw — there is no path
+	// where a tampered payload is returned.
+	if (version === 3) {
+		if (raw.length <= 1 + NONCE_BYTES + TAG_BYTES) return null;
+		const nonce = raw.subarray(1, 1 + NONCE_BYTES);
+		const tag = raw.subarray(1 + NONCE_BYTES, 1 + NONCE_BYTES + TAG_BYTES);
+		const sealed = raw.subarray(1 + NONCE_BYTES + TAG_BYTES);
+		let plain: Buffer;
+		try {
+			const decipher = createDecipheriv("aes-256-gcm", cipherKey(secret), nonce);
+			decipher.setAuthTag(tag);
+			plain = Buffer.concat([decipher.update(sealed), decipher.final()]);
+		} catch {
+			// Bad tag, bad length, wrong key — all indistinguishable on purpose.
+			return null;
+		}
+		try {
+			return decodeBody(plain, 3);
+		} catch (error: unknown) {
+			if (error instanceof MalformedPayload) return null;
+			throw error;
+		}
+	}
+
+	// ── v1 / v2: signed, in the clear ─────────────────────────────────────
+	if (version < MIN_VERSION || version > VERSION) return null;
+	if (raw.length <= MAC_BYTES + 1) return null;
+
+	const body = raw.subarray(1, raw.length - MAC_BYTES);
 	const provided = raw.subarray(raw.length - MAC_BYTES);
-	const expected = mac(body, secret);
+	// The MAC covers the version byte too, so a downgrade from v3 to v2 by
+	// flipping the first byte cannot produce a body that verifies.
+	const expected = mac(raw.subarray(0, raw.length - MAC_BYTES), secret);
 	// Lengths are equal by construction, but guard anyway: timingSafeEqual throws
 	// on a mismatch, and a throw here would escape as a 500.
 	if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
 
 	try {
-		const cursor = new Cursor(body);
-		const version = cursor.byte();
-		// Accept v1 and v2. Reject anything outside that range so a future
-		// layout is not silently misparsed by older code.
-		if (version < MIN_VERSION || version > VERSION) return null;
-
-		const partCount = cursor.varint();
-		if (partCount === 0 || partCount > MAX_PARTS) return null;
-
-		const parts: StatelessPart[] = [];
-		for (let i = 0; i < partCount; i++) {
-			// v1 layout: length, file_id(text), size, flag
-			// v2 layout: flags, length, file_id(binary or text), size
-			// They are decoded separately rather than through one clever loop,
-			// because "clever" here means a reader that cannot tell where the
-			// file_id starts without first reading the flags it has not reached.
-			let telegramFileId: string | null;
-			let sizeBytes: number;
-			let compressionAlgorithm: "gzip" | null;
-
-			if (version === 1) {
-				telegramFileId = cursor.string();
-				sizeBytes = cursor.varint();
-				const flag = cursor.byte();
-				if (flag !== 0 && flag !== 1) return null;
-				compressionAlgorithm = flag === 1 ? "gzip" : null;
-			} else {
-				const flags = cursor.byte();
-				if ((flags & ~KNOWN_FLAGS) !== 0) return null;
-				compressionAlgorithm = (flags & FLAG_GZIP) !== 0 ? "gzip" : null;
-				telegramFileId = readFileId(cursor, (flags & FLAG_FILE_ID_BINARY) !== 0);
-				sizeBytes = cursor.varint();
-			}
-
-			// An empty file_id would produce a URL that can never resolve; treat it
-			// as malformed rather than letting it reach `getFileInfo`.
-			if (telegramFileId === null || telegramFileId.length === 0) return null;
-
-			parts.push({ telegramFileId, sizeBytes, compressionAlgorithm });
-		}
-
-		const sizeBytes = cursor.varint();
-		const fileName = cursor.string();
-		const mimeType = cursor.string();
-		const createdAt = cursor.uint32();
-
-		// Trailing bytes mean the body was not produced by `encodeStatelessLink`.
-		if (!cursor.exhausted) return null;
-
-		return { parts, sizeBytes, fileName, mimeType, createdAt };
+		return decodeBody(body, version);
 	} catch (error: unknown) {
 		// Only the parse failures this module raises are expected here; anything
 		// else is a genuine bug and should surface as a 500, not as a silent 404.

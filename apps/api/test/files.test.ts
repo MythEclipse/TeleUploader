@@ -469,8 +469,14 @@ describe("File Route Handlers", () => {
 		});
 
 		it("does NOT serve a token signed with another secret", async () => {
-			// A forged link must fall through to the database (and 404), never be
-			// served from the payload.
+			// A forged link must 404 — never be served from the payload.
+			//
+			// It must ALSO not fall through to the database. Falling through was
+			// the old behaviour, and it was wrong for two reasons: it gives an
+			// attacker a different response ("reached the DB") than a valid token,
+			// and it offers a downgrade attempt a second chance against the legacy
+			// parser. A token-shaped value that fails verification is simply not
+			// ours.
 			const forged = encodeStatelessLink(
 				{
 					parts: [{ telegramFileId: "attacker", sizeBytes: 5, compressionAlgorithm: null }],
@@ -483,6 +489,19 @@ describe("File Route Handlers", () => {
 			);
 			mockFindByPublicId.mockImplementationOnce(async () => null);
 			const req = requestWithPublicId(`http://localhost:4000/f/${forged}.txt`, `${forged}.txt`);
+			const res = await handleFileRedirect(req);
+			expect(res.status).toBe(404);
+			expect(mockFindByPublicId).not.toHaveBeenCalled();
+		});
+
+		it("still lets a legacy nanoid reach the database", async () => {
+			// The guard above must not swallow the old path. A 21-character nanoid
+			// is not token-shaped, so it must still be looked up.
+			mockFindByPublicId.mockImplementationOnce(async () => null);
+			const req = requestWithPublicId(
+				"http://localhost:4000/f/V1StGXR8_Z5jdHi6B-myT",
+				"V1StGXR8_Z5jdHi6B-myT"
+			);
 			const res = await handleFileRedirect(req);
 			expect(res.status).toBe(404);
 			expect(mockFindByPublicId).toHaveBeenCalled();

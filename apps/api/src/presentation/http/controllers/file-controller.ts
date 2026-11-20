@@ -4,6 +4,7 @@ import { writeBodyToFile } from "../../../application/shared/utils/file-sink";
 import {
 	buildDownloadUrl,
 	decodeStatelessLink,
+	isStatelessToken,
 	type StatelessPayload,
 	splitStatelessToken,
 } from "../../../application/shared/utils/stateless-link";
@@ -122,6 +123,26 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 		const stateless = decodeStatelessLink(token, config.statelessLinkSecret);
 		if (stateless) {
 			return await serveStateless(stateless, req);
+		}
+
+		// A token that LOOKS like one of ours but failed to verify must NOT fall
+		// through to the database. Two reasons:
+		//
+		//  1. Downgrade. Someone could take a v3 token, flip the version byte to 2,
+		//     and hand it over hoping it is parsed by the older, unencrypted branch.
+		//     The v2 MAC covers the version byte so that specific flip fails — but
+		//     the defence should not rest on one detail of a legacy format.
+		//  2. Probe. Falling through turns "invalid token" into a different
+		//     response (a DB 404) than a valid one, which tells an attacker their
+		//     guess was structurally interesting.
+		//
+		// Legacy nanoids are 21 characters; anything shaped like a token that does
+		// not decode is simply rejected.
+		if (isStatelessToken(token)) {
+			logger.warn("Rejected a stateless token that failed verification", {
+				tokenLength: token.length,
+			});
+			return fail(404, "File not found");
 		}
 
 		const file = await fileRepository.findByPublicId(publicId);
@@ -428,6 +449,18 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
 				},
 				{ status: 200 }
 			);
+		}
+
+		// Same guard as `handleFileRedirect`, for the same reason: a token-shaped
+		// value that fails verification must be rejected outright rather than
+		// falling through to a database lookup. Otherwise the two paths answer
+		// differently for "forged" and "not ours", which is a probe, and a
+		// downgrade attempt gets a second chance against the legacy parser.
+		if (isStatelessToken(token)) {
+			logger.warn("Rejected a stateless token that failed verification", {
+				tokenLength: token.length,
+			});
+			return fail(404, "File not found");
 		}
 
 		const file = await fileRepository.findByPublicId(publicId);
