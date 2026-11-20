@@ -1,0 +1,27 @@
+-- Widen `files.public_id` so a stateless token fits.
+--
+-- WHY
+--
+-- Stateless uploads store their signed token IN `public_id`, so that
+-- `/f/<token>` and `findByPublicId(token)` address the same row.
+--
+-- The column was `varchar(21)`, sized for a nanoid and nothing else. A token is
+-- a base64url payload: MEASURED at ~143 characters for a small single-part file
+-- and ~370 for the worst case the encoder can produce (two parts, long file name,
+-- long MIME type). Every stateless insert therefore failed with
+--
+--   value too long for type character varying(21)
+--
+-- and because that write happens AFTER the Telegram upload succeeds and is
+-- wrapped in a catch (a bookkeeping failure must not fail a good upload), the
+-- error was logged and the row silently disappeared. The visible symptom was
+-- subtle and easy to misread: uploads worked, links resolved, but nothing
+-- appeared in the dashboard listing and nothing reached a backup.
+--
+-- 512 is chosen over `text` deliberately: it keeps a bound on the column, holds
+-- the worst-case token with headroom for a future payload-format change without
+-- another migration, and leaves legacy 21-character nanoid ids untouched.
+--
+-- No data migration is needed: existing rows are all nanoids, which fit.
+
+ALTER TABLE "files" ALTER COLUMN "public_id" SET DATA TYPE varchar(512);

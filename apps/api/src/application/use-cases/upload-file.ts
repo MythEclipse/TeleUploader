@@ -192,6 +192,12 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 		// file is already in Telegram and the link already works, so turning a
 		// bookkeeping problem into a user-visible error would be strictly worse.
 		// The row is recoverable from the link; the upload is not.
+		//
+		// It must be LOUD, though. This catch previously hid a schema mismatch:
+		// `public_id` was varchar(21) and every token insert failed with "value
+		// too long", so uploads succeeded and links worked while the dashboard
+		// listing and backups silently stayed empty. `error` level, with the
+		// reason, is the minimum that would have surfaced that immediately.
 		try {
 			await deps.fileRepo.create(
 				buildNewFile({
@@ -221,10 +227,15 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 				await deps.chunkedStorage.persistPartsForFile(token, parts);
 			}
 		} catch (error: unknown) {
-			logger.error("Failed to persist stateless upload metadata", {
-				publicId: token,
-				error: getErrorMessage(error),
-			});
+			logger.error(
+				"Failed to persist stateless upload metadata — the file is stored and the " +
+					"link works, but it will be missing from listings and backups",
+				{
+					publicId: token,
+					fileName,
+					error: getErrorMessage(error),
+				}
+			);
 		}
 
 		return {

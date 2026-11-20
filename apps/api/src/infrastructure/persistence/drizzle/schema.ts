@@ -47,7 +47,22 @@ export const files = pgTable(
 	"files",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		publicId: varchar("public_id", { length: 21 }).unique().notNull(),
+		// 512, not 21 and not 255: a stateless upload stores its signed TOKEN here.
+		//
+		// Measured: a realistic single-part token is ~143 characters, and the
+		// worst case the encoder can produce — two parts, long file name, long MIME
+		// — is ~370. The original `varchar(21)` (nanoid-sized) rejected every
+		// stateless insert with "value too long for type character varying(21)",
+		// and because that write happens after the Telegram upload and is wrapped
+		// in a catch, the row vanished silently: uploads worked, links resolved,
+		// and the dashboard listing plus backups stayed empty.
+		//
+		// 512 leaves headroom for a future payload-format change without another
+		// migration, and is still a bounded column rather than `text`. Legacy
+		// 21-character nanoid ids are unaffected. Enforced by
+		// `test/public-id-width.test.ts`, which encodes the worst-case token and
+		// asserts it fits.
+		publicId: varchar("public_id", { length: 512 }).unique().notNull(),
 		telegramFileId: text("telegram_file_id").notNull(),
 		telegramFileUniqueId: text("telegram_file_unique_id").notNull(),
 		storageChatId: bigint("storage_chat_id", { mode: "number" }).notNull(),
