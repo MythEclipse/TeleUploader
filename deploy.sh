@@ -145,7 +145,12 @@ if $DO_CHECK; then
   # build output to apps/api/dist while this script still read the root dist/, and
   # the root leftover was shipped in total silence; `apps/web/dist` must never be
   # shortened to `dist`.
-  for f in package.json pnpm-lock.yaml apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js apps/api/drizzle/meta/_journal.json apps/web/dist/index.html; do
+  # package.json and pnpm-lock.yaml were listed here but never scp'd anywhere: the
+  # deployed artefact is dist/*.js plus drizzle/ plus web/, and the VPS runs a
+  # pre-bundled file. Asserting them here said "these ship" about two files that
+  # do not. (The version those files carry is now baked into the bundle at build
+  # time by scripts/build.mjs, so /health no longer depends on a manifest on disk.)
+  for f in apps/api/dist/index.js apps/api/dist/migrate.js apps/api/dist/seed.js apps/api/drizzle/meta/_journal.json apps/web/dist/index.html; do
     [ -e "$f" ] && echo "  ✓ $f" || echo "  ✗ $f (missing)"
   done
   echo ""
@@ -275,9 +280,13 @@ ok "Build + drizzle/ migrations + SPA dist/ shipped"
 # Fed through stdin so the whole remote transaction — atomic install, restart,
 # health probe, rollback — happens in one session with no quoting traps.
 log "Installing under ${DIST_REMOTE} and restarting ${UNIT}..."
-if ! vps bash -s -- "${STAGE_REMOTE}" "${DIST_REMOTE}" "${UNIT}" "${HEALTH_PATH}" "${MIGRATION_APP}" "${NODE_BIN}" <<'REMOTE'
+# The expected version is computed HERE (in the repo checkout) and passed in,
+# because the remote shell has no access to apps/api/package.json — it only
+# receives the bundled artefact.
+EXPECTED_VERSION="$(node -p "require('./apps/api/package.json').version" 2>/dev/null || true)"
+if ! vps bash -s -- "${STAGE_REMOTE}" "${DIST_REMOTE}" "${UNIT}" "${HEALTH_PATH}" "${MIGRATION_APP}" "${NODE_BIN}" "${EXPECTED_VERSION}" <<'REMOTE'
 set -Eeuo pipefail
-STAGE="$1"; DIST_DIR="$2"; UNIT="$3"; HEALTH_PATH="$4"; MIGRATION_APP="$5"; NODE_BIN="$6"
+STAGE="$1"; DIST_DIR="$2"; UNIT="$3"; HEALTH_PATH="$4"; MIGRATION_APP="$5"; NODE_BIN="$6"; EXPECTED_VERSION="${7:-}"
 
 say()  { echo "[deploy] $*"; }
 boom() { echo "[deploy] ERROR: $*" >&2; exit 1; }
@@ -565,6 +574,29 @@ if [ -n "$port" ]; then
   say "health-check $url"
   body="$(curl -fsS -m 5 --retry 15 --retry-delay 2 --retry-connrefused --retry-all-errors "$url")"
   say "health: $body"
+
+  # ── version probe — prove the NEW code is what is running ──────────────────
+  # /health returning 200 proves A process is alive, not that it is THIS release.
+  # The version it reports used to be read from a package.json on disk that this
+  # script never shipped: /opt/teleuploader/package.json was a leftover from an
+  # old manual install, still saying 1.0.0, so /health answered
+  # {"status":"ok","version":"1.0.0"} through every release up to 1.16.1 and no
+  # assertion noticed. The version is now baked into the bundle by
+  # scripts/build.mjs, so comparing it against the manifest here proves the
+  # artefact that is running was built from this tree.
+  #
+  # Only checked when a manifest is reachable; the deploy always runs from the
+  # repo root, so a missing one is itself a fault worth naming.
+  reported_version="$(printf '%s' "$body" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  if [ -n "$EXPECTED_VERSION" ] && [ -n "$reported_version" ]; then
+    if [ "$reported_version" = "$EXPECTED_VERSION" ]; then
+      say "version: $reported_version (matches the tree being deployed)"
+    else
+      boom "/health reports version '$reported_version' but this tree is '$EXPECTED_VERSION'. The running bundle was NOT built from this tree — a stale package.json on the host or a stale dist/ would both do this. Refusing to call the deploy a success."
+    fi
+  else
+    say "WARNING: could not compare versions (expected='$EXPECTED_VERSION' reported='$reported_version')"
+  fi
 
   # ── site root probe — the dashboard half of the deploy ─────────────────────
   # /health proves the API is alive. It says NOTHING about the dashboard: a unit

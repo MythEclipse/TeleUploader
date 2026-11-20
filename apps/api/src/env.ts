@@ -264,7 +264,34 @@ if (telegramChunkSizeBytes > TELEGRAM_CHUNK_SIZE_MAX_BYTES) {
 }
 
 /**
+ * The version baked into the bundle at build time.
+ *
+ * `esbuild --define:__APP_VERSION__=…` replaces this identifier with a string
+ * literal, so the running process reports the version of the ARTEFACT it was
+ * built from rather than the version of whatever `package.json` happens to sit
+ * next to it on disk.
+ *
+ * ## Why the file lookup alone was not enough
+ *
+ * `readPackageVersion` reads `package.json` at runtime. That is correct in a dev
+ * checkout and correct in the Nix bundle, but it is wrong on the production VPS:
+ * the app runs from `/opt/teleuploader/dist/index.js`, so the first candidate
+ * resolves to `/opt/teleuploader/dist/../package.json` = `/opt/teleuploader/package.json`
+ * — a file `deploy.sh` never ships. It sat there from an old manual install
+ * dated months back, still declaring `1.0.0`, so `/health` reported `1.0.0`
+ * through every release up to 1.16.1. Nothing failed, because the health probe
+ * only asserts HTTP 200 and never compared the version it printed.
+ *
+ * Baking the value in removes the dependency on a file the deploy does not
+ * control, so the number cannot disagree with the code that is running.
+ */
+declare const __APP_VERSION__: string | undefined;
+
+/**
  * Reads the application version from package.json.
+ *
+ * Retained for the unbundled paths (`tsx src/index.ts` in dev, and any consumer
+ * that imports `env.ts` directly), where no `--define` substitution happened.
  *
  * Both candidate paths carry the same number because `scripts/bump-version.mjs`
  * rewrites every tracked manifest in one commit, so the version served by
@@ -295,8 +322,21 @@ const readPackageVersion = (): string => {
 	return "0.0.0";
 };
 
+/**
+ * Resolves the version to serve from `/health`.
+ *
+ * @returns The build-time constant when the bundle was built with `--define`,
+ *   otherwise the manifest's version.
+ */
+const resolveAppVersion = (): string =>
+	// `typeof` rather than a bare reference: in an unbundled run the identifier
+	// does not exist at all, and a bare `__APP_VERSION__` would throw a
+	// ReferenceError at module load. esbuild rewrites this guard to `true` when
+	// the define is present.
+	typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : readPackageVersion();
+
 export const config: AppConfig = {
-	appVersion: readPackageVersion(),
+	appVersion: resolveAppVersion(),
 	botTokens: parseTokens(botTokensRaw),
 	telegramBotConcurrency: parseNumber(process.env.TELEGRAM_BOT_CONCURRENCY, 1),
 	storageChatId: parseInt(process.env.STORAGE_CHANNEL_ID!, 10),

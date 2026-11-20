@@ -790,5 +790,14 @@ test("the deploy seeds between migrate and restart, not after", () => {
 	) as { scripts: Record<string, string>; devDependencies?: Record<string, string> };
 	expect(apiPackageJson.scripts["db:seed"]).toBe("node dist/seed.js");
 	expect(apiPackageJson.scripts["db:seed"]).not.toMatch(/\btsx\b/);
-	expect(apiPackageJson.scripts.build).toContain("dist/seed.js");
+	// The build must produce seed.js. This used to assert the ENTIRE build command
+	// lived inline in package.json and named dist/seed.js; the command now delegates
+	// to scripts/build.mjs (the inline form is where the version-define quoting bug
+	// came from), so the assertion follows the invariant instead of the syntax: the
+	// builder is the entry point AND it emits every bundle deploy.sh ships.
+	expect(apiPackageJson.scripts.build).toBe("node scripts/build.mjs");
+	const buildScript = readFileSync(new URL("../scripts/build.mjs", import.meta.url), "utf8");
+	for (const bundle of ["dist/index.js", "dist/migrate.js", "dist/seed.js"]) {
+		expect(buildScript, `the build must emit ${bundle}`).toContain(bundle);
+	}
 });
