@@ -12,6 +12,7 @@ import {
 } from "../../infrastructure/file";
 import type { ChunkedStorage } from "../../infrastructure/telegram/chunked-storage";
 import type { UploadInput, UploadOutput } from "../dto/upload";
+import { buildStatelessDownloadUrl, encodeStatelessLink } from "../shared/utils/stateless-link";
 
 /** Subset of application configuration consumed by the upload-file use case. */
 export interface UploadFileConfig {
@@ -25,6 +26,8 @@ export interface UploadFileConfig {
 	compressChunkedUploads: boolean;
 	/** Minimum chunk size in bytes below which compression is skipped. */
 	chunkCompressionMinSizeBytes: number;
+	/** HMAC key used to sign self-contained download links. */
+	statelessLinkSecret: string;
 }
 
 /** Dependencies required by the upload-file use case factory. */
@@ -91,6 +94,81 @@ const toUploadOutput = (file: File, baseUrl: string): UploadOutput => ({
  * @returns An async function accepting `UploadInput` and returning `UploadOutput`.
  */
 export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
+	/**
+	 * Store a file WITHOUT a database row and return a self-contained link.
+	 *
+	 * Two shapes, because Telegram has two:
+	 * - at or below the chunk size: one `forwardToStorage` call, one file_id.
+	 * - above it (19-30 MB at the default threshold): the file is split, and every
+	 *   part's file_id goes into the payload. This is why the threshold is clamped
+	 *   to two chunks in `env.ts` — a third part would add ~110 more characters to
+	 *   a URL the user has to paste.
+	 *
+	 * The `publicId` returned here is the token itself. That keeps the DTO shape
+	 * unchanged for every caller (the dashboard, the CLI, the bot) instead of
+	 * introducing a second field that each of them would have to learn.
+	 *
+	 * @param input - The upload request.
+	 * @param fileName - Final, extension-normalised file name.
+	 * @param mimeType - Resolved MIME type.
+	 * @param fileType - Telegram send-method classification.
+	 * @param partPrefix - Prefix for chunk part names.
+	 * @returns The public DTO whose `downloadUrl` needs no database lookup.
+	 */
+	const storeStateless = async (
+		input: UploadInput,
+		fileName: string,
+		mimeType: string,
+		fileType: string,
+		partPrefix: string
+	): Promise<UploadOutput> => {
+		const createdAt = Math.floor(Date.now() / 1000);
+
+		const parts =
+			input.sizeBytes > deps.config.telegramChunkSizeBytes
+				? (
+						await deps.chunkedStorage.uploadChunksWithoutPersisting({
+							tempPath: input.tempPath,
+							partFileNamePrefix: partPrefix,
+						})
+					).parts.map((part) => ({
+						telegramFileId: part.telegramFileId,
+						sizeBytes: part.sizeBytes,
+						compressionAlgorithm: part.compressionAlgorithm,
+					}))
+				: [
+						{
+							telegramFileId: (
+								await deps.telegramService.forwardToStorage(input.tempPath, fileName, fileType)
+							).telegramFileId,
+							sizeBytes: input.sizeBytes,
+							compressionAlgorithm: null,
+						},
+					];
+
+		const token = encodeStatelessLink(
+			{
+				parts,
+				sizeBytes: input.sizeBytes,
+				fileName,
+				mimeType,
+				createdAt,
+			},
+			deps.config.statelessLinkSecret
+		);
+
+		return {
+			publicId: token,
+			fileName,
+			mimeType,
+			sizeBytes: input.sizeBytes,
+			fileType,
+			createdAt: new Date(createdAt * 1000),
+			downloadUrl: buildStatelessDownloadUrl(deps.config.baseUrl, token, fileName),
+			fileHash: input.fileHash,
+		};
+	};
+
 	return async (input: UploadInput): Promise<UploadOutput> => {
 		const dedup = input.dedup ?? "hash";
 
@@ -133,6 +211,10 @@ export function createUploadFileUseCase(deps: UploadFileUseCaseDeps) {
 		// single-message otherwise. The temp file is always cleaned up here so
 		// callers never need their own cleanup block.
 		try {
+			if (input.stateless) {
+				return await storeStateless(input, finalFileName, mimeType, fileType, partPrefix);
+			}
+
 			if (input.sizeBytes > deps.config.telegramChunkSizeBytes) {
 				const uploadedFile = await deps.chunkedStorage.storeFileInTelegramChunks({
 					tempPath: input.tempPath,

@@ -27,7 +27,20 @@ const JSON_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 /** Number of leading bytes read for magic-byte / signature detection. */
 const SIGNATURE_BYTES = 16;
 
-/** Lazily built upload use case wired to the DI singletons. */
+/**
+ * Whether an upload of this size should skip the database entirely.
+ *
+ * `config.statelessLinkMaxBytes` is 0 when the feature is disabled, so the
+ * comparison alone is enough — no separate enabled flag to keep in sync.
+ *
+ * @param sizeBytes - Size of the file being uploaded.
+ * @returns `true` when the file should be served from its URL alone.
+ */
+const shouldStoreStateless = (sizeBytes: number): boolean =>
+	config.statelessLinkMaxBytes > 0 && sizeBytes <= config.statelessLinkMaxBytes;
+
+/**
+ * Lazily built upload use case wired to the DI singletons. */
 const getUploadUseCase = () =>
 	createUploadFileUseCase({
 		fileRepo: fileRepository,
@@ -39,6 +52,7 @@ const getUploadUseCase = () =>
 			storageChatId: config.storageChatId,
 			compressChunkedUploads: config.compressChunkedUploads,
 			chunkCompressionMinSizeBytes: config.chunkCompressionMinSizeBytes,
+			statelessLinkSecret: config.statelessLinkSecret,
 		},
 	});
 
@@ -133,7 +147,11 @@ const handleMultipartUpload = async (req: Request): Promise<Response> => {
 			mimeType: rawMimeType,
 			sizeBytes: prepared.sizeBytes,
 			uploaderId: 0,
-			dedup: "hash",
+			// Dedup is a lookup over `files` rows, so it is meaningless for a
+			// stateless upload: there is no row to find. The token is unique per
+			// upload by construction (fresh file_ids, fresh timestamp).
+			dedup: shouldStoreStateless(prepared.sizeBytes) ? "none" : "hash",
+			stateless: shouldStoreStateless(prepared.sizeBytes),
 			signatureBuffer: prepared.signatureBuffer,
 		});
 
@@ -206,7 +224,8 @@ const handleJSONUpload = async (req: Request): Promise<Response> => {
 			mimeType,
 			sizeBytes: fileBytes.byteLength,
 			uploaderId: 0,
-			dedup: "hash",
+			dedup: shouldStoreStateless(fileBytes.byteLength) ? "none" : "hash",
+			stateless: shouldStoreStateless(fileBytes.byteLength),
 			signatureBuffer: fileBytes.subarray(0, SIGNATURE_BYTES),
 		});
 

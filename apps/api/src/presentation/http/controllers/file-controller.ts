@@ -1,6 +1,11 @@
 import { createReadStream } from "node:fs";
 import { nanoid } from "nanoid";
 import { writeBodyToFile } from "../../../application/shared/utils/file-sink";
+import {
+	decodeStatelessLink,
+	type StatelessPayload,
+	splitStatelessToken,
+} from "../../../application/shared/utils/stateless-link";
 import { locateZipEntry } from "../../../application/shared/utils/zip";
 import { config } from "../../../env";
 import { chunkedStorage, fileRepository } from "../../../infrastructure/di";
@@ -8,6 +13,8 @@ import { cleanupTempFile, formatCreatedAt, getErrorMessage } from "../../../infr
 import logger from "../../../infrastructure/observability/logger";
 import { botPool } from "../../../infrastructure/telegram/bot-pool";
 import { buildTelegramFileUrl } from "../../../infrastructure/telegram/file-url";
+import { createGetObjectResponse } from "../../s3/object-stream";
+import { parseRangeHeader } from "../../s3/range";
 import { sanitizeFilenameHeader } from "../filename";
 
 /**
@@ -75,8 +82,22 @@ const mimeFromPath = (filePath: string): string | null => {
 /**
  * Handles file redirect requests.
  *
- * Looks up a file by its public identifier and determines the best delivery
- * method:
+ * Two delivery paths, tried in this order:
+ *
+ * 1. **Stateless** — the route parameter is a signed payload carrying the
+ *    `telegram_file_id`s (see `stateless-link.ts`). No database access at all.
+ *    This is the path for files at or below `config.statelessLinkMaxBytes`.
+ * 2. **Database** — the parameter is a `public_id` and the row is looked up.
+ *    Large files, S3 objects, archive entries, and every link issued before
+ *    stateless links existed.
+ *
+ * Order matters. A stateless token is long and base64url; a legacy `public_id` is
+ * a 21-character nanoid. Both are valid base64url, so there is no shape test that
+ * separates them reliably — `decodeStatelessLink` returning `null` is the only
+ * honest discriminator, and it is safe to try first because a forged or corrupt
+ * token costs one HMAC, not a query.
+ *
+ * Delivery by storage kind, once the file is resolved:
  * - **chunked** files are streamed via the chunked-object response builder.
  * - **archive-entry** files are extracted from a Telegram-stored zip archive
  *   and streamed as a single file.
@@ -91,6 +112,15 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 	try {
 		if (!publicId) {
 			return fail(400, "Missing file id");
+		}
+
+		// ── Stateless path ────────────────────────────────────────────────
+		// Tried first and returns unconditionally when the signature verifies, so
+		// a stateless link never touches Postgres — not even to check for a row.
+		const { token } = splitStatelessToken(publicId);
+		const stateless = decodeStatelessLink(token, config.statelessLinkSecret);
+		if (stateless) {
+			return await serveStateless(stateless, req);
 		}
 
 		const file = await fileRepository.findByPublicId(publicId);
@@ -256,6 +286,114 @@ export const handleFileRedirect = async (req: RequestWithParams): Promise<Respon
 };
 
 /**
+ * Serves a file described entirely by its signed URL payload.
+ *
+ * No repository, no `files` row, no `file_parts` row — the only external calls are
+ * `getFileInfo` (to turn a `file_id` into a download path) and the Telegram CDN
+ * fetch itself.
+ *
+ * Single-part and multi-part are different code paths because they are different
+ * problems:
+ * - **single part**: proxy the CDN body straight through, exactly like the
+ *   database path, including the `Content-Length` reasoning below.
+ * - **multi part**: hand the parts to `createGetObjectResponse`, which already
+ *   implements ordered reassembly, gzip inflate, and HTTP range slicing. Reusing
+ *   it is the reason a 2-part file can still be seeked in a browser.
+ *
+ * @param payload - Verified payload from the URL.
+ * @param req - The incoming request, used for `Range` and `HEAD`.
+ * @returns The streaming response.
+ */
+const serveStateless = async (payload: StatelessPayload, req: Request): Promise<Response> => {
+	const corsHeaders: Record<string, string> = {
+		"Access-Control-Allow-Origin": "*",
+		"Access-Control-Expose-Headers":
+			"Content-Disposition, Content-Length, Accept-Ranges, Content-Range",
+		"Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+		"Access-Control-Allow-Headers": "Range, Content-Type",
+		Vary: "Origin",
+	};
+	const lastModified = new Date(payload.createdAt * 1000).toUTCString();
+	const disposition = `inline; filename="${sanitizeFilenameHeader(payload.fileName)}"`;
+
+	if (payload.parts.length > 1) {
+		const first = payload.parts[0];
+		const parts = await Promise.all(
+			payload.parts.map(async (part, index) => {
+				const info = await botPool.getFileInfo(part.telegramFileId);
+				return {
+					telegramFileId: part.telegramFileId,
+					telegramUrl: buildTelegramFileUrl(info.file_path, info.bot_token),
+					sizeBytes: part.sizeBytes,
+					storedSizeBytes: part.sizeBytes,
+					compressionAlgorithm: part.compressionAlgorithm,
+					partNumber: index + 1,
+				};
+			})
+		);
+		if (!first) return fail(500, "Server error");
+
+		const response = await createGetObjectResponse({
+			reqId: "",
+			contentType: payload.mimeType || "application/octet-stream",
+			etag: parts.map((part) => part.telegramFileId).join("-"),
+			lastModified: new Date(payload.createdAt * 1000),
+			totalSize: payload.sizeBytes,
+			parts,
+			// Range parsing is shared with the S3 path so a stateless multi-part
+			// file supports `Range:` identically to a bucket object.
+			range: parseRangeHeader(req.headers.get("range"), payload.sizeBytes),
+		});
+
+		const headers = new Headers(response.headers);
+		for (const [key, value] of Object.entries(corsHeaders)) headers.set(key, value);
+		headers.set("Content-Disposition", disposition);
+		return new Response(req.method === "HEAD" ? null : response.body, {
+			status: response.status,
+			headers,
+		});
+	}
+
+	const part = payload.parts[0];
+	if (!part) return fail(500, "Server error");
+
+	const fileInfo = await botPool.getFileInfo(part.telegramFileId);
+	const telegramUrl = buildTelegramFileUrl(fileInfo.file_path, fileInfo.bot_token);
+	const upstream = await fetch(telegramUrl, {
+		// HEAD must not pull the body: a 30 MB file would otherwise be downloaded
+		// and discarded just to answer a metadata probe.
+		method: req.method === "HEAD" ? "HEAD" : "GET",
+	});
+	if (!upstream.ok) {
+		logger.error("Telegram file download failed (stateless)", { status: upstream.status });
+		return Response.json(
+			{ error: "Upstream download failed" },
+			{ status: upstream.status === 404 ? 404 : 502, headers: corsHeaders }
+		);
+	}
+
+	// Same `Content-Length` reasoning as the database path: Telegram re-encodes
+	// some uploads (GIF→MP4, photo→JPEG), so the payload's size can be larger than
+	// the bytes actually served. Declaring the payload size truncates the download.
+	const upstreamLength = upstream.headers.get("content-length");
+	const contentType =
+		payload.mimeType && payload.mimeType !== "application/octet-stream"
+			? payload.mimeType
+			: (mimeFromPath(fileInfo.file_path) ?? "application/octet-stream");
+
+	const headers: Record<string, string> = {
+		"Content-Type": contentType,
+		"Content-Disposition": disposition,
+		"Content-Length": upstreamLength ?? String(payload.sizeBytes),
+		"Last-Modified": lastModified,
+		"Cache-Control": "public, max-age=300",
+		...corsHeaders,
+	};
+
+	return new Response(req.method === "HEAD" ? null : upstream.body, { status: 200, headers });
+};
+
+/**
  * Handles file info requests.
  *
  * Looks up a file by its public identifier and returns its metadata as JSON.
@@ -268,6 +406,27 @@ export const handleFileInfo = async (req: RequestWithParams): Promise<Response> 
 	try {
 		if (!publicId) {
 			return fail(400, "Missing file id");
+		}
+
+		// Same ordering as `handleFileRedirect`: a valid stateless token answers
+		// from its own payload, so a metadata probe costs no query either.
+		const { token } = splitStatelessToken(publicId);
+		const stateless = decodeStatelessLink(token, config.statelessLinkSecret);
+		if (stateless) {
+			return Response.json(
+				{
+					public_id: token,
+					file_name: stateless.fileName,
+					mime_type: stateless.mimeType,
+					size_bytes: stateless.sizeBytes,
+					// Not stored, but every consumer of this endpoint expects it, and
+					// a stateless upload is always a plain document as far as the
+					// caller is concerned.
+					file_type: "document",
+					created_at: formatCreatedAt(new Date(stateless.createdAt * 1000)),
+				},
+				{ status: 200 }
+			);
 		}
 
 		const file = await fileRepository.findByPublicId(publicId);

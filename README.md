@@ -45,15 +45,55 @@ bun run build && node apps/api/dist/index.js # Production mode (hasil build)
 ## API Endpoints
 
 - `POST /api/upload` - Upload file
-- `GET /f/:public_id` - Download redirect
+- `GET /f/:public_id` - Download (stateless token or legacy `public_id`)
 - `GET /file/:public_id/info` - File metadata
 - `GET /health` - Health check
+
+## Stateless links (files ≤ 30 MB)
+
+Small uploads are stored **without a database row**. The Telegram `file_id` — the
+only field that cannot be recomputed at request time — travels inside the signed
+URL, so serving the file needs no query at all.
+
+```
+https://upload.asepharyana.my.id/f/<base64url token>.pdf
+```
+
+The token is an HMAC-SHA256-signed binary payload carrying the part list, file
+name, MIME type, size, and timestamp. The extension at the end is cosmetic:
+`Content-Type` and `Content-Disposition` come from the payload, so a link whose
+suffix was stripped still serves correctly.
+
+| File size | Parts | Link length |
+|---|---|---|
+| ≤ 19 MB | 1 | ~230 chars |
+| 20–30 MB | 2 | ~340 chars |
+
+Threshold is `STATELESS_LINK_MAX_BYTES` (default 30 MB, `0` disables). It is
+clamped to twice `TELEGRAM_CHUNK_SIZE_BYTES`, because each part adds a `file_id`
+to the URL.
+
+**What stateless uploads do not get:** deduplication, listing in the dashboard,
+and delete. All three are queries over rows that no longer exist. Files above the
+threshold keep the database path, so those features still work where they matter.
+
+Larger files, S3 objects, and archive entries are unaffected — they still use
+`public_id` lookups. A legacy `/f/<nanoid>` link keeps working: the token check
+returns `null` for anything it did not sign, and the request falls through to the
+database.
 
 ## FAQ
 
 **URL permanen maksudnya apa?**
 URL backend tetap permanen: `https://upload.asepharyana.my.id/f/{public_id}`
 Ini berarti URL service Anda fix, bukan jaminan file Telegram abadi.
+
+**Apakah link stateless bisa mati?**
+Bisa, karena dua hal yang sama-sama di luar kendali aplikasi: file dihapus dari
+channel Telegram, atau bot yang mengunggahnya dikeluarkan dari pool token. Yang
+kedua bukan efek samping signature — `file_id` Telegram memang hanya bisa
+di-resolve oleh bot pembuatnya, jadi link akan mati apa pun cara menandatanganinya.
+Set `STATELESS_LINK_SECRET` kalau ingin link tetap hidup saat token bot dirotasi.
 
 ## Testing
 

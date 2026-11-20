@@ -399,7 +399,18 @@ export interface UploadResponse {
 type UploadResponseSource = Pick<
 	FileMetadata,
 	"publicId" | "fileName" | "mimeType" | "sizeBytes" | "fileType" | "createdAt"
->;
+> & {
+	/**
+	 * Canonical download link, when the caller already has one.
+	 *
+	 * Without this, the URL was rebuilt as `${baseUrl}/f/${publicId}` — which
+	 * silently DROPPED the `.ext` suffix that a stateless link carries, turning a
+	 * link the user was told ends in `.txt` into one that does not. The use case
+	 * builds the URL (it is the only place that knows the file name and the
+	 * token), so the response builder must not second-guess it.
+	 */
+	downloadUrl?: string;
+};
 
 /**
  * Builds an API response object from stored file metadata.
@@ -419,6 +430,6 @@ export const buildUploadResponse = (
 		size_bytes: file.sizeBytes,
 		file_type: file.fileType,
 		created_at: formatCreatedAt(file.createdAt),
-		download_url: `${baseUrl}/f/${file.publicId}`,
+		download_url: file.downloadUrl ?? `${baseUrl}/f/${file.publicId}`,
 	};
 };

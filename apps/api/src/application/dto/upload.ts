@@ -50,6 +50,16 @@ export interface UploadInput {
 	 * When omitted the use case reads them from `tempPath`.
 	 */
 	signatureBuffer?: Buffer;
+	/**
+	 * When true, the file is stored WITHOUT a database row and the returned
+	 * `downloadUrl` carries the file_id itself (see `stateless-link.ts`).
+	 *
+	 * Only the public `/api/upload` path sets this, and only for files at or below
+	 * `config.statelessLinkMaxBytes`. The S3 surface must stay stateful: it is
+	 * backed by LIST/HEAD/DELETE, which are queries over rows and cannot be served
+	 * from a URL. Callers that need dedup, listing, or soft-delete leave it unset.
+	 */
+	stateless?: boolean;
 }
 
 /**

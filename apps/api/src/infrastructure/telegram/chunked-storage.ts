@@ -173,6 +173,30 @@ export class ChunkedStorage {
 	}
 
 	/**
+	 * Upload a file to Telegram in chunks WITHOUT persisting anything.
+	 *
+	 * Same chunking/compression as {@link storeFileInTelegramChunks}, but the parts
+	 * are returned to the caller instead of being written as `files`/`file_parts`
+	 * rows. Used by the stateless path, where the part list becomes the signed URL
+	 * payload and no row exists to query later.
+	 *
+	 * @param input - Upload parameters including temp path and part naming.
+	 * @returns The uploaded parts, total size, and file hash.
+	 */
+	async uploadChunksWithoutPersisting(input: {
+		tempPath: string;
+		partFileNamePrefix: string;
+	}): Promise<ChunkedUploadResult> {
+		return this.uploadFileInTelegramChunks({
+			tempPath: input.tempPath,
+			partFileNamePrefix: input.partFileNamePrefix,
+			chunkSizeBytes: config.telegramChunkSizeBytes,
+			compress: config.compressChunkedUploads,
+			compressionMinSizeBytes: config.chunkCompressionMinSizeBytes,
+		});
+	}
+
+	/**
 	 * Upload a file to Telegram in chunks and persist file + part records.
 	 *
 	 * Combines chunk upload ({@link uploadFileInTelegramChunks}) with

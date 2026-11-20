@@ -1,4 +1,5 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { encodeStatelessLink } from "../src/application/shared/utils/stateless-link";
 
 type RequestWithParams = Request & {
 	params?: {
@@ -367,6 +368,124 @@ describe("File Route Handlers", () => {
 			expect(res.status).toBe(500);
 			const body = await responseJson<ErrorBody>(res);
 			expect(body.error).toBe("Server error");
+		});
+	});
+
+	/**
+	 * The whole point of stateless links is that they do not touch Postgres.
+	 *
+	 * These tests assert the ABSENCE of a query, which is the property that would
+	 * silently regress: if a future change reintroduces `findByPublicId` on this
+	 * path, every assertion about served bytes would still pass while the feature
+	 * quietly stopped being stateless.
+	 */
+	describe("stateless links bypass the database", () => {
+		const SECRET = "test-secret";
+		const buildToken = (): string =>
+			encodeStatelessLink(
+				{
+					parts: [{ telegramFileId: "tg-file-id", sizeBytes: 11, compressionAlgorithm: null }],
+					sizeBytes: 11,
+					fileName: "notes.txt",
+					mimeType: "text/plain",
+					createdAt: 1_700_000_000,
+				},
+				SECRET
+			);
+
+		beforeEach(() => {
+			// The controller reads the secret from `config`, which is imported from
+			// env.ts at module load. Pin it so the token built here verifies.
+			vi.stubEnv("STATELESS_LINK_SECRET", SECRET);
+		});
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("serves the file without calling findByPublicId", async () => {
+			const token = buildToken();
+			vi.resetModules();
+			// Re-import after stubbing so `config.statelessLinkSecret` sees the value.
+			const { handleFileRedirect: redirect } = await import(
+				"../src/presentation/http/controllers/file-controller"
+			);
+
+			// The upstream fetch is the only external call this path may make.
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response("hello world", {
+					status: 200,
+					headers: { "content-type": "text/plain", "content-length": "11" },
+				})
+			);
+
+			const req = requestWithPublicId(`http://localhost:4000/f/${token}.txt`, `${token}.txt`);
+			const res = await redirect(req);
+
+			expect(res.status).toBe(200);
+			expect(await res.text()).toBe("hello world");
+			// THE ASSERTION THAT MATTERS.
+			expect(mockFindByPublicId).not.toHaveBeenCalled();
+			// Content type comes from the signed payload, not from a row.
+			expect(res.headers.get("content-type")).toBe("text/plain");
+			// The extension is cosmetic but must not leak into the file name.
+			expect(res.headers.get("content-disposition")).toContain('filename="notes.txt"');
+
+			fetchSpy.mockRestore();
+		});
+
+		it("answers file info from the payload without a query", async () => {
+			const token = buildToken();
+			vi.resetModules();
+			const { handleFileInfo: info } = await import(
+				"../src/presentation/http/controllers/file-controller"
+			);
+
+			const req = requestWithPublicId(
+				`http://localhost:4000/file/${token}.txt/info`,
+				`${token}.txt`
+			);
+			const res = await info(req);
+
+			expect(res.status).toBe(200);
+			const body = await responseJson<FileInfoBody>(res);
+			expect(body.file_name).toBe("notes.txt");
+			expect(body.mime_type).toBe("text/plain");
+			expect(body.size_bytes).toBe(11);
+			expect(mockFindByPublicId).not.toHaveBeenCalled();
+		});
+
+		it("still falls through to the database for a legacy public_id", async () => {
+			// The discriminator: a real nanoid is not a valid token, so the old path
+			// must keep working untouched.
+			mockFindByPublicId.mockImplementationOnce(async () => null);
+			const req = requestWithPublicId(
+				"http://localhost:4000/f/V1StGXR8_Z5jdHi6B-myT",
+				"V1StGXR8_Z5jdHi6B-myT"
+			);
+			const res = await handleFileRedirect(req);
+			expect(res.status).toBe(404);
+			expect(mockFindByPublicId).toHaveBeenCalledWith("V1StGXR8_Z5jdHi6B-myT");
+		});
+
+		it("does NOT serve a token signed with another secret", async () => {
+			// A forged link must fall through to the database (and 404), never be
+			// served from the payload.
+			const forged = encodeStatelessLink(
+				{
+					parts: [{ telegramFileId: "attacker", sizeBytes: 5, compressionAlgorithm: null }],
+					sizeBytes: 5,
+					fileName: "evil.txt",
+					mimeType: "text/plain",
+					createdAt: 1_700_000_000,
+				},
+				"not-our-secret"
+			);
+			mockFindByPublicId.mockImplementationOnce(async () => null);
+			const req = requestWithPublicId(`http://localhost:4000/f/${forged}.txt`, `${forged}.txt`);
+			const res = await handleFileRedirect(req);
+			expect(res.status).toBe(404);
+			expect(mockFindByPublicId).toHaveBeenCalled();
 		});
 	});
 });

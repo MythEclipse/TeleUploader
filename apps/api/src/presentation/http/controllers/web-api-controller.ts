@@ -49,6 +49,10 @@ const getUploadUseCase = () =>
 			storageChatId: config.storageChatId,
 			compressChunkedUploads: config.compressChunkedUploads,
 			chunkCompressionMinSizeBytes: config.chunkCompressionMinSizeBytes,
+			// Supplied but unused here: this authenticated surface stays stateful
+			// on purpose. Its callers expect dedup and a row they can list, and
+			// `stateless` is never set on the inputs below.
+			statelessLinkSecret: config.statelessLinkSecret,
 		},
 	});
 

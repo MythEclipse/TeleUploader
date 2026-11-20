@@ -27,6 +27,22 @@ interface AppConfig {
 	telegramChunkSizeBytes: number;
 	compressChunkedUploads: boolean;
 	chunkCompressionMinSizeBytes: number;
+	/**
+	 * Files at or below this size get a self-contained link and NO database row.
+	 *
+	 * 0 disables stateless links entirely, routing every upload through the
+	 * database. Kept configurable rather than hardcoded because the right
+	 * threshold is a deployment decision: it trades rows for URL length, and a
+	 * deployment that wants dedup/listing for everything can turn it off.
+	 */
+	statelessLinkMaxBytes: number;
+	/**
+	 * HMAC key for stateless links.
+	 *
+	 * Derived from the bot tokens when unset. That is not a shortcut — see the
+	 * comment on the derivation below for why the lifetime is already shared.
+	 */
+	statelessLinkSecret: string;
 	adminApiToken: string;
 	sessionCookieName: string;
 	sessionMaxAgeMs: number;
@@ -188,6 +204,47 @@ const maskDatabaseUrl = (value: string): string =>
 // supports files up to 20 MB ("Bad Request: file is too big" above that).
 // A chunk above the limit makes every part undownloadable — refuse to start
 // instead of failing on the first large-file download.
+// Stateless-link threshold. 30 MB is the requested default: it covers the small
+// files that dominate uploads while keeping the URL short enough to paste.
+//
+// Clamped to TELEGRAM_CHUNK_SIZE_MAX_BYTES * 2 rather than left unbounded. The
+// payload has to carry every part's file_id, and each part is at most 19 MiB, so
+// a threshold of 30 MB means at most 2 parts and ~340 URL characters. Raising it
+// to 500 MB would put ~53 file_ids in the URL — about 3100 characters, past what
+// chat clients and proxies reliably carry, and past what is pleasant to paste.
+// Deployments that want bigger stateless files should raise the chunk size first.
+const statelessLinkMaxBytes = Math.min(
+	parseNumber(process.env.STATELESS_LINK_MAX_BYTES, 30 * 1024 * 1024),
+	TELEGRAM_CHUNK_SIZE_MAX_BYTES * 2
+);
+
+// Signing key for stateless links.
+//
+// DEFAULT DERIVATION IS FROM THE BOT TOKENS, and that is not laziness. A Telegram
+// `file_id` can only be resolved by the bot that created it, so a stateless URL
+// already dies the moment the bot that uploaded it leaves the pool — regardless of
+// how the URL is signed. Deriving the HMAC key from the same tokens therefore adds
+// no failure mode that did not already exist, and it means a deployment needs no
+// new secret to get the feature.
+//
+// STATELESS_LINK_SECRET exists for the case where that coupling is unwanted (for
+// example a token rotation you intend to survive). Set it and links outlive the
+// bot pool.
+const statelessLinkSecret =
+	(process.env.STATELESS_LINK_SECRET || "").trim() ||
+	// Not a security boundary on its own — the token itself is the entropy. The
+	// prefix keeps this distinct from any other HMAC this service might derive
+	// from the same input.
+	`teleuploader-stateless-link-v1:${parseTokens(botTokensRaw).join(",")}`;
+
+if (statelessLinkMaxBytes > 0 && parseTokens(botTokensRaw).length === 0) {
+	logger.warn(
+		"Stateless links are enabled but BOT_TOKENS is empty: links will be signed " +
+			"with a placeholder secret and no upload can produce a resolvable file_id. " +
+			"Set BOT_TOKENS, or set STATELESS_LINK_MAX_BYTES=0 to disable the feature."
+	);
+}
+
 const telegramChunkSizeBytes = parseNumber(
 	process.env.TELEGRAM_CHUNK_SIZE_BYTES,
 	TELEGRAM_CHUNK_SIZE_MAX_BYTES
@@ -255,6 +312,8 @@ export const config: AppConfig = {
 	batchMaxSizeBytes: parseNumber(process.env.BATCH_MAX_SIZE_BYTES, 500 * 1024 * 1024),
 	maxRequestBodyBytes: parseNumber(process.env.MAX_REQUEST_BODY_BYTES, 2 * 1024 * 1024 * 1024),
 	telegramChunkSizeBytes,
+	statelessLinkMaxBytes,
+	statelessLinkSecret,
 	compressChunkedUploads: process.env.COMPRESS_CHUNKED_UPLOADS !== "false",
 	chunkCompressionMinSizeBytes: parseNumber(process.env.CHUNK_COMPRESSION_MIN_SIZE_BYTES, 4096),
 	adminApiToken: process.env.ADMIN_API_TOKEN || "",
