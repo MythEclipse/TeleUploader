@@ -26,13 +26,13 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@hono/node-server": "^2.1.8",
-		"@orpc/client": "^1.16.2",
-		"@orpc/server": "^1.16.2",
+		"@hono/node-server": "^2.1.9",
+		"@orpc/client": "^1.16.4",
+		"@orpc/server": "^1.16.4",
 		"@prisma/engines": "^7.8.0",
-		"better-auth": "^1.7.22",
+		"better-auth": "^1.7.26",
 		"drizzle-orm": "^0.45.4",
-		"hono": "^4.13.18",
+		"hono": "^4.13.19",
 		"nanoid": "^6.0.1",
 		"p-queue": "^10.0.0",
 		"pg": "^8.11.0",
